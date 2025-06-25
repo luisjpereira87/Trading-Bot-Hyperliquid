@@ -1,0 +1,4 @@
+ccxt
+numpy
+python-dotenv
+pytz
