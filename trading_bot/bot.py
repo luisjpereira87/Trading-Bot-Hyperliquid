@@ -1,9 +1,9 @@
 import os
 import pytz
 import ccxt.async_support as ccxt
-from exchange_client import ExchangeClient
-from order_manager import OrderManager
-from strategy import Strategy
+from .exchange_client import ExchangeClient
+from .order_manager import OrderManager
+from .strategy import Strategy
 import asyncio
 from datetime import datetime
 

@@ -1,7 +1,7 @@
 # trading_bot/main.py
 import asyncio
 import logging
-from bot import TradingBot
+from trading_bot.bot import TradingBot
 
 logging.basicConfig(
     level=logging.INFO,
