@@ -1,1 +1,1 @@
-worker: python3 trading_bot/main.py
+web: python3 trading_bot/main.py
