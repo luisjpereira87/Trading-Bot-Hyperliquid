@@ -8,23 +8,11 @@ Bot de trading automatizado para a Hyperliquid Testnet usando Python e ccxt.
 WALLET_ADDRESS=seu_wallet_address
 PRIVATE_KEY=sua_private_key
 
-csharp
-Copiar
-Editar
-
 2. Instale as dependências:
 pip install -r requirements.txt
 
-markdown
-Copiar
-Editar
-
 3. Execute o bot:
 python3 trading_bot/main.py
-
-markdown
-Copiar
-Editar
 
 ## Estrutura do projeto
 
