@@ -1,7 +1,11 @@
 # trading_bot/main.py
 import asyncio
 import logging
+from dotenv import load_dotenv
+import os
 from trading_bot.bot import TradingBot
+
+load_dotenv()
 
 logging.basicConfig(
     level=logging.INFO,

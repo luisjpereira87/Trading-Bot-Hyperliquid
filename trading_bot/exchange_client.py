@@ -1,21 +1,22 @@
 import logging
 
 class ExchangeClient:
-    def __init__(self, exchange, symbol, leverage):
+    def __init__(self, exchange, wallet_address, symbol, leverage):
         self.exchange = exchange
+        self.wallet_address = wallet_address
         self.symbol = symbol
         self.leverage = leverage
 
     async def print_balance(self):
         try:
-            balance = await self.exchange.fetch_balance()
+            balance = await self.exchange.fetch_balance(params={'user': self.wallet_address})
             logging.info(f"💰 Saldo total: {balance['total']}")
         except Exception as e:
             logging.error(f"Erro ao buscar saldo: {e}")
 
     async def print_open_orders(self):
         try:
-            open_orders = await self.exchange.fetch_open_orders(self.symbol)
+            open_orders = await self.exchange.fetch_open_orders(params={'user': self.wallet_address})
             logging.info(f"📘 Ordens abertas ({len(open_orders)}):")
             for order in open_orders:
                 logging.info(order)
@@ -24,7 +25,7 @@ class ExchangeClient:
 
     async def cancel_all_orders(self):
         try:
-            open_orders = await self.exchange.fetch_open_orders(self.symbol)
+            open_orders = await self.exchange.fetch_open_orders(params={'user': self.wallet_address})
             for order in open_orders:
                 await self.exchange.cancel_order(order['id'], self.symbol)
             logging.info("🔁 Todas as ordens foram canceladas.")
@@ -33,7 +34,7 @@ class ExchangeClient:
 
     async def get_open_position(self):
         try:
-            positions = await self.exchange.fetch_positions([self.symbol])
+            positions = await self.exchange.fetch_positions(params={'user': self.wallet_address})
             for pos in positions:
                 if float(pos.get('contracts', 0)) > 0:
                     return {
@@ -61,8 +62,8 @@ class ExchangeClient:
 
     async def calculate_entry_amount(self, price_ref):
         try:
-            balance = await self.exchange.fetch_balance()
-            balance_usdc = balance['total'].get('USDC', 0)
+            balance = await self.exchange.fetch_balance(params={'user': self.wallet_address})
+            balance_usdc = balance['free']['USDC']
             if balance_usdc > 0 and price_ref:
                 return balance_usdc / (price_ref * self.leverage)
             else:
