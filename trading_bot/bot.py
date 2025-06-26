@@ -8,19 +8,42 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 import logging
 import math
+from .strategies.indicators import Indicators  # Para cálculo ATR
 
 class TradingBot:
     def __init__(self):
         self.wallet_address = os.getenv("WALLET_ADDRESS")
         self.private_key = os.getenv("PRIVATE_KEY")
-        self.symbol = 'BTC/USDC:USDC'
-        self.leverage = 5
-        self.tp_pct = 0.03
-        self.sl_pct = 0.015
         self.timeframe = '15m'
-        self.last_candle_time = None  # para controle de execução por vela
+        self.tp_pct = 0.03  # Percentual mínimo para TP
+        self.sl_pct = 0.015  # Percentual mínimo para SL
+        self.tp_factor = 2  # Multiplicador TP x SL
+        self.atr_period = 14  # Período ATR para SL/TP dinâmicos
 
-    async def run(self):
+        # Configurações múltiplos pares, leverage e % capital (como float já)
+        self.pairs = [
+            {"symbol": "BTC/USDC:USDC", "leverage": 5, "capital": 0.10},
+            {"symbol": "ETH/USDC:USDC", "leverage": 10, "capital": 0.20},
+            # Pode adicionar mais pares aqui
+        ]
+
+        self.last_candle_times = {pair['symbol']: None for pair in self.pairs}  # controle vela por par
+
+    def calculate_sl_tp(self, entry_price, side, atr_now):
+        """
+        Calcula SL e TP dinâmicos usando ATR e percentual mínimo.
+        """
+        sl_min_dist = self.sl_pct * entry_price
+        if side == 'buy':
+            sl_price = entry_price - max(sl_min_dist, atr_now)
+            tp_price = entry_price + self.tp_factor * (entry_price - sl_price)
+        else:  # sell
+            sl_price = entry_price + max(sl_min_dist, atr_now)
+            tp_price = entry_price - self.tp_factor * (sl_price - entry_price)
+
+        return round(sl_price, 2), round(tp_price, 2)
+
+    async def run_pair(self, pair):
         exchange = ccxt.hyperliquid({
             "walletAddress": self.wallet_address,
             "privateKey": self.private_key,
@@ -31,19 +54,26 @@ class TradingBot:
             }
         })
 
+        symbol = pair['symbol']
+        leverage = int(pair['leverage'])
+        capital_pct = float(pair['capital'])
+
         try:
-            exchange_client = ExchangeClient(exchange, self.wallet_address, self.symbol, self.leverage)
+            exchange_client = ExchangeClient(exchange, self.wallet_address, symbol, leverage)
             order_manager = OrderManager(exchange)
-            strategy = Strategy(exchange, self.symbol, self.timeframe)
+            strategy = Strategy(exchange, symbol, self.timeframe)
+
+            balance_total = await exchange_client.get_total_balance()
+            capital_amount = balance_total * capital_pct
 
             signal = await strategy.get_signal()
             if signal not in ['buy', 'sell']:
-                logging.info("\n⛔ Nenhum sinal válido encontrado. Bot parado.")
+                logging.info(f"\n⛔ Nenhum sinal válido para {symbol}. Ignorando.")
+                await exchange.close()
                 return
 
             await exchange_client.print_balance()
             await exchange_client.print_open_orders()
-
             await exchange_client.cancel_all_orders()
 
             current_position = await exchange_client.get_open_position()
@@ -54,56 +84,47 @@ class TradingBot:
                 current_side = 'buy' if current_side_ccxt == 'long' else 'sell'
 
                 if (signal == 'buy' and current_side == 'sell') or (signal == 'sell' and current_side == 'buy'):
-                    logging.info(f"Fechando posição oposta: {current_side_ccxt} de tamanho {current_size}")
-                    await order_manager.close_position(self.symbol, current_size, current_side)
+                    logging.info(f"Fechando posição oposta {symbol}: {current_side_ccxt} de tamanho {current_size}")
+                    await order_manager.close_position(symbol, current_size, current_side)
                     current_position = None
 
             if not current_position:
                 price_ref = await exchange_client.get_reference_price()
-                entry_amount = await exchange_client.calculate_entry_amount(price_ref)
+                entry_amount = await exchange_client.calculate_entry_amount(price_ref, capital_amount)
 
                 side = signal
-                logging.info(f"Enviando ordem de entrada {side} com quantidade {entry_amount} a preço {price_ref}")
+                logging.info(f"{symbol}: Enviando ordem de entrada {side} com quantidade {entry_amount} a preço {price_ref}")
                 await exchange_client.place_entry_order(entry_amount, price_ref, side)
                 entry_price = await exchange_client.get_entry_price()
 
-                take_profit_price = round(entry_price * (1 + self.tp_pct), 2) if side == 'buy' else round(entry_price * (1 - self.tp_pct), 2)
-                stop_loss_price = round(entry_price * (1 - self.sl_pct), 2) if side == 'buy' else round(entry_price * (1 + self.sl_pct), 2)
-                logging.info(f"\n🎯 TP: {take_profit_price} | 🛑 SL: {stop_loss_price}")
-
-                close_side = 'sell' if side == 'buy' else 'buy'
-                await order_manager.create_tp_sl_orders(
-                    self.symbol,
-                    entry_amount,
-                    take_profit_price,
-                    stop_loss_price,
-                    close_side
-                )
             else:
                 current_side_ccxt = current_position['side']
                 current_size = float(current_position['size'])
-                current_side = 'buy' if current_side_ccxt == 'long' else 'sell'
-
-                close_side = 'sell' if current_side == 'buy' else 'buy'
-
+                side = 'buy' if current_side_ccxt == 'long' else 'sell'
                 entry_price = current_position.get('entryPrice')
                 if entry_price is None:
                     entry_price = await exchange_client.get_entry_price()
+                entry_amount = current_size
 
-                take_profit_price = round(entry_price * (1 + self.tp_pct), 2) if current_side == 'buy' else round(entry_price * (1 - self.tp_pct), 2)
-                stop_loss_price = round(entry_price * (1 - self.sl_pct), 2) if current_side == 'buy' else round(entry_price * (1 + self.sl_pct), 2)
-                logging.info(f"\n🎯 TP: {take_profit_price} | 🛑 SL: {stop_loss_price}")
+            # Cálculo ATR para SL e TP
+            ohlcv = await exchange.fetch_ohlcv(symbol, timeframe=self.timeframe, limit=self.atr_period + 1)
+            highs = [c[2] for c in ohlcv]
+            lows = [c[3] for c in ohlcv]
+            closes = [c[4] for c in ohlcv]
 
-                await order_manager.create_tp_sl_orders(
-                    self.symbol,
-                    current_size,
-                    take_profit_price,
-                    stop_loss_price,
-                    close_side
-                )
+            atr_values = Indicators.atr(highs, lows, closes, self.atr_period)
+            atr_now = atr_values[-1]
 
-        except Exception as e:
-            logging.error(f"\n❌ Erro no bot: {e}")
+            sl_price, tp_price = self.calculate_sl_tp(entry_price, side, atr_now)
+
+            logging.info(f"\n{symbol} 🎯 TP dinâmico: {tp_price} | 🛑 SL dinâmico: {sl_price}")
+
+            close_side = 'sell' if side == 'buy' else 'buy'
+            await order_manager.create_tp_sl_orders(symbol, entry_amount, tp_price, sl_price, close_side)
+
+        except Exception:
+            logging.exception(f"\n❌ Erro no bot para {symbol}")
+
         finally:
             await exchange.close()
 
@@ -149,34 +170,36 @@ class TradingBot:
     async def start(self):
         while True:
             try:
-                candle_closed_time = await self.get_last_closed_candle_time()
+                exchange = ccxt.hyperliquid({
+                    "walletAddress": self.wallet_address,
+                    "privateKey": self.private_key,
+                    "testnet": True,
+                    'enableRateLimit': True
+                })
 
-                if candle_closed_time != self.last_candle_time:
-                    logging.info(f"\n🕒 Nova vela detectada ({candle_closed_time}). Executando bot...")
-                    self.last_candle_time = candle_closed_time
-                    await self.run()
-                else:
-                    logging.info(f"⌛ Aguardando nova vela... Última executada: {self.last_candle_time}")
+                for pair in self.pairs:
+                    candle_closed_time = await self.get_last_closed_candle_time(pair['symbol'], exchange)
+
+                    if candle_closed_time != self.last_candle_times[pair['symbol']]:
+                        logging.info(f"\n🕒 Nova vela detectada para {pair['symbol']} ({candle_closed_time}). Executando bot...")
+                        self.last_candle_times[pair['symbol']] = candle_closed_time
+                        await self.run_pair(pair)
+                    else:
+                        logging.info(f"⌛ Aguardando nova vela para {pair['symbol']}... Última executada: {self.last_candle_times[pair['symbol']]}")
 
                 sleep_time = self._calculate_sleep_time()
                 logging.info(f"⏳ Dormindo por {sleep_time:.1f} segundos até próxima vela.")
                 await asyncio.sleep(sleep_time)
 
-            except Exception as e:
-                logging.error(f"❌ Erro no loop principal: {e}")
+                await exchange.close()
+
+            except Exception:
+                logging.exception("❌ Erro no loop principal")
                 await asyncio.sleep(60)
 
-    async def get_last_closed_candle_time(self):
-        exchange = ccxt.hyperliquid({
-            "walletAddress": self.wallet_address,
-            "privateKey": self.private_key,
-            "testnet": True,
-            'enableRateLimit': True
-        })
-
+    async def get_last_closed_candle_time(self, symbol, exchange):
         try:
-            candles = await exchange.fetch_ohlcv(self.symbol, timeframe=self.timeframe)
-            await exchange.close()
+            candles = await exchange.fetch_ohlcv(symbol, timeframe=self.timeframe)
             last_candle = candles[-2]  # vela fechada mais recente
             timestamp = last_candle[0]
 
@@ -186,9 +209,8 @@ class TradingBot:
 
             return local_dt
 
-        except Exception as e:
-            logging.error("❌ Erro ao obter última vela fechada: %s", e)
-            await exchange.close()
+        except Exception:
+            logging.exception(f"❌ Erro ao obter última vela fechada para {symbol}")
             return None
 
 

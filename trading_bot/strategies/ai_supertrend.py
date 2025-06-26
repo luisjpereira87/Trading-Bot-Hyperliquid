@@ -1,4 +1,4 @@
-import numpy as np
+from .indicators import Indicators
 
 class AISuperTrend:
     def __init__(self, exchange, symbol, timeframe):
@@ -8,33 +8,42 @@ class AISuperTrend:
 
     async def get_signal(self):
         ohlcv = await self.exchange.fetch_ohlcv(self.symbol, timeframe=self.timeframe)
-        closes = [c[4] for c in ohlcv]
-        highs = [c[2] for c in ohlcv]
-        lows = [c[3] for c in ohlcv]
-
-        if len(closes) < 20:
+        if len(ohlcv) < 21:
             return 'hold'
 
-        atr = self._calculate_atr(highs, lows, closes, period=10)
-        multiplier = 1.5
+        indicators = Indicators(ohlcv)
 
+        atr = indicators.atr()
+        ema21 = indicators.ema()
+        rsi = indicators.rsi()
+        stoch_k, stoch_d = indicators.stochastic()
+
+        multiplier = 1.5
+        closes = indicators.closes
         upper_band = [closes[i] + multiplier * atr[i] for i in range(len(atr))]
         lower_band = [closes[i] - multiplier * atr[i] for i in range(len(atr))]
 
-        if closes[-2] < lower_band[-2] and closes[-1] > lower_band[-1]:
-            print("\n📊 Sinal: BUY (AI SuperTrend)")
+        price = closes[-1]
+        ema_now = ema21[-1]
+        rsi_now = rsi[-1]
+        k_now = stoch_k[-1]
+        d_now = stoch_d[-1]
+        k_prev = stoch_k[-2]
+        d_prev = stoch_d[-2]
+
+        # Condições anteriores
+        buy_condition = closes[-2] < lower_band[-2] and closes[-1] > lower_band[-1] and price > ema_now and 40 <= rsi_now <= 70
+        sell_condition = closes[-2] > upper_band[-2] and closes[-1] < upper_band[-1] and price < ema_now and 30 <= rsi_now <= 60
+
+        # Condições Stochastic
+        stoch_buy = (k_prev < d_prev) and (k_now > d_now) and k_now < 20  # Cruzamento de baixo para cima e sobrevenda
+        stoch_sell = (k_prev > d_prev) and (k_now < d_now) and k_now > 80  # Cruzamento de cima para baixo e sobrecompra
+
+        if buy_condition and stoch_buy:
             return 'buy'
-
-        if closes[-2] > upper_band[-2] and closes[-1] < upper_band[-1]:
-            print("\n📊 Sinal: SELL (AI SuperTrend)")
+        if sell_condition and stoch_sell:
             return 'sell'
-
-        print("\n📊 Sinal: HOLD (AI SuperTrend)")
         return 'hold'
 
-    def _calculate_atr(self, highs, lows, closes, period=10):
-        trs = [max(highs[i] - lows[i], abs(highs[i] - closes[i - 1]), abs(lows[i] - closes[i - 1]))
-               for i in range(1, len(highs))]
-        atr = [np.mean(trs[i - period:i]) if i >= period else 0 for i in range(len(trs))]
-        atr.insert(0, 0)
-        return atr
+
+

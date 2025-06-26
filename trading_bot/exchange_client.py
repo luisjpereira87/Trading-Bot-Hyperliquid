@@ -60,17 +60,32 @@ class ExchangeClient:
             logging.error(f"Erro ao obter order book: {e}")
         return None
 
-    async def calculate_entry_amount(self, price_ref):
+    async def calculate_entry_amount(self, price_ref: float, capital_amount: float) -> float:
+        """
+        Calcula a quantidade a ser usada na entrada com base no capital disponível e no preço de referência.
+
+        Args:
+            price_ref (float): preço atual de referência do ativo.
+            capital_amount (float): valor do capital disponível para trade (já calculado, ex: 1000 USD).
+
+        Returns:
+            float: quantidade de contratos ou tokens para a entrada.
+        """
         try:
-            balance = await self.exchange.fetch_balance(params={'user': self.wallet_address})
-            balance_usdc = balance['free']['USDC']
-            if balance_usdc > 0 and price_ref:
-                return balance_usdc / (price_ref * self.leverage)
-            else:
-                logging.warning("Saldo USDC insuficiente ou preço inválido.")
+            # Quantidade = capital dividido pelo preço de referência, ajustando para o tamanho do contrato se necessário
+            # Se seu contrato for 1:1, esse cálculo serve. Ajuste se seu mercado usar multiplicadores diferentes.
+            quantity = capital_amount / price_ref
+
+            # Se quiser ajustar a quantidade para o mínimo aceito ou múltiplos mínimos, faça aqui
+            # Exemplo:
+            # min_qty = 0.001
+            # quantity = max(min_qty, math.floor(quantity / min_qty) * min_qty)
+
+            return quantity
+
         except Exception as e:
             logging.error(f"Erro ao calcular quantidade de entrada: {e}")
-        return 0
+            return 0.0
 
     async def place_entry_order(self, entry_amount, price_ref, side):
         try:
@@ -90,5 +105,14 @@ class ExchangeClient:
             return float(ticker['last'])
         except Exception as e:
             logging.error(f"Erro ao obter preço de entrada: {e}")
+            return 0
+        
+    async def get_total_balance(self):
+        try:
+            balance = await self.exchange.fetch_balance(params={'user': self.wallet_address})
+            total_usdc = balance['total'].get('USDC', 0)
+            return float(total_usdc)
+        except Exception as e:
+            logging.error(f"Erro ao obter saldo total: {e}")
             return 0
 
