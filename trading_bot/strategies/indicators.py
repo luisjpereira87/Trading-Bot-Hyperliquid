@@ -73,4 +73,53 @@ class Indicators:
                 d_values.append(np.mean(k_values[i - d_period + 1:i + 1]))
 
         return k_values, d_values
+    
+    def adx(self, period=14):
+        highs = np.array(self.highs)
+        lows = np.array(self.lows)
+        closes = np.array(self.closes)
+
+        plus_dm = np.zeros(len(highs))
+        minus_dm = np.zeros(len(highs))
+        tr = np.zeros(len(highs))
+
+        for i in range(1, len(highs)):
+            up_move = highs[i] - highs[i - 1]
+            down_move = lows[i - 1] - lows[i]
+
+            plus_dm[i] = up_move if (up_move > down_move and up_move > 0) else 0
+            minus_dm[i] = down_move if (down_move > up_move and down_move > 0) else 0
+
+            tr[i] = max(
+                highs[i] - lows[i],
+                abs(highs[i] - closes[i - 1]),
+                abs(lows[i] - closes[i - 1]),
+            )
+
+        # Wilder's smoothing
+        tr_smooth = np.zeros(len(tr))
+        plus_dm_smooth = np.zeros(len(plus_dm))
+        minus_dm_smooth = np.zeros(len(minus_dm))
+
+        tr_smooth[period] = tr[1 : period + 1].sum()
+        plus_dm_smooth[period] = plus_dm[1 : period + 1].sum()
+        minus_dm_smooth[period] = minus_dm[1 : period + 1].sum()
+
+        for i in range(period + 1, len(tr)):
+            tr_smooth[i] = tr_smooth[i - 1] - (tr_smooth[i - 1] / period) + tr[i]
+            plus_dm_smooth[i] = plus_dm_smooth[i - 1] - (plus_dm_smooth[i - 1] / period) + plus_dm[i]
+            minus_dm_smooth[i] = minus_dm_smooth[i - 1] - (minus_dm_smooth[i - 1] / period) + minus_dm[i]
+
+        plus_di = 100 * (plus_dm_smooth / tr_smooth)
+        minus_di = 100 * (minus_dm_smooth / tr_smooth)
+
+        dx = 100 * np.abs(plus_di - minus_di) / (plus_di + minus_di)
+        adx = np.zeros(len(dx))
+        adx[period * 2 - 1] = dx[period : period * 2].mean()
+
+        for i in range(period * 2, len(dx)):
+            adx[i] = (adx[i - 1] * (period - 1) + dx[i]) / period
+
+        # Retorna array do ADX a partir do índice 2*period-1, com zeros antes
+        return adx.tolist()
 
