@@ -1,3 +1,5 @@
+import logging
+
 class Strategy:
     def __init__(self, exchange, symbol, timeframe, name='ai_supertrend'):
         self.exchange = exchange
