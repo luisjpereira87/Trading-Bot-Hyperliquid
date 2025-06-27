@@ -73,8 +73,8 @@ class TradingBot:
                 return
 
             await exchange_client.print_balance()
-            await exchange_client.print_open_orders()
-            await exchange_client.cancel_all_orders()
+            await exchange_client.print_open_orders(symbol)
+            await exchange_client.cancel_all_orders(symbol)
 
             current_position = await exchange_client.get_open_position()
 
@@ -112,7 +112,8 @@ class TradingBot:
             lows = [c[3] for c in ohlcv]
             closes = [c[4] for c in ohlcv]
 
-            atr_values = Indicators.atr(highs, lows, closes, self.atr_period)
+            indicators = Indicators(ohlcv)
+            atr_values = indicators.atr()
             atr_now = atr_values[-1]
 
             sl_price, tp_price = self.calculate_sl_tp(entry_price, side, atr_now)
