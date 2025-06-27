@@ -1,72 +1,109 @@
 import logging
 from .indicators import Indicators
+import numpy as np
 
 class AISuperTrend:
-    def __init__(self, exchange, symbol, timeframe):
+    def __init__(self, exchange, symbol, timeframe, mode='conservative'):
         self.exchange = exchange
         self.symbol = symbol
         self.timeframe = timeframe
+        self.mode = mode
 
     async def get_signal(self):
         ohlcv = await self.exchange.fetch_ohlcv(self.symbol, timeframe=self.timeframe)
         if len(ohlcv) < 21:
-            logging.info(f"{self.symbol} - Dados insuficientes para cálculo dos indicadores.")
+            logging.info(f"{self.symbol} - Dados insuficientes para cálculo.")
             return 'hold'
 
-        indicators = Indicators(ohlcv)
+        self.indicators = Indicators(ohlcv)
+        self.extract_data()
+        self.calculate_bands()
+        self.detect_lateral_market()
 
-        atr = indicators.atr()
-        ema21 = indicators.ema()
-        rsi = indicators.rsi()
-        stoch_k, stoch_d = indicators.stochastic()
+        return self.decide_signal()
 
-        multiplier = 1.5
-        closes = indicators.closes
-        highs = indicators.highs
-        lows = indicators.lows
+    def extract_data(self):
+        self.closes = self.indicators.closes
+        self.highs = self.indicators.highs
+        self.lows = self.indicators.lows
 
-        upper_band = [closes[i] + multiplier * atr[i] for i in range(len(atr))]
-        lower_band = [closes[i] - multiplier * atr[i] for i in range(len(atr))]
+        self.price = self.closes[-1]
+        self.ema = self.indicators.ema()[-1]
+        self.rsi = self.indicators.rsi()[-1]
+        self.atr = self.indicators.atr()
 
-        price = closes[-1]
-        ema_now = ema21[-1]
-        rsi_now = rsi[-1]
-        k_now, d_now = stoch_k[-1], stoch_d[-1]
-        k_prev, d_prev = stoch_k[-2], stoch_d[-2]
+        stoch_k, stoch_d = self.indicators.stochastic()
+        self.k_now, self.d_now = stoch_k[-1], stoch_d[-1]
+        self.k_prev, self.d_prev = stoch_k[-2], stoch_d[-2]
 
-        near_lower_band = price < lower_band[-1] * 1.01
-        near_upper_band = price > upper_band[-1] * 0.99
+    def calculate_bands(self, multiplier=1.5):
+        self.upper_band = [self.closes[i] + multiplier * self.atr[i] for i in range(len(self.atr))]
+        self.lower_band = [self.closes[i] - multiplier * self.atr[i] for i in range(len(self.atr))]
 
-        buy_condition = (
-            price > ema_now and
-            rsi_now > 45 and
-            k_prev < d_prev and k_now > d_now and k_now < 50
+    def detect_lateral_market(self, adx_threshold=20):
+        adx = self.indicators.adx()
+        self.adx_now = adx[-1]
+        self.lateral_market = self.adx_now < adx_threshold
+        logging.info(f"{self.symbol} - ADX: {self.adx_now:.2f} → Lateral: {self.lateral_market}")
+
+    def decide_signal(self):
+        near_lower = self.price < self.lower_band[-1] * 1.01
+        near_upper = self.price > self.upper_band[-1] * 0.99
+
+        buy = (
+            self.price > self.ema and
+            self.rsi > 45 and
+            self.k_prev < self.d_prev and self.k_now > self.d_now and self.k_now < 50
         )
 
-        sell_condition = (
-            price < ema_now and
-            rsi_now < 55 and
-            k_prev > d_prev and k_now < d_now and k_now > 50
+        sell = (
+            self.price < self.ema and
+            self.rsi < 55 and
+            self.k_prev > self.d_prev and self.k_now < self.d_now and self.k_now > 50
         )
 
         logging.info(
             f"{self.symbol} - Indicadores:"
-            f"\n🟢 Price: {price}"
-            f"\n📈 EMA21: {ema_now}"
-            f"\n📊 RSI: {rsi_now}"
-            f"\n📉 Stoch K: {k_now} | D: {d_now} (prev K: {k_prev}, D: {d_prev})"
-            f"\n🟩 Lower Band: {lower_band[-1]} | Upper Band: {upper_band[-1]}"
-            f"\n✅ Near Lower Band: {near_lower_band}, Near Upper Band: {near_upper_band}"
-            f"\n💡 Buy Cond: {buy_condition}, Sell Cond: {sell_condition}"
+            f"\n🟢 Price: {self.price}"
+            f"\n📈 EMA21: {self.ema}"
+            f"\n📊 RSI: {self.rsi}"
+            f"\n📉 Stoch K: {self.k_now} | D: {self.d_now} (prev K: {self.k_prev}, D: {self.d_prev})"
+            f"\n🟩 Lower Band: {self.lower_band[-1]} | Upper Band: {self.upper_band[-1]}"
+            f"\n✅ Near Lower Band: {near_lower}, Near Upper Band: {near_upper}"
+            f"\n💡 Buy Cond: {buy}, Sell Cond: {sell}"
         )
 
-        if buy_condition and near_lower_band:
-            logging.info(f"{self.symbol} - 🎯 Sinal final: BUY")
+        if self.mode == 'aggressive':
+            return self.aggressive_signal(buy, sell, near_lower, near_upper)
+        else:
+            return self.conservative_signal(buy, sell, near_lower, near_upper)
+
+    def aggressive_signal(self, buy, sell, near_lower, near_upper, band_threshold=0.02):
+        band_range = self.upper_band[-1] - self.lower_band[-1]
+        relative_band = band_range / self.price
+
+        if self.lateral_market and relative_band > band_threshold:
+            logging.info(f"{self.symbol} - Mercado lateral com bandas largas (rel: {relative_band:.4f}), evitando entrada agressiva.")
+            return 'hold'
+
+        if buy and near_lower:
+            logging.info(f"{self.symbol} - 🎯 Modo Agressivo: BUY")
             return 'buy'
-
-        if sell_condition and near_upper_band:
-            logging.info(f"{self.symbol} - 🎯 Sinal final: SELL")
+        if sell and near_upper:
+            logging.info(f"{self.symbol} - 🎯 Modo Agressivo: SELL")
             return 'sell'
-
-        logging.info(f"{self.symbol} - 🚫 Sinal final: HOLD")
         return 'hold'
+
+    def conservative_signal(self, buy, sell, near_lower, near_upper):
+        if self.lateral_market:
+            logging.info(f"{self.symbol} - Mercado lateral e modo conservador: HOLD")
+            return 'hold'
+
+        if buy and near_lower:
+            logging.info(f"{self.symbol} - 🎯 Modo Conservador: BUY")
+            return 'buy'
+        if sell and near_upper:
+            logging.info(f"{self.symbol} - 🎯 Modo Conservador: SELL")
+            return 'sell'
+        return 'hold'
+
