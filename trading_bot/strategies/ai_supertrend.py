@@ -1,3 +1,4 @@
+import logging
 from .indicators import Indicators
 
 class AISuperTrend:
@@ -9,6 +10,7 @@ class AISuperTrend:
     async def get_signal(self):
         ohlcv = await self.exchange.fetch_ohlcv(self.symbol, timeframe=self.timeframe)
         if len(ohlcv) < 21:
+            logging.info(f"{self.symbol} - Dados insuficientes para cálculo dos indicadores.")
             return 'hold'
 
         indicators = Indicators(ohlcv)
@@ -20,30 +22,51 @@ class AISuperTrend:
 
         multiplier = 1.5
         closes = indicators.closes
+        highs = indicators.highs
+        lows = indicators.lows
+
         upper_band = [closes[i] + multiplier * atr[i] for i in range(len(atr))]
         lower_band = [closes[i] - multiplier * atr[i] for i in range(len(atr))]
 
         price = closes[-1]
         ema_now = ema21[-1]
         rsi_now = rsi[-1]
-        k_now = stoch_k[-1]
-        d_now = stoch_d[-1]
-        k_prev = stoch_k[-2]
-        d_prev = stoch_d[-2]
+        k_now, d_now = stoch_k[-1], stoch_d[-1]
+        k_prev, d_prev = stoch_k[-2], stoch_d[-2]
 
-        # Condições anteriores
-        buy_condition = closes[-2] < lower_band[-2] and closes[-1] > lower_band[-1] and price > ema_now and 40 <= rsi_now <= 70
-        sell_condition = closes[-2] > upper_band[-2] and closes[-1] < upper_band[-1] and price < ema_now and 30 <= rsi_now <= 60
+        near_lower_band = price < lower_band[-1] * 1.01
+        near_upper_band = price > upper_band[-1] * 0.99
 
-        # Condições Stochastic
-        stoch_buy = (k_prev < d_prev) and (k_now > d_now) and k_now < 20  # Cruzamento de baixo para cima e sobrevenda
-        stoch_sell = (k_prev > d_prev) and (k_now < d_now) and k_now > 80  # Cruzamento de cima para baixo e sobrecompra
+        buy_condition = (
+            price > ema_now and
+            rsi_now > 45 and
+            k_prev < d_prev and k_now > d_now and k_now < 50
+        )
 
-        if buy_condition and stoch_buy:
+        sell_condition = (
+            price < ema_now and
+            rsi_now < 55 and
+            k_prev > d_prev and k_now < d_now and k_now > 50
+        )
+
+        logging.info(
+            f"{self.symbol} - Indicadores:"
+            f"\n🟢 Price: {price}"
+            f"\n📈 EMA21: {ema_now}"
+            f"\n📊 RSI: {rsi_now}"
+            f"\n📉 Stoch K: {k_now} | D: {d_now} (prev K: {k_prev}, D: {d_prev})"
+            f"\n🟩 Lower Band: {lower_band[-1]} | Upper Band: {upper_band[-1]}"
+            f"\n✅ Near Lower Band: {near_lower_band}, Near Upper Band: {near_upper_band}"
+            f"\n💡 Buy Cond: {buy_condition}, Sell Cond: {sell_condition}"
+        )
+
+        if buy_condition and near_lower_band:
+            logging.info(f"{self.symbol} - 🎯 Sinal final: BUY")
             return 'buy'
-        if sell_condition and stoch_sell:
+
+        if sell_condition and near_upper_band:
+            logging.info(f"{self.symbol} - 🎯 Sinal final: SELL")
             return 'sell'
+
+        logging.info(f"{self.symbol} - 🚫 Sinal final: HOLD")
         return 'hold'
-
-
-
