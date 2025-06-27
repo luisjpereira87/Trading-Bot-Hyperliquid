@@ -14,21 +14,30 @@ class ExchangeClient:
         except Exception as e:
             logging.error(f"Erro ao buscar saldo: {e}")
 
-    async def print_open_orders(self):
+    async def print_open_orders(self, symbol=None):
         try:
-            open_orders = await self.exchange.fetch_open_orders(params={'user': self.wallet_address})
-            logging.info(f"📘 Ordens abertas ({len(open_orders)}):")
+            params = {'user': self.wallet_address}
+            if symbol:
+                open_orders = await self.exchange.fetch_open_orders(symbol, params)
+            else:
+                open_orders = await self.exchange.fetch_open_orders(params=params)
+            logging.info(f"📘 Ordens abertas para {symbol if symbol else 'todos símbolos'} ({len(open_orders)}):")
             for order in open_orders:
                 logging.info(order)
         except Exception as e:
             logging.error(f"Erro ao buscar ordens abertas: {e}")
 
-    async def cancel_all_orders(self):
+    async def cancel_all_orders(self, symbol=None):
         try:
-            open_orders = await self.exchange.fetch_open_orders(params={'user': self.wallet_address})
+            params = {'user': self.wallet_address}
+            if symbol:
+                open_orders = await self.exchange.fetch_open_orders(symbol, params)
+            else:
+                open_orders = await self.exchange.fetch_open_orders(params=params)
+    
             for order in open_orders:
-                await self.exchange.cancel_order(order['id'], self.symbol)
-            logging.info("🔁 Todas as ordens foram canceladas.")
+                await self.exchange.cancel_order(order['id'], order['symbol'])
+            logging.info(f"🔁 Todas as ordens foram canceladas para {symbol if symbol else 'todos símbolos'}.")
         except Exception as e:
             logging.error(f"Erro ao cancelar ordens: {e}")
 
