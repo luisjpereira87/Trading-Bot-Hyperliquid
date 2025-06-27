@@ -1,3 +1,6 @@
+from trading_bot.strategies.ai_supertrend import AISuperTrend
+from trading_bot.strategies.supertrend import SuperTrend
+from trading_bot.strategies.ut_bot_alerts import UTBotAlerts
 import logging
 
 class Strategy:
