@@ -18,7 +18,7 @@ class ExchangeClient:
         try:
             params = {'user': self.wallet_address}
             if symbol:
-                open_orders = await self.exchange.fetch_open_orders(symbol, params)
+                open_orders = await self.exchange.fetch_open_orders(symbol, params=params)
             else:
                 open_orders = await self.exchange.fetch_open_orders(params=params)
             logging.info(f"📘 Ordens abertas para {symbol if symbol else 'todos símbolos'} ({len(open_orders)}):")
@@ -31,7 +31,7 @@ class ExchangeClient:
         try:
             params = {'user': self.wallet_address}
             if symbol:
-                open_orders = await self.exchange.fetch_open_orders(symbol, params)
+                open_orders = await self.exchange.fetch_open_orders(symbol, params=params)
             else:
                 open_orders = await self.exchange.fetch_open_orders(params=params)
     
