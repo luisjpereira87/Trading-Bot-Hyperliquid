@@ -39,7 +39,7 @@ class Indicators:
 
         return [0] * (len(self.closes) - len(rsi)) + rsi
 
-    def atr(self, period=10):
+    def atr(self, period=14):
         trs = [max(self.highs[i] - self.lows[i], abs(self.highs[i] - self.closes[i - 1]), abs(self.lows[i] - self.closes[i - 1]))
                for i in range(1, len(self.highs))]
         atr = [np.mean(trs[i - period:i]) if i >= period else 0 for i in range(len(trs))]
