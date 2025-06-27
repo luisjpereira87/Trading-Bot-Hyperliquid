@@ -24,22 +24,29 @@ class Strategy:
 
         return await self.strategy.get_signal()
 
-    async def _detect_mode(self, period=30, volume_multiplier=1.3):
+    async def _detect_mode(self, period=20, volume_multiplier=1.1):
         try:
+            # Pega o histórico com limite = período + 1 para pegar vela atual e média
             ohlcv = await self.exchange.fetch_ohlcv(self.symbol, timeframe=self.timeframe, limit=period + 1)
+            
+            # Checa se tem dados suficientes
             if len(ohlcv) <= period:
+                logging.info(f"[VolumeAnalyzer] {self.symbol} Dados insuficientes para detectar modo. Usando modo conservador.")
                 return 'conservative'
-
-            volumes = [candle[5] for candle in ohlcv[-(period + 1):-1]]  # ignora o último (incompleto)
+            
+            # Pega volumes do período anterior (ignora a vela atual que pode estar incompleta)
+            volumes = [candle[5] for candle in ohlcv[-(period + 1):-1]]
             avg_volume = sum(volumes) / len(volumes)
-            current_volume = ohlcv[-1][5]
-
+            current_volume = ohlcv[-1][5]  # volume da vela atual
+            
             if current_volume > avg_volume * volume_multiplier:
-                logging.info(f"[VolumeAnalyzer] {self.symbol} Volume ALTO: {current_volume} > {avg_volume} * {volume_multiplier}")
+                logging.info(f"[VolumeAnalyzer] {self.symbol} Volume ALTO: {current_volume} > {avg_volume:.6f} * {volume_multiplier}")
                 return 'aggressive'
-            logging.info(f"[VolumeAnalyzer] {self.symbol} Volume BAIXO: {current_volume} <= {avg_volume} * {volume_multiplier}")
-            return 'conservative'
+            else:
+                logging.info(f"[VolumeAnalyzer] {self.symbol} Volume BAIXO: {current_volume} <= {avg_volume:.6f} * {volume_multiplier}")
+                return 'conservative'
+            
         except Exception as e:
-            logging.error(f"[VolumeAnalyzer] Erro ao analisar volume: {e}")
+            logging.error(f"[VolumeAnalyzer] Erro ao analisar volume para {self.symbol}: {e}")
             return 'conservative'
 

@@ -41,7 +41,7 @@ class AISuperTrend:
         self.upper_band = [self.closes[i] + multiplier * self.atr[i] for i in range(len(self.atr))]
         self.lower_band = [self.closes[i] - multiplier * self.atr[i] for i in range(len(self.atr))]
 
-    def detect_lateral_market(self, adx_threshold=20):
+    def detect_lateral_market(self, adx_threshold=15):  # de 20 para 15
         adx = self.indicators.adx()
         self.adx_now = adx[-1]
         self.lateral_market = self.adx_now < adx_threshold
@@ -51,16 +51,23 @@ class AISuperTrend:
         near_lower = self.price < self.lower_band[-1] * 1.01
         near_upper = self.price > self.upper_band[-1] * 0.99
 
+        # Ajuste na condição de compra para capturar tendência já forte (Stoch K > 80)
         buy = (
             self.price > self.ema and
             self.rsi > 45 and
-            self.k_prev < self.d_prev and self.k_now > self.d_now and self.k_now < 50
+            (
+                (self.k_prev < self.d_prev and self.k_now > self.d_now and self.k_now < 50) or
+                (self.k_now > 80)  # Sinal extra de força
+            )
         )
 
         sell = (
             self.price < self.ema and
             self.rsi < 55 and
-            self.k_prev > self.d_prev and self.k_now < self.d_now and self.k_now > 50
+            (
+                (self.k_prev > self.d_prev and self.k_now < self.d_now and self.k_now > 50) or
+                (self.k_now < 20)  # Sinal extra de força de venda
+            )
         )
 
         logging.info(
