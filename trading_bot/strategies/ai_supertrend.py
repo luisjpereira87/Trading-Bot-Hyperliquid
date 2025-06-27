@@ -1,6 +1,5 @@
 import logging
 from .indicators import Indicators
-import numpy as np
 
 class AISuperTrend:
     def __init__(self, exchange, symbol, timeframe, mode='conservative'):
@@ -19,6 +18,8 @@ class AISuperTrend:
         self.extract_data()
         self.calculate_bands()
         self.detect_lateral_market()
+
+        logging.info(f"{self.symbol} - Modo selecionado: {self.mode}")
 
         return self.decide_signal()
 
