@@ -110,16 +110,21 @@ class Indicators:
             plus_dm_smooth[i] = plus_dm_smooth[i - 1] - (plus_dm_smooth[i - 1] / period) + plus_dm[i]
             minus_dm_smooth[i] = minus_dm_smooth[i - 1] - (minus_dm_smooth[i - 1] / period) + minus_dm[i]
 
-        plus_di = 100 * (plus_dm_smooth / tr_smooth)
-        minus_di = 100 * (minus_dm_smooth / tr_smooth)
+        epsilon = 1e-10
 
-        dx = 100 * np.abs(plus_di - minus_di) / (plus_di + minus_di)
+        plus_di = 100 * (plus_dm_smooth / (tr_smooth + epsilon))
+        minus_di = 100 * (minus_dm_smooth / (tr_smooth + epsilon))
+
+        denominator = plus_di + minus_di
+        denominator = np.where(denominator == 0, epsilon, denominator)
+
+        dx = 100 * np.abs(plus_di - minus_di) / denominator
+
         adx = np.zeros(len(dx))
         adx[period * 2 - 1] = dx[period : period * 2].mean()
 
         for i in range(period * 2, len(dx)):
             adx[i] = (adx[i - 1] * (period - 1) + dx[i]) / period
 
-        # Retorna array do ADX a partir do índice 2*period-1, com zeros antes
         return adx.tolist()
 
