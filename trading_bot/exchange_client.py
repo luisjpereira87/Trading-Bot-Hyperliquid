@@ -49,7 +49,8 @@ class ExchangeClient:
                 if float(pos.get('contracts', 0)) > 0:
                     return {
                         'side': pos['side'],
-                        'size': float(pos['contracts'])
+                        'size': float(pos['contracts']),
+                        'entryPrice': pos.get('entryPrice') or pos.get('entry_price') or pos.get('averagePrice') or 0.0
                     }
         except Exception as e:
             logging.error(f"Erro ao obter posições abertas: {e}")
