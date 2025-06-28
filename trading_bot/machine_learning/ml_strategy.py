@@ -140,7 +140,7 @@ class MLStrategy:
 
     async def run(self):
         df = await self.fetch_ohlcv()
-        await self.train_if_due(df)
+        #await self.train_if_due(df)
         signal = self.predict_signal(df)
         logging.info(f"🚦 Sinal ML para {self.symbol}: {signal}")
         return signal
