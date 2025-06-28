@@ -37,34 +37,49 @@ class TradingBot:
             }
         })
 
-    def calculate_sl_tp(self, entry_price, side, atr_now):
+    def calculate_sl_tp(self, entry_price, side, atr_now, mode='normal'):
         """
-        Calcula SL e TP dinâmicos usando ATR e percentual mínimo.
-        Inclui logs e validação de distância para evitar valores extremos.
+        Calcula SL e TP dinâmicos usando ATR e percentual mínimo, ajustados pelo modo.
+        Inclui logs e validação para evitar valores extremos.
+        
+        Parâmetros:
+        - entry_price: preço de entrada da posição
+        - side: 'buy' ou 'sell'
+        - atr_now: valor atual do ATR
+        - mode: 'aggressive', 'normal' ou 'conservative' (padrão 'normal')
         """
-        sl_min_dist = self.sl_pct * entry_price
+        # Define parâmetros baseados no modo
+        if mode == 'aggressive':
+            sl_pct = 0.008  # 0.8%
+            tp_factor = 1.5
+        elif mode == 'conservative':
+            sl_pct = 0.02   # 2%
+            tp_factor = 3
+        else:  # normal
+            sl_pct = self.sl_pct
+            tp_factor = self.tp_factor
+
+        sl_min_dist = sl_pct * entry_price
         sl_distance = max(sl_min_dist, atr_now)
 
-        logging.info(f"🔎 Cálculo TP/SL:")
+        logging.info(f"🔎 Cálculo TP/SL ({mode}):")
         logging.info(f"📈 Preço de entrada: {entry_price}")
         logging.info(f"📊 ATR atual: {atr_now}")
         logging.info(f"🧮 Distância mínima SL (%): {sl_min_dist}")
         logging.info(f"🧮 Distância usada SL (máx entre % e ATR): {sl_distance}")
 
-        # Cálculo dos preços finais de SL e TP
         if side == 'buy':
             sl_price = entry_price - sl_distance
-            tp_price = entry_price + self.tp_factor * sl_distance
+            tp_price = entry_price + tp_factor * sl_distance
         else:  # sell
             sl_price = entry_price + sl_distance
-            tp_price = entry_price - self.tp_factor * sl_distance
+            tp_price = entry_price - tp_factor * sl_distance
 
-        # Validação: rejeita SL/TP muito longe (ex: >10% do preço)
         max_dist_pct = 0.10  # 10%
         sl_pct_off = abs((sl_price - entry_price) / entry_price)
         tp_pct_off = abs((tp_price - entry_price) / entry_price)
 
-        if sl_pct_off > max_dist_pct or tp_pct_off > (max_dist_pct * self.tp_factor):
+        if sl_pct_off > max_dist_pct or tp_pct_off > (max_dist_pct * tp_factor):
             logging.warning(f"🚫 SL ou TP fora de range aceitável. SL: {sl_price}, TP: {tp_price}")
             raise ValueError("SL ou TP calculado está fora do intervalo aceitável. Verifique os parâmetros ou o ATR.")
 
@@ -91,7 +106,7 @@ class TradingBot:
             capital_amount = balance_total * capital_pct
 
             signal = await strategy.get_signal()
-            if signal not in ['buy', 'sell']:
+            if signal['side'] not in ['buy', 'sell']:
                 logging.info(f"\n⛔ Nenhum sinal válido para {symbol}. Ignorando.")
                 return
 
@@ -106,7 +121,7 @@ class TradingBot:
                 current_size = float(current_position['size'])
                 current_side = 'buy' if current_side_ccxt == 'long' else 'sell'
 
-                if self.is_opposite_side(signal, current_side):
+                if self.is_opposite_side(signal['side'], current_side):
                     logging.info(f"Fechando posição oposta {symbol}: {current_side_ccxt} de tamanho {current_size}")
                     await order_manager.close_position(symbol, current_size, current_side)
                     current_position = None
@@ -114,7 +129,7 @@ class TradingBot:
             if not current_position:
                 price_ref = await exchange_client.get_reference_price()
                 entry_amount = await exchange_client.calculate_entry_amount(price_ref, capital_amount)
-                side = signal
+                side = signal['side']
                 logging.info(f"{symbol}: Enviando ordem de entrada {side} com quantidade {entry_amount} a preço {price_ref}")
                 await exchange_client.place_entry_order(entry_amount, price_ref, side)
                 entry_price = await exchange_client.get_entry_price()
@@ -140,7 +155,7 @@ class TradingBot:
                 logging.warning(f"❌ ATR não pôde ser calculado para {symbol}. Ignorando.")
                 return
 
-            sl_price, tp_price = self.calculate_sl_tp(entry_price, side, atr_now)
+            sl_price, tp_price = self.calculate_sl_tp(entry_price, side, atr_now, signal['mode'])
             logging.info(f"\n{symbol} 🎯 TP dinâmico: {tp_price} | 🛑 SL dinâmico: {sl_price}")
 
             close_side = 'sell' if side == 'buy' else 'buy'
