@@ -22,7 +22,8 @@ class Strategy:
         else:
             raise ValueError(f"Estratégia '{self.name}' não reconhecida.")
 
-        return await self.strategy.get_signal()
+        signal = await self.strategy.get_signal()
+        return {'side':signal, 'mode':mode} 
 
     async def _detect_mode(self, period=20, volume_multiplier=1.1):
         try:
