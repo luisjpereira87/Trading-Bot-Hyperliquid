@@ -42,11 +42,11 @@ class ExchangeClient:
         except Exception as e:
             logging.error(f"Erro ao cancelar ordens: {e}")
 
-    async def get_open_position(self):
+    async def get_open_position(self, symbol=None):
         try:
             positions = await self.exchange.fetch_positions(params={'user': self.wallet_address})
             for pos in positions:
-                if float(pos.get('contracts', 0)) > 0:
+                if pos["symbol"] == symbol and float(pos.get('contracts', 0)) > 0:
                     return {
                         'side': pos['side'],
                         'size': float(pos['contracts']),

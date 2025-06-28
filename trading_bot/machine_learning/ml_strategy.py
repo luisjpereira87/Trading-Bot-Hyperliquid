@@ -1,5 +1,7 @@
 import logging
+import os
 
+import joblib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -14,14 +16,21 @@ from ta.volatility import AverageTrueRange
 
 
 class MLStrategy:
-    def __init__(self, exchange, symbol, timeframe='15m', train_interval=100, plot_enabled=False):
+    def __init__(self, exchange, symbol, timeframe='15m', train_interval=100, plot_enabled=False, enable_training=False):
         self.exchange = exchange
         self.symbol = symbol
         self.timeframe = timeframe
         self.train_interval = train_interval
+        self.plot_enabled = plot_enabled
+        self.enable_training = enable_training  # flag para controle de treino
         self.model = None
         self.last_train_len = 0
-        self.plot_enabled = plot_enabled  # controle para gráficos
+
+        if os.path.exists("models/modelo_rf.pkl"):
+            self.model = joblib.load("models/modelo_rf.pkl")
+            logging.info("📥 Modelo ML carregado com sucesso de 'models/modelo_rf.pkl'")
+        else:
+            logging.warning("⚠️ Modelo ainda não treinado.")
 
     async def fetch_ohlcv(self, limit=500):
         data = await self.exchange.fetch_ohlcv(self.symbol, timeframe=self.timeframe, limit=limit)
@@ -55,7 +64,7 @@ class MLStrategy:
         labels = df['label']
 
         smote = SMOTE(random_state=42)
-        features_res, labels_res= smote.fit_resample(features, labels)
+        features_res, labels_res = smote.fit_resample(features, labels)
 
         return features_res, labels_res
 
@@ -96,11 +105,15 @@ class MLStrategy:
         return model
 
     def train(self, features, labels):
-        # Adiciona balanceamento para lidar com classes desbalanceadas
         model = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
         self.model = self.evaluate_model(model, features, labels)
         self.last_train_len = len(features)
         logging.info("✅ Modelo ML treinado e avaliado com sucesso!")
+
+        # ✅ Guarda modelo treinado
+        os.makedirs("models", exist_ok=True)
+        joblib.dump(self.model, "models/modelo_rf.pkl")
+        logging.info("💾 Modelo salvo em 'models/modelo_rf.pkl'")
 
     def predict_signal(self, df):
         if self.model is None:
@@ -134,13 +147,24 @@ class MLStrategy:
             return "hold"
 
     async def train_if_due(self, df):
+        if not self.enable_training:
+            logging.info("Treinamento desabilitado (enable_training=False). Pulando treino.")
+            return
+
         if len(df) - self.last_train_len >= self.train_interval:
+            logging.info(f"Treinamento devido. Treinando modelo com {len(df)} registros...")
             features, labels = self.prepare_dataset(df)
             self.train(features, labels)
 
+            os.makedirs("data", exist_ok=True)
+            filename = f"data/{self.symbol.replace('/', '_')}_{self.timeframe}_train.csv"
+            df.to_csv(filename, index=False)
+            logging.info(f"📁 Dataset salvo para treino em: {filename}")
+
     async def run(self):
         df = await self.fetch_ohlcv()
-        #await self.train_if_due(df)
+        await self.train_if_due(df)
         signal = self.predict_signal(df)
         logging.info(f"🚦 Sinal ML para {self.symbol}: {signal}")
         return signal
+
