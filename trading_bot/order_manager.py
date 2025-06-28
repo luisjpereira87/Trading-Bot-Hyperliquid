@@ -4,17 +4,8 @@ class OrderManager:
     def __init__(self, exchange):
         self.exchange = exchange
 
-    async def create_tp_sl_orders(self, symbol, amount, tp_price, sl_price, side):
+    async def create_tp_sl_orders(self, symbol, amount, tp_price, sl_price, side_signal):
         try:
-            if amount <= 0:
-                logging.warning(f"🚫 Quantidade inválida para TP/SL: {amount}")
-                return
-
-            if sl_price is None:
-                logging.error("❌ sl_price está como None, não é possível criar SL.")
-                return
-
-            # Busca posições abertas para o símbolo
             positions = await self.exchange.fetch_positions()
             position = next((p for p in positions if p['symbol'] == symbol and float(p['contracts']) > 0), None)
 
@@ -24,14 +15,16 @@ class OrderManager:
 
             pos_amount = float(position['contracts'])
             pos_side = position['side']  # 'long' ou 'short'
-            logging.info(f"📌 Posição atual: lado={pos_side}, quantidade={pos_amount}")
-            logging.info(f"📌 Quantidade solicitada para TP/SL: {amount}")
-            logging.info(f"📌 Lado da ordem TP/SL (deve ser oposto à posição): {side}")
 
-            # Ajusta a quantidade para no máximo o tamanho da posição
+            # Define o lado oposto da posição para TP/SL
+            close_side = 'sell' if pos_side == 'long' else 'buy'
+
+            logging.info(f"🎯 Criando TP/SL para {symbol}: lado da posição={pos_side}, lado TP/SL={close_side}")
+            logging.info(f"   Quantidade posição={pos_amount} | Quantidade recebida={amount}")
+
             amount = min(amount, pos_amount)
 
-            # Cancela ordens abertas anteriores
+            # Cancelar ordens abertas anteriores
             open_orders = await self.exchange.fetch_open_orders(symbol)
             for order in open_orders:
                 try:
@@ -40,66 +33,58 @@ class OrderManager:
                 except Exception as e:
                     logging.warning(f"⚠️ Falha ao cancelar ordem {order['id']}: {e}")
 
-            # Cria ordem Take Profit (limit)
+            # Criar ordem de Take Profit (limit)
             tp_order = await self.exchange.create_order(
                 symbol,
                 'limit',
-                side,
+                close_side,
                 amount,
                 tp_price,
                 params={'reduceOnly': True}
             )
-            logging.info(f"🎯 Ordem Take Profit criada: {tp_order.get('id', 'sem id')}, detalhes: {tp_order.get('info')}")
-            logging.info(tp_order)
+            logging.info(f"✅ TP criado: {tp_order.get('info')}")
 
-            # Cria ordem Stop Loss (stop_market)
+            # Criar ordem de Stop Loss (stop_market)
             sl_order = await self.exchange.create_order(
                 symbol,
                 'stop_market',
-                side,
+                close_side,
                 amount,
                 sl_price,
                 params={'stopPrice': sl_price, 'reduceOnly': True}
             )
-            logging.info(f"🛑 Ordem Stop Loss criada: {sl_order.get('id', 'sem id')}, detalhes: {sl_order.get('info')}")
-            logging.info(sl_order)
+            logging.info(f"✅ SL criado: {sl_order.get('info')}")
 
         except Exception as e:
             logging.error(f"❌ Erro ao criar ordens TP/SL: {e}")
 
     async def close_position(self, symbol, amount, side):
         """
-        Fecha uma posição aberta com ordem de mercado no lado oposto.
+        Fecha posição com ordem de mercado. Usa 'side' atual para calcular o lado oposto (close_side).
         """
         close_side = 'sell' if side == 'buy' else 'buy'
 
         try:
-            # Busca o livro de ofertas para referência de preço
             orderbook = await self.exchange.fetch_order_book(symbol)
-            price = None
+
             if close_side == 'buy':
                 price = orderbook['asks'][0][0] if orderbook['asks'] else None
             else:
                 price = orderbook['bids'][0][0] if orderbook['bids'] else None
 
             if price is None:
-                raise Exception("❌ Não foi possível obter preço de referência do livro para fechar posição.")
+                raise Exception("⚠️ Livro de ofertas vazio para fechamento.")
 
-            params = {
-                'reduceOnly': True,
-                'price': price,  # Usado internamente para cálculo de slippage
-            }
-
-            # Envia ordem de mercado
             order = await self.exchange.create_order(
                 symbol,
                 'market',
                 close_side,
                 amount,
-                None,
-                params
+                price,  # Agora incluído corretamente!
+                params={'reduceOnly': True}
             )
-            logging.info(f"✅ Ordem de fechamento de posição enviada: {order}")
+            logging.info(f"✅ Ordem de fechamento enviada: {order.get('info')}")
+
         except Exception as e:
             logging.error(f"❌ Erro ao fechar posição: {e}")
 
