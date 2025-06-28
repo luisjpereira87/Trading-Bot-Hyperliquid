@@ -1,0 +1,28 @@
+import smtplib
+from email.message import EmailMessage
+import logging
+
+class EmailNotifier:
+    def __init__(self, smtp_server, smtp_port, username, password, use_tls=True):
+        self.smtp_server = smtp_server
+        self.smtp_port = smtp_port
+        self.username = username
+        self.password = password
+        self.use_tls = use_tls
+
+    def send_email(self, subject, body, to_addresses):
+        msg = EmailMessage()
+        msg['From'] = self.username
+        msg['To'] = ', '.join(to_addresses) if isinstance(to_addresses, list) else to_addresses
+        msg['Subject'] = subject
+        msg.set_content(body)
+
+        try:
+            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+                if self.use_tls:
+                    server.starttls()
+                server.login(self.username, self.password)
+                server.send_message(msg)
+            logging.info(f"Email enviado para {msg['To']}: {subject}")
+        except Exception as e:
+            logging.error(f"Erro ao enviar email: {e}")

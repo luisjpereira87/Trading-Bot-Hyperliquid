@@ -145,7 +145,7 @@ class TradingBot:
             await exchange_client.print_open_orders(symbol)
             await exchange_client.cancel_all_orders(symbol)
 
-            current_position = await exchange_client.get_open_position()
+            current_position = await exchange_client.get_open_position(symbol)
 
             if current_position:
                 closed_early = await self.try_close_position_aggressive(
@@ -163,7 +163,7 @@ class TradingBot:
             if not current_position:
                 await self.open_position(exchange_client, signal, capital_amount, pair)
 
-            await self.manage_tp_sl(exchange_client, current_position or await exchange_client.get_open_position(), signal, order_manager, symbol)
+            await self.manage_tp_sl(exchange_client, current_position or await exchange_client.get_open_position(symbol), signal, order_manager, symbol)
 
         except Exception:
             logging.exception(f"\n❌ Erro no bot para {symbol}")
@@ -195,6 +195,7 @@ class TradingBot:
                     f"💰 Lucro baseado em ATR ({lucro_pct*100:.2f}%) acima do limite {lucro_minimo_atr*100:.2f}%, fechando posição {current_side} em {symbol}"
                 )
                 close_side = "sell" if current_side == "buy" else "buy"
+                
                 await order_manager.close_position(symbol, float(current_position["size"]), close_side)
                 return True
             return False
@@ -245,6 +246,12 @@ class TradingBot:
         logging.info(f"\n{symbol} 🎯 TP dinâmico: {tp_price} | 🛑 SL dinâmico: {sl_price}")
 
         close_side = "sell" if side == "buy" else "buy"
+
+        # Validar valores antes de enviar ordens
+        min_order_value = 10  # dólares
+        if entry_amount * tp_price < min_order_value or entry_amount * sl_price < min_order_value:
+            logging.warning(f"🚫 Ordem TP/SL abaixo do mínimo para {symbol}. TP: {entry_amount * tp_price}, SL: {entry_amount * sl_price}")
+            return
 
         try:
             await order_manager.create_tp_sl_orders(symbol, entry_amount, tp_price, sl_price, close_side)

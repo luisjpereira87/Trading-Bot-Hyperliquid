@@ -41,22 +41,30 @@ class Indicators:
         return [0] * (len(self.closes) - len(rsi)) + rsi
 
     def atr(self, period=14):
-        trs = [
-            max(
+        trs = []
+        for i in range(1, len(self.highs)):
+            tr = max(
                 self.highs[i] - self.lows[i],
                 abs(self.highs[i] - self.closes[i - 1]),
                 abs(self.lows[i] - self.closes[i - 1])
             )
-            for i in range(1, len(self.highs))
-        ]
+            trs.append(tr)
+        
         atr = []
-        for i in range(len(trs)):
-            if i >= period:
-                atr_value = np.mean(trs[i - period + 1 : i + 1])
-            else:
-                atr_value = 0
-            atr.append(atr_value)
+        # Começa o ATR no primeiro TR (sem média móvel ainda)
+        atr.append(trs[0])  
+
+        # Fator para EMA
+        alpha = 2 / (period + 1)
+        
+        # Calcula o ATR com EMA dos TRs
+        for i in range(1, len(trs)):
+            atr_val = (alpha * trs[i]) + ((1 - alpha) * atr[i-1])
+            atr.append(atr_val)
+        
+        # Insere zero no início para alinhar o tamanho com os dados originais (opcional)
         atr.insert(0, 0)
+
         return atr
 
     def stochastic(self, k_period=14, d_period=3):
