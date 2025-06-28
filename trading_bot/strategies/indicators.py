@@ -1,4 +1,5 @@
-import numpy as np
+import numpy as np  # type: ignore
+
 
 class Indicators:
     def __init__(self, ohlcv):
@@ -40,9 +41,21 @@ class Indicators:
         return [0] * (len(self.closes) - len(rsi)) + rsi
 
     def atr(self, period=14):
-        trs = [max(self.highs[i] - self.lows[i], abs(self.highs[i] - self.closes[i - 1]), abs(self.lows[i] - self.closes[i - 1]))
-               for i in range(1, len(self.highs))]
-        atr = [np.mean(trs[i - period:i]) if i >= period else 0 for i in range(len(trs))]
+        trs = [
+            max(
+                self.highs[i] - self.lows[i],
+                abs(self.highs[i] - self.closes[i - 1]),
+                abs(self.lows[i] - self.closes[i - 1])
+            )
+            for i in range(1, len(self.highs))
+        ]
+        atr = []
+        for i in range(len(trs)):
+            if i >= period:
+                atr_value = np.mean(trs[i - period + 1 : i + 1])
+            else:
+                atr_value = 0
+            atr.append(atr_value)
         atr.insert(0, 0)
         return atr
 

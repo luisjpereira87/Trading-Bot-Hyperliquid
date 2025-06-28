@@ -1,5 +1,6 @@
 import logging
 
+
 class ExchangeClient:
     def __init__(self, exchange, wallet_address, symbol, leverage):
         self.exchange = exchange
@@ -81,16 +82,23 @@ class ExchangeClient:
             float: quantidade de contratos ou tokens para a entrada.
         """
         try:
-            # Quantidade = capital dividido pelo preço de referência, ajustando para o tamanho do contrato se necessário
-            # Se seu contrato for 1:1, esse cálculo serve. Ajuste se seu mercado usar multiplicadores diferentes.
+            if price_ref <= 0 or capital_amount <= 0:
+                logging.warning(f"🚫 Preço de referência ({price_ref}) ou capital inválido ({capital_amount}).")
+                return 0.0
+
             quantity = capital_amount / price_ref
 
-            # Se quiser ajustar a quantidade para o mínimo aceito ou múltiplos mínimos, faça aqui
-            # Exemplo:
+            # Impede ordens abaixo de $10
+            min_order_value = 10
+            if quantity * price_ref < min_order_value:
+                logging.warning(f"🚫 Ordem abaixo do mínimo de $10: {quantity * price_ref:.2f}")
+                return 0.0
+
+            # Opcional: ajuste para múltiplos mínimos
             # min_qty = 0.001
             # quantity = max(min_qty, math.floor(quantity / min_qty) * min_qty)
 
-            return quantity
+            return round(quantity, 6)
 
         except Exception as e:
             logging.error(f"Erro ao calcular quantidade de entrada: {e}")

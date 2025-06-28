@@ -2,3 +2,9 @@ ccxt
 numpy
 python-dotenv
 pytz
+pandas
+scikit-learn
+ta
+matplotlib
+seaborn
+imblearn
