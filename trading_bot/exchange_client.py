@@ -47,10 +47,13 @@ class ExchangeClient:
             positions = await self.exchange.fetch_positions(params={'user': self.wallet_address})
             for pos in positions:
                 if pos["symbol"] == symbol and float(pos.get('contracts', 0)) > 0:
+                    size = float(pos['contracts'])
+                    entry_price = pos.get('entryPrice') or pos.get('entry_price') or pos.get('averagePrice') or 0.0
                     return {
                         'side': pos['side'],
-                        'size': float(pos['contracts']),
-                        'entryPrice': pos.get('entryPrice') or pos.get('entry_price') or pos.get('averagePrice') or 0.0
+                        'size': size,
+                        'entryPrice': entry_price,
+                        'notional': size * entry_price
                     }
         except Exception as e:
             logging.error(f"Erro ao obter posições abertas: {e}")

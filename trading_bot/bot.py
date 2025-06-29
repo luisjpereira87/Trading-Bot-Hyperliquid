@@ -12,6 +12,7 @@ from .machine_learning.ml_strategy import MLStrategy
 from .order_manager import OrderManager
 from .strategies.indicators import Indicators  # Para cálculo ATR
 from .strategy import Strategy
+from .trading_helpers import TradingHelpers
 
 
 class TradingBot:
@@ -25,17 +26,17 @@ class TradingBot:
             )
 
         self.timeframe = "15m"
-        self.tp_pct = 0.03
-        self.sl_pct = 0.015
-        self.tp_factor = 2
+        #self.tp_pct = 0.03
+        #self.sl_pct = 0.01
+        #self.tp_factor = 2
         self.atr_period = 14
 
         self.pairs = [
-            {"symbol": "BTC/USDC:USDC", "leverage": 5, "capital": 0.10},
-            {"symbol": "ETH/USDC:USDC", "leverage": 10, "capital": 0.20},
+            {"symbol": "BTC/USDC:USDC", "leverage": 5, "capital": 0.10, "min_profit_abs": 10.0},
+            {"symbol": "ETH/USDC:USDC", "leverage": 10, "capital": 0.20, "min_profit_abs": 5.0},
         ]
 
-        self.last_candle_times = {pair["symbol"]: None for pair in self.pairs}
+        self.last_candle_times: dict[str, datetime | None] = {pair["symbol"]: None for pair in self.pairs}
 
         self.exchange = ccxt.hyperliquid(
             {
@@ -46,135 +47,89 @@ class TradingBot:
                 "options": {"defaultSlippage": 0.01},
             }
         )
+        self.order_manager = OrderManager(self.exchange)
+        self.helpers = TradingHelpers()
+    
+    async def get_combined_signal(self, symbol):
+        strategy = Strategy(self.exchange, symbol, self.timeframe)
+        ml_strategy = MLStrategy(self.exchange, symbol, timeframe=self.timeframe, train_interval=100)
 
-    def calculate_sl_tp(self, entry_price, side, atr_now, mode="normal"):
-        """
-        Calcula SL e TP dinâmicos usando ATR e percentual mínimo, ajustados pelo modo.
-        Inclui logs e validação para evitar valores extremos.
+        ml_signal = await ml_strategy.run()
+        other_signal = await strategy.get_signal()
 
-        Parâmetros:
-        - entry_price: preço de entrada da posição
-        - side: 'buy' ou 'sell'
-        - atr_now: valor atual do ATR
-        - mode: 'aggressive', 'normal' ou 'conservative' (padrão 'normal')
-        """
-        # Define parâmetros baseados no modo
-        if mode == "aggressive":
-            sl_pct = 0.008  # 0.8%
-            tp_factor = 1.5
-        elif mode == "conservative":
-            sl_pct = 0.02  # 2%
-            tp_factor = 3
-        else:  # normal
-            sl_pct = self.sl_pct
-            tp_factor = self.tp_factor
-
-        sl_min_dist = sl_pct * entry_price
-        sl_distance = max(sl_min_dist, atr_now)
-
-        logging.info(f"🔎 Cálculo TP/SL ({mode}):")
-        logging.info(f"📈 Preço de entrada: {entry_price}")
-        logging.info(f"📊 ATR atual: {atr_now}")
-        logging.info(f"🧮 Distância mínima SL (%): {sl_min_dist}")
-        logging.info(f"🧮 Distância usada SL (máx entre % e ATR): {sl_distance}")
-
-        if side == "buy":
-            sl_price = entry_price - sl_distance
-            tp_price = entry_price + tp_factor * sl_distance
-        else:  # sell
-            sl_price = entry_price + sl_distance
-            tp_price = entry_price - tp_factor * sl_distance
-
-        max_dist_pct = 0.10  # 10%
-        sl_pct_off = abs((sl_price - entry_price) / entry_price)
-        tp_pct_off = abs((tp_price - entry_price) / entry_price)
-
-        if sl_pct_off > max_dist_pct or tp_pct_off > (max_dist_pct * tp_factor):
-            logging.warning(
-                f"🚫 SL ou TP fora de range aceitável. SL: {sl_price}, TP: {tp_price}"
-            )
-            raise ValueError(
-                "SL ou TP calculado está fora do intervalo aceitável. Verifique os parâmetros ou o ATR."
-            )
-
-        logging.info(f"✅ SL final: {sl_price} ({sl_pct_off*100:.2f}%)")
-        logging.info(f"✅ TP final: {tp_price} ({tp_pct_off*100:.2f}%)")
-
-        return round(sl_price, 2), round(tp_price, 2)
-
-    def is_opposite_side(self, signal, current_side):
-        return (signal == "buy" and current_side == "sell") or (
-            signal == "sell" and current_side == "buy"
-        )
+        if ml_signal in ["buy", "sell"]:
+            logging.info(f"📊 Sinal recebido para {symbol}: {ml_signal}")
+            return {"side": ml_signal, "mode": "normal"}
+        logging.info(f"📊 Sinal recebido para {symbol}: {other_signal}")
+        return other_signal
 
     async def run_pair(self, pair):
         symbol = pair["symbol"]
         leverage = int(pair["leverage"])
         capital_pct = float(pair["capital"])
+        ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe=self.timeframe, limit=self.atr_period + 1)
+        indicators = Indicators(ohlcv)
+        atr_values = indicators.atr()
+        atr_now = atr_values[-1]
 
         try:
-            exchange_client = ExchangeClient(
-                self.exchange, self.wallet_address, symbol, leverage
-            )
-            order_manager = OrderManager(self.exchange)
-            strategy = Strategy(self.exchange, symbol, self.timeframe)
+            logging.info(f"🚀 Iniciando processamento do par {symbol}")
+
+            exchange_client = ExchangeClient(self.exchange, self.wallet_address, symbol, leverage)
 
             balance_total = await exchange_client.get_total_balance()
             capital_amount = balance_total * capital_pct * leverage
 
-            # Instanciar MLStrategy para o par
-            ml_strategy = MLStrategy(self.exchange, symbol, timeframe=self.timeframe, train_interval=100)
-            
-            # Treinar e pegar sinal ML
-            ml_signal = await ml_strategy.run()
-
-            # (Opcional) Pegar sinal de outra estratégia, ex: UT Bot ou SuperTrend
-            other_signal = await strategy.get_signal()
-
-            # Combinar sinais, exemplo: se ML deu buy/sell, usar, senão fallback
-            if ml_signal in ["buy", "sell"]:
-                signal = {"side": ml_signal, "mode": "normal"}
-            else:
-                signal = other_signal
+            signal = await self.get_combined_signal(symbol)
            
-            if signal["side"] not in ["buy", "sell"]:
+            if signal.get("side") not in ["buy", "sell"]:
                 logging.info(f"\n⛔ Nenhum sinal válido para {symbol}. Ignorando.")
                 return
 
             await exchange_client.print_balance()
             await exchange_client.print_open_orders(symbol)
-            await exchange_client.cancel_all_orders(symbol)
 
             current_position = await exchange_client.get_open_position(symbol)
 
+            # 👉 Etapa 1: Fechamento dinâmico com lucro
             if current_position:
-                closed_early = await self.try_close_position_aggressive(
-                    current_position, signal, order_manager, symbol
-                )
+                closed_early = await self.try_close_position_dynamically(current_position, symbol, atr_now)
                 if closed_early:
-                    return
+                    logging.info(f"✅ Posição encerrada de forma dinâmica com lucro em {symbol}")
+                    return  # ⚠️ IMPORTANTE: encerra execução antes de abrir nova posição
 
-                if self.is_opposite_side(signal["side"], "buy" if current_position["side"] == "long" else "sell"):
-                    await order_manager.close_position(
+            # 👉 Etapa 2: Se ainda tem posição, verificar se é contrária ao novo sinal
+            current_position = await exchange_client.get_open_position(symbol)
+            if current_position:
+                if self.helpers.is_signal_opposite_position(signal["side"], current_position["side"]):
+                    await self.order_manager.close_position(
                         symbol, float(current_position["size"]), current_position["side"]
                     )
-                    current_position = None
+                    current_position = None  # Atualiza estado
 
+            # 👉 Etapa 3: Se não há mais posição, abrir nova
             if not current_position:
+                await exchange_client.cancel_all_orders(symbol)
                 await self.open_position(exchange_client, signal, capital_amount, pair)
 
-            await self.manage_tp_sl(exchange_client, current_position or await exchange_client.get_open_position(symbol), signal, order_manager, symbol)
+            # 👉 Etapa 4: Gerenciar TP/SL se houver posição
+            position = await exchange_client.get_open_position(symbol)
+            if position:
+                await self.order_manager.manage_tp_sl(exchange_client, position, signal, symbol, atr_now)
+            else:
+                logging.info(f"⚠️ Sem posição aberta para {symbol}. Pulando gerenciamento de TP/SL.")
 
+            logging.info(f"✅ Processamento do par {symbol} concluído com sucesso")
+
+        except ccxt.NetworkError as e:
+            logging.error(f"⚠️ Network error para {symbol}: {str(e)}")
+        except ccxt.ExchangeError as e:
+            logging.error(f"⚠️ Exchange error para {symbol}: {str(e)}")
         except Exception:
             logging.exception(f"\n❌ Erro no bot para {symbol}")
 
-    async def try_close_position_aggressive(self, current_position, signal, order_manager, symbol):
+    async def try_close_position_aggressive(self, current_position, signal, symbol, atr_now):
         try:
-            ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe=self.timeframe, limit=self.atr_period + 1)
-            indicators = Indicators(ohlcv)
-            atr_values = indicators.atr()
-            atr_now = atr_values[-1]
-
             ticker = await self.exchange.fetch_ticker(symbol)
             mark_price = ticker.get("last") or ticker.get("close")
             if mark_price is None or signal.get("mode") != "aggressive":
@@ -196,11 +151,51 @@ class TradingBot:
                 )
                 close_side = "sell" if current_side == "buy" else "buy"
                 
-                await order_manager.close_position(symbol, float(current_position["size"]), close_side)
+                await self.order_manager.close_position(symbol, float(current_position["size"]), close_side)
                 return True
             return False
         except Exception:
             logging.exception("❌ Falha ao tentar fechar posição agressiva com lucro baseado em ATR")
+            return False
+        
+    async def try_close_position_dynamically(self, current_position, symbol, atr_now):
+        try:
+            ticker = await self.exchange.fetch_ticker(symbol)
+            mark_price = ticker.get("last") or ticker.get("close")
+            if mark_price is None:
+                return False
+
+            entry_price = current_position["entryPrice"]
+            current_side = "buy" if current_position["side"] == "long" else "sell"
+
+            if current_side == "buy":
+                lucro_pct = (mark_price - entry_price) / entry_price
+            else:
+                lucro_pct = (entry_price - mark_price) / entry_price
+
+            lucro_absoluto = lucro_pct * float(current_position["notional"])
+            lucro_minimo_pct = 0.5 * (atr_now / entry_price)
+            
+            pair = self.helpers.get_pair(symbol, self.pairs)
+            lucro_minimo_abs = pair.get("min_profit_abs", 5.0) if pair else 5.0
+
+            if lucro_pct >= lucro_minimo_pct and lucro_absoluto >= lucro_minimo_abs:
+                logging.info(
+                    f"💰 Fechamento antecipado: Lucro atual = {lucro_absoluto:.2f} USDC ({lucro_pct*100:.2f}%), ATR min = {lucro_minimo_pct*100:.2f}%, min $ = {lucro_minimo_abs}."
+                )
+                try:
+                    await self.order_manager.close_position(
+                        symbol, float(current_position["size"]), current_position["side"]
+                    )
+                    return True
+                except Exception as e:
+                    logging.error(f"Erro ao tentar fechar posição antecipadamente: {e}")
+                    # Aqui você pode decidir retornar False ou fazer alguma lógica alternativa
+                    return False
+
+            return False
+        except Exception:
+            logging.exception("❌ Erro ao tentar fechar posição de forma dinâmica com lucro")
             return False
     
     async def open_position(self, exchange_client, signal, capital_amount, pair):
@@ -223,41 +218,6 @@ class TradingBot:
             return
 
         await exchange_client.place_entry_order(entry_amount, price_ref, side)
-
-    async def manage_tp_sl(self, exchange_client, position, signal, order_manager, symbol):
-        entry_price = position.get("entryPrice")
-        if entry_price is None:
-            entry_price = await exchange_client.get_entry_price()
-
-        entry_amount = float(position["size"])
-        side = "buy" if position["side"] == "long" else "sell"
-
-        ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe=self.timeframe, limit=self.atr_period + 1)
-        indicators = Indicators(ohlcv)
-        atr_values = indicators.atr()
-        atr_now = atr_values[-1]
-
-        if atr_now is None:
-            logging.warning(f"❌ ATR não pôde ser calculado para {symbol}. Ignorando.")
-            return
-
-        sl_price, tp_price = self.calculate_sl_tp(entry_price, side, atr_now, signal["mode"])
-
-        logging.info(f"\n{symbol} 🎯 TP dinâmico: {tp_price} | 🛑 SL dinâmico: {sl_price}")
-
-        close_side = "sell" if side == "buy" else "buy"
-
-        # Validar valores antes de enviar ordens
-        min_order_value = 10  # dólares
-        if entry_amount * tp_price < min_order_value or entry_amount * sl_price < min_order_value:
-            logging.warning(f"🚫 Ordem TP/SL abaixo do mínimo para {symbol}. TP: {entry_amount * tp_price}, SL: {entry_amount * sl_price}")
-            return
-
-        try:
-            await order_manager.create_tp_sl_orders(symbol, entry_amount, tp_price, sl_price, close_side)
-        except Exception:
-            logging.exception("❌ Falha ao criar TP/SL. Fechando posição por segurança.")
-            await order_manager.close_position(symbol, entry_amount, close_side)
 
     def _calculate_sleep_time(self):
         now = datetime.now(timezone.utc)
@@ -298,6 +258,8 @@ class TradingBot:
     async def start(self):
         while True:
             try:
+                logging.info("⏳ Loop principal iniciado")
+
                 for pair in self.pairs:
                     candle_closed_time = await self.get_last_closed_candle_time(
                         pair["symbol"]
@@ -306,9 +268,8 @@ class TradingBot:
                         logging.info(
                             f"\n🕒 Nova vela detectada para {pair['symbol']} ({candle_closed_time}). Executando bot..."
                         )
-                        self.last_candle_times: dict[str, datetime | None] = {
-                            pair["symbol"]: None for pair in self.pairs
-                        }
+                   
+                        self.last_candle_times[pair["symbol"]] = candle_closed_time
                         await self.run_pair(pair)
                     else:
                         logging.info(
@@ -319,8 +280,15 @@ class TradingBot:
                 logging.info(
                     f"⏳ Dormindo por {sleep_time:.1f} segundos até próxima vela."
                 )
+                logging.info("✅ Loop principal finalizado. Aguardando próximo ciclo...")
                 await asyncio.sleep(sleep_time)
 
+            except ccxt.NetworkError as e:
+                logging.error(f"⚠️ Network error no loop principal: {str(e)}")
+                await asyncio.sleep(60)
+            except ccxt.ExchangeError as e:
+                logging.error(f"⚠️ Exchange error no loop principal: {str(e)}")
+                await asyncio.sleep(60)
             except Exception:
                 logging.exception("❌ Erro no loop principal")
                 await asyncio.sleep(60)
