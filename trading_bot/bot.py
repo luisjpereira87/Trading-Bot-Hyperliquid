@@ -187,7 +187,7 @@ class TradingBot:
                 )
                 try:
                     await self.order_manager.close_position(
-                        symbol, float(current_position["size"]), current_position["side"]
+                        symbol, float(current_position["size"]), self.helpers.position_side_to_signal_side(current_position["side"])
                     )
                     logging.info(f"✅ Posição encerrada de forma dinâmica com lucro em {symbol}")
                     return True
