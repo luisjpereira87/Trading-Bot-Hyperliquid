@@ -12,6 +12,19 @@ class TradingHelpers:
             "short": "sell"
         }
         return mapping.get(position_side.lower(), None)
+    
+    @staticmethod
+    def get_close_side_from_position_side(position_side: str) -> Optional[str]:
+        """
+        Dado o lado da posição ('long' ou 'short'), retorna o lado da ordem para fechar a posição:
+        'long' -> 'sell'
+        'short' -> 'buy'
+        """
+        mapping = {
+            "long": "sell",
+            "short": "buy"
+        }
+        return mapping.get(position_side.lower())
 
     @staticmethod
     def is_opposite_side(side1: str, side2: str) -> bool:
