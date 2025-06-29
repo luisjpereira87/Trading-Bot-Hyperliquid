@@ -95,23 +95,20 @@ class TradingBot:
             if current_position:
                 closed_early = await self.try_close_position_dynamically(current_position, symbol, atr_now)
                 if closed_early:
-                    logging.info(f"✅ Posição encerrada de forma dinâmica com lucro em {symbol}")
                     return  # ⚠️ IMPORTANTE: encerra execução antes de abrir nova posição
 
             # 👉 Etapa 2: Se ainda tem posição, verificar se é contrária ao novo sinal
             current_position = await exchange_client.get_open_position(symbol)
             if current_position:
-                # Verifica se o sinal é igual ao lado da posição aberta — se sim, ignora o sinal
-                position_side_signal = "buy" if current_position["side"] == "long" else "sell"
-                if signal["side"] == position_side_signal:
-                    logging.info(f"⚠️ Já existe posição {position_side_signal} aberta para {symbol}, ignorando sinal {signal['side']}")
-                    return  # Sai da execução para esse par, nada a fazer
-
                 if self.helpers.is_signal_opposite_position(signal["side"], current_position["side"]):
                     await self.order_manager.close_position(
                         symbol, float(current_position["size"]), current_position["side"]
                     )
                     current_position = None  # Atualiza estado
+                else:
+                    # Posição já está na mesma direção do sinal: ignora abrir nova posição
+                    logging.info(f"⚠️ Posição já aberta na mesma direção para {symbol}, ignorando nova entrada.")
+                    return  # Sai da função para não abrir nova posição
 
             # 👉 Etapa 3: Se não há mais posição, abrir nova
             if not current_position:
@@ -155,9 +152,8 @@ class TradingBot:
                 logging.info(
                     f"💰 Lucro baseado em ATR ({lucro_pct*100:.2f}%) acima do limite {lucro_minimo_atr*100:.2f}%, fechando posição {current_side} em {symbol}"
                 )
-                close_side = "sell" if current_side == "buy" else "buy"
                 
-                await self.order_manager.close_position(symbol, float(current_position["size"]), close_side)
+                await self.order_manager.close_position(symbol, float(current_position["size"]), current_side)
                 return True
             return False
         except Exception:
@@ -193,6 +189,7 @@ class TradingBot:
                     await self.order_manager.close_position(
                         symbol, float(current_position["size"]), current_position["side"]
                     )
+                    logging.info(f"✅ Posição encerrada de forma dinâmica com lucro em {symbol}")
                     return True
                 except Exception as e:
                     logging.error(f"Erro ao tentar fechar posição antecipadamente: {e}")
