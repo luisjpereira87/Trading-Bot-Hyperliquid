@@ -101,6 +101,12 @@ class TradingBot:
             # 👉 Etapa 2: Se ainda tem posição, verificar se é contrária ao novo sinal
             current_position = await exchange_client.get_open_position(symbol)
             if current_position:
+                # Verifica se o sinal é igual ao lado da posição aberta — se sim, ignora o sinal
+                position_side_signal = "buy" if current_position["side"] == "long" else "sell"
+                if signal["side"] == position_side_signal:
+                    logging.info(f"⚠️ Já existe posição {position_side_signal} aberta para {symbol}, ignorando sinal {signal['side']}")
+                    return  # Sai da execução para esse par, nada a fazer
+
                 if self.helpers.is_signal_opposite_position(signal["side"], current_position["side"]):
                     await self.order_manager.close_position(
                         symbol, float(current_position["size"]), current_position["side"]
