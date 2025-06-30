@@ -102,10 +102,6 @@ class TradingBot:
 
             signal = await self.get_combined_signal(symbol)
 
-            if signal.get("side") not in ["buy", "sell"]:
-                logging.info(f"\n⛔ No valid signal for {symbol}. Skipping.")
-                return
-
             await exchange_client.print_balance()
             await exchange_client.print_open_orders(symbol)
 
