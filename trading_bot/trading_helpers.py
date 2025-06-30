@@ -1,5 +1,7 @@
 from typing import Optional
 
+from utils.config_loader import PairConfig
+
 
 class TradingHelpers:
     @staticmethod
@@ -75,8 +77,8 @@ class TradingHelpers:
         return side
     
     @staticmethod
-    def get_pair(symbol: str, pairs: list[dict]) -> dict | None:
+    def get_pair(symbol: str, pairs: list[PairConfig]) -> Optional[PairConfig]:
         for pair in pairs:
-            if pair["symbol"] == symbol:
+            if pair.symbol == symbol:
                 return pair
         return None

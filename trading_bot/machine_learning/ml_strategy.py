@@ -26,9 +26,13 @@ class MLStrategy:
         self.model = None
         self.last_train_len = 0
 
-        if os.path.exists("models/modelo_rf.pkl"):
-            self.model = joblib.load("models/modelo_rf.pkl")
-            logging.info("📥 Modelo ML carregado com sucesso de 'models/modelo_rf.pkl'")
+       
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # pasta do arquivo atual
+        model_path = os.path.join(BASE_DIR, "models", "modelo_rf.pkl")
+
+        if os.path.exists(model_path):
+            self.model = joblib.load(model_path)
+            logging.info(f"📥 Modelo ML carregado com sucesso de '{model_path}'")
         else:
             logging.warning("⚠️ Modelo ainda não treinado.")
 
