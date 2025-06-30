@@ -20,31 +20,29 @@ from ta.volatility import AverageTrueRange
 logging.basicConfig(level=logging.INFO)
 
 # === CONFIGURAÇÕES ===
-SYMBOL = "ETH/USDC:USDC"
 TIMEFRAME = "15m"
 CANDLE_LIMIT = 10000
-CSV_PATH = f"data/ohlcv_data.csv"
+DATA_DIR = "data"
 MODEL_PATH = "models/modelo_rf.pkl"
 
 # ========== FETCH CANDLES ==========
-async def fetch_ohlcv():
+async def fetch_ohlcv(symbol):
     exchange = hyperliquid({
         "enableRateLimit": True,
         "testnet": True,
     })
-    logging.info(f"🔁 Baixando {CANDLE_LIMIT} candles para {SYMBOL}...")
+    logging.info(f"🔁 Baixando {CANDLE_LIMIT} candles para {symbol}...")
 
-    data = await exchange.fetch_ohlcv(SYMBOL, timeframe=TIMEFRAME, limit=CANDLE_LIMIT)
+    data = await exchange.fetch_ohlcv(symbol, timeframe=TIMEFRAME, limit=CANDLE_LIMIT)
     df = pd.DataFrame(data, columns=["timestamp", "open", "high", "low", "close", "volume"])
     df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
 
-    os.makedirs("data", exist_ok=True)
-    df.to_csv(CSV_PATH, index=False)
-    logging.info(f"✅ CSV salvo em: {CSV_PATH}")
+    os.makedirs(DATA_DIR, exist_ok=True)
+    csv_path = os.path.join(DATA_DIR, f"ohlcv_data_{symbol.replace('/', '_').replace(':', '_')}.csv")
+    df.to_csv(csv_path, index=False)
+    logging.info(f"✅ CSV salvo em: {csv_path}")
 
-    # Fecha a sessão para liberar recursos
     await exchange.close()
-
     return df
 
 # ========== PREPARA DATASET ==========
@@ -90,7 +88,6 @@ def train_and_save_model(features, labels):
     logging.info(f"📊 Acurácia: {acc:.4f}")
     print(report)
 
-    # Salva imagem da matriz de confusão
     os.makedirs("img", exist_ok=True)
     plt.figure(figsize=(6, 5))
     sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=["Baixa", "Neutro", "Alta"], yticklabels=["Baixa", "Neutro", "Alta"])
@@ -100,14 +97,12 @@ def train_and_save_model(features, labels):
     plt.savefig("img/imagem.png")
     plt.close()
 
-    # Salva o modelo treinado
     os.makedirs("models", exist_ok=True)
     joblib.dump(model, MODEL_PATH)
     logging.info(f"💾 Modelo salvo em: {MODEL_PATH}")
 
 def load_pair_configs():
-    # Caminho relativo à raiz do projeto
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # sobe 1 pasta para raiz
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     path = os.path.join(base_dir, "config", "pairs.json")
 
     try:
@@ -115,7 +110,6 @@ def load_pair_configs():
             pairs = json.load(f)
         return pairs
     except FileNotFoundError:
-        import logging
         logging.error(f"Arquivo de configuração {path} não encontrado.")
         return []
 
@@ -126,19 +120,20 @@ async def main():
         logging.warning("Nenhum par carregado da configuração.")
         return
 
+    df_all = pd.DataFrame()
     for pair_cfg in pairs:
         symbol = pair_cfg.get("symbol")
         if not symbol:
             logging.warning("Par sem símbolo ignorado.")
             continue
-        
-        logging.info(f"📈 Processando par: {symbol}")
-        global SYMBOL
-        SYMBOL = symbol
-        
-        df = await fetch_ohlcv()
-        features, labels = prepare_dataset(df)
-        train_and_save_model(features, labels)
+
+        df = await fetch_ohlcv(symbol)
+        df["symbol"] = symbol  # opcional para futura análise
+        df_all = pd.concat([df_all, df], ignore_index=True)
+
+    features, labels = prepare_dataset(df_all)
+    train_and_save_model(features, labels)
 
 if __name__ == "__main__":
     asyncio.run(main())
+
