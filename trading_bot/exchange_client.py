@@ -27,7 +27,7 @@ class ExchangeClient:
                 open_orders = await self.exchange.fetch_open_orders(params=params)
             logging.info(f"📘 Ordens abertas para {symbol if symbol else 'todos símbolos'} ({len(open_orders)}):")
             for order in open_orders:
-                logging.info(order)
+                logging.info(f"  ID: {order.get('id')}, Side: {order.get('side')}, Price: {order.get('price')}, Amount: {order.get('amount')}, Status: {order.get('status')}")
         except Exception as e:
             logging.error(f"Erro ao buscar ordens abertas: {e}")
 
@@ -117,7 +117,7 @@ class ExchangeClient:
             params = {'marginMode': 'isolated'}
             logging.info(f"Enviando ordem market ({side}) com params: {params}")
             order = await self.exchange.create_order(self.symbol, 'market', side, entry_amount, price_ref, params)
-            logging.info(f"✅ Ordem criada: {order}")
+            logging.info(f"✅ Ordem criada: id={order.get('id')}, side={order.get('side')}, amount={order.get('amount')}, price={order.get('price')}")
             return order
         except Exception as e:
             logging.error(f"Erro ao criar ordem de entrada: {e}")

@@ -19,17 +19,17 @@ class OrderManager:
             entry_price = await exchange_client.get_entry_price()
 
         entry_amount = float(position["size"])
-        side = "buy" if position["side"] == "long" else "sell"
+        #side = "buy" if position["side"] == "long" else "sell"
 
         if atr_now is None:
             logging.warning(f"❌ ATR não pôde ser calculado para {symbol}. Ignorando.")
             return
 
-        sl_price, tp_price = self.calculate_sl_tp(entry_price, side, atr_now, signal["mode"])
+        sl_price, tp_price = self.calculate_sl_tp(entry_price, position["side"], atr_now, signal["mode"])
 
         logging.info(f"\n{symbol} 🎯 TP dinâmico: {tp_price} | 🛑 SL dinâmico: {sl_price}")
 
-        close_side = "sell" if side == "buy" else "buy"
+        close_side = "sell" if position["side"] == "buy" else "buy"
 
         # --- NOVA VALIDAÇÃO DE SL/TP ---
         # Define percentuais mínimos e máximos para SL/TP em relação ao preço de entrada
@@ -141,7 +141,9 @@ class OrderManager:
     async def create_tp_sl_orders(self, symbol, amount, tp_price, sl_price, side_signal):
         try:
             positions = await self.exchange.fetch_positions()
-            logging.info(f"[DEBUG] Posições abertas: {positions}")
+            logging.info(f"Posições abertas ({len(positions)}):")
+            for pos in positions:
+                logging.info(f"  {pos['symbol']} - side: {pos['side']}, contratos: {pos['contracts']}, entryPrice: {pos['entryPrice']}")
 
             # Buscar posição aberta para o símbolo e que tenha contratos > 0
             position = next((p for p in positions if p['symbol'] == symbol and abs(float(p['contracts'])) > 0), None)
