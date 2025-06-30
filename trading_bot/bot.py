@@ -91,18 +91,23 @@ class TradingBot:
 
             current_position = await exchange_client.get_open_position(symbol)
 
-            # 👉 Etapa 1: Fechamento dinâmico com lucro
+            # 👉 Etapa 0: Fechamento dinâmico com lucro
             if current_position:
                 closed_early = await self.try_close_position_dynamically(current_position, symbol, atr_now)
                 if closed_early:
                     return  # ⚠️ IMPORTANTE: encerra execução antes de abrir nova posição
+
+            # 👉 Etapa 1: Verificação de sinal válido    
+            if signal.get("side") not in ["buy", "sell"]:
+                logging.info(f"\n⛔ Nenhum sinal válido para {symbol}. Ignorando.")
+                return
 
             # 👉 Etapa 2: Se ainda tem posição, verificar se é contrária ao novo sinal
             current_position = await exchange_client.get_open_position(symbol)
             if current_position:
                 if self.helpers.is_signal_opposite_position(signal["side"], current_position["side"]):
                     await self.order_manager.close_position(
-                        symbol, float(current_position["size"]), current_position["side"]
+                        symbol, float(current_position["size"]), self.helpers.get_opposite_side(current_position["side"])
                     )
                     current_position = None  # Atualiza estado
                 else:
@@ -130,7 +135,7 @@ class TradingBot:
             logging.error(f"⚠️ Exchange error para {symbol}: {str(e)}")
         except Exception:
             logging.exception(f"\n❌ Erro no bot para {symbol}")
-
+    """
     async def try_close_position_aggressive(self, current_position, signal, symbol, atr_now):
         try:
             ticker = await self.exchange.fetch_ticker(symbol)
@@ -159,18 +164,17 @@ class TradingBot:
         except Exception:
             logging.exception("❌ Falha ao tentar fechar posição agressiva com lucro baseado em ATR")
             return False
-        
+     """   
     async def try_close_position_dynamically(self, current_position, symbol, atr_now):
         try:
             ticker = await self.exchange.fetch_ticker(symbol)
             mark_price = ticker.get("last") or ticker.get("close")
             if mark_price is None:
                 return False
-
+            
             entry_price = current_position["entryPrice"]
-            current_side = "buy" if current_position["side"] == "long" else "sell"
 
-            if current_side == "buy":
+            if current_position["side"] == "buy":
                 lucro_pct = (mark_price - entry_price) / entry_price
             else:
                 lucro_pct = (entry_price - mark_price) / entry_price
@@ -186,9 +190,7 @@ class TradingBot:
                     f"💰 Fechamento antecipado: Lucro atual = {lucro_absoluto:.2f} USDC ({lucro_pct*100:.2f}%), ATR min = {lucro_minimo_pct*100:.2f}%, min $ = {lucro_minimo_abs}."
                 )
                 try:
-                    await self.order_manager.close_position(
-                        symbol, float(current_position["size"]), self.helpers.get_close_side_from_position_side(current_position["side"])
-                    )
+                    await self.order_manager.close_position(symbol, float(current_position["size"]), self.helpers.get_opposite_side(current_position["side"]))
                     logging.info(f"✅ Posição encerrada de forma dinâmica com lucro em {symbol}")
                     return True
                 except Exception as e:
