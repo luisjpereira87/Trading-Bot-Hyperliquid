@@ -1,5 +1,7 @@
 import logging
 
+from .trading_helpers import TradingHelpers
+
 
 class ExchangeClient:
     def __init__(self, exchange, wallet_address, symbol, leverage):
@@ -7,6 +9,7 @@ class ExchangeClient:
         self.wallet_address = wallet_address
         self.symbol = symbol
         self.leverage = leverage
+        self.helpers = TradingHelpers()
 
     async def print_balance(self):
         try:
@@ -50,7 +53,7 @@ class ExchangeClient:
                     size = float(pos['contracts'])
                     entry_price = pos.get('entryPrice') or pos.get('entry_price') or pos.get('averagePrice') or 0.0
                     return {
-                        'side': pos['side'],
+                        'side': self.helpers.position_side_to_signal_side(pos['side']),
                         'size': size,
                         'entryPrice': entry_price,
                         'notional': size * entry_price

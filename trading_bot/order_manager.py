@@ -218,14 +218,14 @@ class OrderManager:
         """
         Fecha posição com ordem de mercado. Usa 'side' atual para calcular o lado oposto (close_side).
         """
-        close_side = 'sell' if side == 'buy' else 'buy'
+        #close_side = 'sell' if side == 'buy' else 'buy'
 
-        logging.info(f"[DEBUG] Tentando fechar posição: symbol={symbol}, side={side}, close_side={close_side}, amount={amount}")
+        logging.info(f"[DEBUG] Tentando fechar posição: symbol={symbol}, side={side}, amount={amount}")
 
         try:
             orderbook = await self.exchange.fetch_order_book(symbol)
 
-            if close_side == 'buy':
+            if side == 'buy':
                 price = orderbook['asks'][0][0] if orderbook['asks'] else None
             else:
                 price = orderbook['bids'][0][0] if orderbook['bids'] else None
@@ -239,7 +239,7 @@ class OrderManager:
             order = await self.exchange.create_order(
                 symbol,
                 'market',
-                close_side,
+                side,
                 amount,
                 price,
                 params={'reduceOnly': True}
@@ -248,6 +248,7 @@ class OrderManager:
 
         except Exception as e:
             logging.error(f"❌ Erro ao fechar posição: {e}")
+            raise
 
 
 

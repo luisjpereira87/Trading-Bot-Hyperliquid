@@ -33,16 +33,30 @@ class TradingHelpers:
         """
         opposites = {"buy": "sell", "sell": "buy"}
         return opposites.get(side1) == side2
+    
+    @staticmethod
+    def get_opposite_side(side: str) -> Optional[str]:
+        """
+        Dado o lado da posição ('sell' ou 'buy'), retorna o lado oposto 
+        'buy' -> 'sell'
+        'sell' -> 'buy'
+        """
+        mapping = {
+            "buy": "sell",
+            "sell": "buy"
+        }
+
+        return mapping.get(side.lower())
 
     @classmethod
     def is_signal_opposite_position(cls, signal_side: str, position_side: str) -> bool:
         """
         Verifica se o sinal é contrário à posição aberta.
         """
-        pos_signal = cls.position_side_to_signal_side(position_side)
-        if pos_signal is None:
+        #pos_signal = cls.position_side_to_signal_side(position_side)
+        if position_side is None:
             return False
-        return cls.is_opposite_side(signal_side, pos_signal)
+        return cls.is_opposite_side(signal_side, position_side)
 
     @staticmethod
     def is_valid_signal(signal: dict) -> bool:

@@ -157,7 +157,7 @@ class MLStrategy:
             self.train(features, labels)
 
             os.makedirs("data", exist_ok=True)
-            filename = f"data/{self.symbol.replace('/', '_')}_{self.timeframe}_train.csv"
+            filename = f"data/{self.symbol.replace('/', '_').replace(':', '_')}_{self.timeframe}_train.csv"
             df.to_csv(filename, index=False)
             logging.info(f"📁 Dataset salvo para treino em: {filename}")
 
