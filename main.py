@@ -1,8 +1,12 @@
 # trading_bot/main.py
 import asyncio
 import logging
-from dotenv import load_dotenv
 import os
+import sys
+
+from dotenv import load_dotenv
+
+from machine_learning.ml_train_pipeline import MLTrainer
 from trading_bot.bot import TradingBot
 
 load_dotenv()
@@ -15,10 +19,30 @@ logging.basicConfig(
     ]
 )
 
-async def main():
+async def run_bot():
+    print("🔁 A correr o bot de trading...")
     bot = TradingBot()
-    await bot.start()  # agora o próprio bot controla o intervalo com base nas velas
+    await bot.start() 
+
+async def run_train():
+    print("🤖 A treinar o modelo ML...")
+    mlTrainer = MLTrainer()
+    await mlTrainer.run() 
+
+async def run_backtest():
+    print("📊 A executar backtest...")
+    # aqui chamas a função de backtesting
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    if len(sys.argv) < 2:
+         asyncio.run(run_bot())
+    else:
+        comando = sys.argv[1].lower()
+        if comando == "train":
+            asyncio.run(run_train())
+        elif comando == "backtest":
+            asyncio.run(run_backtest())
+        else:
+            print(f"❌ Comando desconhecido: {comando}")
+            print("Usa: python main.py [treino | backtest]")
 
