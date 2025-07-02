@@ -10,7 +10,8 @@ SYMBOLS = ["ETH/USDC:USDC", "BTC/USDC:USDC"]
 TIMEFRAME = "15m"
 START_DATE = "2024-01-01"
 END_DATE = "2024-06-01"
-OUTPUT_DIR = "data"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUTPUT_DIR = os.path.join(BASE_DIR, "data")
 LIMIT = 1000  # máximo por request para Hyperliquid
 
 # ================

@@ -7,13 +7,12 @@ from datetime import datetime, timedelta, timezone
 import ccxt.async_support as ccxt  # type: ignore
 import pytz  # type: ignore
 
+from strategies.indicators import Indicators  # Para cálculo ATR
 from utils.config_loader import load_pair_configs
 
 from .exchange_client import ExchangeClient
-from .machine_learning.ml_strategy import MLStrategy
 from .order_manager import OrderManager
-from .strategies.indicators import Indicators  # Para cálculo ATR
-from .strategy import Strategy
+from .strategy_manager import StrategyManager
 from .trading_helpers import TradingHelpers
 
 
@@ -48,40 +47,6 @@ class TradingBot:
         )
         self.order_manager = OrderManager(self.exchange)
         self.helpers = TradingHelpers()
-    
-    async def get_combined_signal(self, symbol):
-        strategy = Strategy(self.exchange, symbol, self.timeframe)
-        ml_strategy = MLStrategy(self.exchange, symbol, timeframe=self.timeframe, train_interval=100)
-
-        ml_signal = await ml_strategy.run()  # pode ser string tipo "buy", "sell" ou dict?
-        other_signal = await strategy.get_signal()  # provavelmente dict
-
-        valid_signals = {"buy", "sell", "hold"}
-
-        # Ajusta ml_signal se for dict
-        if isinstance(ml_signal, dict):
-            ml_signal_side = ml_signal.get("side", "hold")
-        else:
-            ml_signal_side = ml_signal
-
-        ml_signal_side = ml_signal_side if ml_signal_side in valid_signals else "hold"
-
-        # Ajusta other_signal, que é dict
-        other_signal_side = other_signal.get("side", "hold") if isinstance(other_signal, dict) else "hold"
-        other_signal_side = other_signal_side if other_signal_side in valid_signals else "hold"
-
-        logging.info(f"ML signal for {symbol}: {ml_signal_side}")
-        logging.info(f"Other signal for {symbol}: {other_signal_side}")
-
-        if ml_signal_side == other_signal_side:
-            return {"side": ml_signal_side, "mode": "combined"}
-
-        if ml_signal_side == "hold" and other_signal_side in {"buy", "sell"}:
-            return {"side": other_signal_side, "mode": "combined"}
-        if other_signal_side == "hold" and ml_signal_side in {"buy", "sell"}:
-            return {"side": ml_signal_side, "mode": "combined"}
-
-        return {"side": "hold", "mode": "combined"}
 
     async def run_pair(self, pair):
         symbol = pair.symbol
@@ -100,7 +65,9 @@ class TradingBot:
             balance_total = await exchange_client.get_total_balance()
             capital_amount = balance_total * capital_pct * leverage
 
-            signal = await self.get_combined_signal(symbol)
+            signal = await StrategyManager(self.exchange, symbol, self.timeframe, 'ml').get_signal()
+
+            #signal = await self.get_combined_signal(symbol)
 
             await exchange_client.print_balance()
             await exchange_client.print_open_orders(symbol)

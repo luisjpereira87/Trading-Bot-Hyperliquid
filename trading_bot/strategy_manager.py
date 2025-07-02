@@ -1,20 +1,29 @@
-from trading_bot.strategies.ai_supertrend import AISuperTrend
-from trading_bot.strategies.supertrend import SuperTrend
-from trading_bot.strategies.ut_bot_alerts import UTBotAlerts
 import logging
 
-class Strategy:
+from strategies.ai_supertrend import AISuperTrend
+from strategies.combined import CombinedStrategy
+from strategies.ml_strategy import MLStrategy
+from strategies.supertrend import SuperTrend
+from strategies.ut_bot_alerts import UTBotAlerts
+
+
+class StrategyManager:
     def __init__(self, exchange, symbol, timeframe, name='ai_supertrend'):
         self.exchange = exchange
         self.symbol = symbol
         self.timeframe = timeframe
         self.name = name.lower()
         self.strategy = None
+        self.mode = 'normal'
 
     async def get_signal(self):
         if self.name == 'ai_supertrend':
-            mode = await self._detect_mode()
-            self.strategy = AISuperTrend(self.exchange, self.symbol, self.timeframe, mode=mode)
+            self.mode = await self._detect_mode()
+            self.strategy = AISuperTrend(self.exchange, self.symbol, self.timeframe, mode=self.mode)
+        elif self.name == 'combined':
+            self.strategy = CombinedStrategy(self.exchange, self.symbol, self.timeframe)
+        elif self.name == 'ml':
+            self.strategy = MLStrategy(self.exchange, self.symbol, self.timeframe)
         elif self.name == 'supertrend':
             self.strategy = SuperTrend(self.exchange, self.symbol, self.timeframe)
         elif self.name == 'ut_bot_alerts':
@@ -23,7 +32,8 @@ class Strategy:
             raise ValueError(f"Estratégia '{self.name}' não reconhecida.")
 
         signal = await self.strategy.get_signal()
-        return {'side':signal, 'mode':mode} 
+        return {'side':signal, 'mode':self.mode} 
+    
 
     async def _detect_mode(self, period=20, volume_multiplier=1.1):
         try:

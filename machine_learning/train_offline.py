@@ -87,8 +87,10 @@ def evaluate_model(model, features, labels, plot_enabled=True):
 
 
 def main():
-    # ⚠️ Altere aqui o caminho do seu CSV se necessário
-    csv_path = "data/ohlcv_data.csv"
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    csv_path = os.path.join(base_dir, "data", "ohlcv_data.csv")
+    img_dir = os.path.join(base_dir, "machine_learning", "img")
+    model_path = os.path.join(base_dir, "machine_learning", "models", "modelo_rf.pkl")
 
     if not os.path.exists(csv_path):
         logging.error(f"Arquivo CSV não encontrado em: {csv_path}")
@@ -101,15 +103,19 @@ def main():
         logging.error("O CSV não contém todas as colunas necessárias: open, high, low, close, volume")
         return
 
+    if df.empty:
+        logging.error("O DataFrame está vazio. Verifique o conteúdo do CSV.")
+        return
+
     logging.info("📥 CSV carregado com sucesso")
     features, labels = prepare_dataset(df)
 
     model = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
     trained_model = evaluate_model(model, features, labels, plot_enabled=True)
 
-    os.makedirs("models", exist_ok=True)
-    joblib.dump(trained_model, "models/modelo_rf.pkl")
-    logging.info("💾 Modelo treinado salvo em 'models/modelo_rf.pkl'")
+    os.makedirs(os.path.dirname(model_path), exist_ok=True)
+    joblib.dump(trained_model, model_path)
+    logging.info(f"💾 Modelo treinado salvo em '{model_path}'")
 
 
 if __name__ == "__main__":

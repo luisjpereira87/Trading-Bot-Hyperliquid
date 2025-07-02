@@ -7,9 +7,11 @@ class Indicators:
         ohlcv: lista de velas, onde cada vela é [timestamp, open, high, low, close, volume]
         """
         self.ohlcv = ohlcv
-        self.closes = [c[4] for c in ohlcv]
+        self.opens = [c[1] for c in ohlcv]
         self.highs = [c[2] for c in ohlcv]
         self.lows = [c[3] for c in ohlcv]
+        self.closes = [c[4] for c in ohlcv]
+        self.volumes = [c[5] for c in ohlcv] if len(ohlcv[0]) > 5 else []
 
     def ema(self, period=21):
         ema = []

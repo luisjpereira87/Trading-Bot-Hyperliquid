@@ -22,17 +22,21 @@ class MLStrategy:
         self.timeframe = timeframe
         self.train_interval = train_interval
         self.plot_enabled = plot_enabled
-        self.enable_training = enable_training  # flag para controle de treino
+        self.enable_training = enable_training
         self.model = None
         self.last_train_len = 0
+        self.confidence_threshold = 0.55
 
-       
-        BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # pasta do arquivo atual
-        model_path = os.path.join(BASE_DIR, "models", "modelo_rf.pkl")
+        self.model_dir = os.path.join("machine_learning", "models")
+        self.model_path = os.path.join(self.model_dir, "modelo_rf.pkl")
+        self.data_dir = "data"
+        self.image_path = "img/imagem.png"
 
-        if os.path.exists(model_path):
-            self.model = joblib.load(model_path)
-            logging.info(f"📥 Modelo ML carregado com sucesso de '{model_path}'")
+        logging.info(f"Tentando carregar modelo em: {self.model_path}")
+
+        if os.path.exists(self.model_path):
+            self.model = joblib.load(self.model_path)
+            logging.info(f"📥 Modelo ML carregado com sucesso de '{self.model_path}'")
         else:
             logging.warning("⚠️ Modelo ainda não treinado.")
 
@@ -42,7 +46,7 @@ class MLStrategy:
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
         return df
 
-    def prepare_dataset(self, df):
+    def calculate_features(self, df):
         df = df.copy()
         df['ema9'] = df['close'].ewm(span=9, adjust=False).mean()
         df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
@@ -53,8 +57,12 @@ class MLStrategy:
         df['stoch_k'] = stoch.stoch()
         df['stoch_d'] = stoch.stoch_signal()
         df['pct_change'] = df['close'].pct_change()
+        return df
 
+    def prepare_dataset(self, df):
+        df = self.calculate_features(df)
         df['future_return'] = df['close'].shift(-3) / df['close'] - 1
+
         conditions = [
             (df['future_return'] > 0.003),
             (df['future_return'] < -0.003)
@@ -84,10 +92,8 @@ class MLStrategy:
         report = classification_report(y_test, y_pred, digits=4)
         cm = confusion_matrix(y_test, y_pred)
 
-        print("Matriz de Confusão:")
-        print(cm)
-
         logging.info(f"📊 Avaliação do Modelo - Acurácia: {acc:.4f}")
+        logging.info(f"Matriz de Confusão:\n{cm}")
         logging.info(f"\nRelatório de Classificação:\n{report}")
 
         if self.plot_enabled:
@@ -103,7 +109,8 @@ class MLStrategy:
             plt.xlabel('Predito')
             plt.ylabel('Real')
             plt.title('Matriz de Confusão')
-            plt.savefig("img/imagem.png")
+            os.makedirs(os.path.dirname(self.image_path), exist_ok=True)
+            plt.savefig(self.image_path)
             plt.close()
 
         return model
@@ -114,61 +121,59 @@ class MLStrategy:
         self.last_train_len = len(features)
         logging.info("✅ Modelo ML treinado e avaliado com sucesso!")
 
-        # ✅ Guarda modelo treinado
-        os.makedirs("models", exist_ok=True)
-        joblib.dump(self.model, "models/modelo_rf.pkl")
-        logging.info("💾 Modelo salvo em 'models/modelo_rf.pkl'")
+        os.makedirs(self.model_dir, exist_ok=True)
+        joblib.dump(self.model, self.model_path)
+        logging.info(f"💾 Modelo salvo em '{self.model_path}'")
 
     def predict_signal(self, df):
         if self.model is None:
             logging.warning("⚠️ Modelo ainda não treinado.")
             return "hold"
 
-        rsi = RSIIndicator(df['close']).rsi().iloc[-1]
-        atr = AverageTrueRange(df['high'], df['low'], df['close']).average_true_range().iloc[-1]
-        ema9 = df['close'].ewm(span=9, adjust=False).mean().iloc[-1]
-        ema21 = df['close'].ewm(span=21, adjust=False).mean().iloc[-1]
-        macd = ema9 - ema21
-        stoch = StochasticOscillator(df['high'], df['low'], df['close'], window=14, smooth_window=3)
-        stoch_k = stoch.stoch().iloc[-1]
-        stoch_d = stoch.stoch_signal().iloc[-1]
-        pct_change = df['close'].pct_change().iloc[-1]
+        df = self.calculate_features(df)
+        latest = df.iloc[-1]
 
-        features = pd.DataFrame(
-            [[rsi, atr, macd, pct_change, ema9, ema21, stoch_k, stoch_d]],
-            columns=['rsi', 'atr', 'macd', 'pct_change', 'ema9', 'ema21', 'stoch_k', 'stoch_d']
-        )
+        features = pd.DataFrame([[
+            latest['rsi'], latest['atr'], latest['macd'],
+            latest['pct_change'], latest['ema9'], latest['ema21'],
+            latest['stoch_k'], latest['stoch_d']
+        ]], columns=['rsi', 'atr', 'macd', 'pct_change', 'ema9', 'ema21', 'stoch_k', 'stoch_d'])
+
+        if features.isnull().values.any():
+            logging.warning("⚠️ Features contêm NaNs. Retornando 'hold'.")
+            return "hold"
 
         proba = self.model.predict_proba(features)[0]
         logging.info(f"ML prob baixa: {proba[0]:.2f}, neutro: {proba[1]:.2f}, alta: {proba[2]:.2f}")
 
         idx = proba.argmax()
-        if idx == 2 and proba[2] > 0.5:
+        if idx == 2 and proba[2] > self.confidence_threshold:
             return "buy"
-        elif idx == 0 and proba[0] > 0.5:
+        elif idx == 0 and proba[0] > self.confidence_threshold:
             return "sell"
         else:
             return "hold"
 
     async def train_if_due(self, df):
         if not self.enable_training:
-            logging.info("Treinamento desabilitado (enable_training=False). Pulando treino.")
+            logging.info("🛑 Treinamento desabilitado (enable_training=False). Pulando treino.")
             return
 
         if len(df) - self.last_train_len >= self.train_interval:
-            logging.info(f"Treinamento devido. Treinando modelo com {len(df)} registros...")
+            logging.info(f"🔄 Treinamento devido. Treinando modelo com {len(df)} registros...")
             features, labels = self.prepare_dataset(df)
             self.train(features, labels)
 
-            os.makedirs("data", exist_ok=True)
-            filename = f"data/{self.symbol.replace('/', '_').replace(':', '_')}_{self.timeframe}_train.csv"
+            os.makedirs(self.data_dir, exist_ok=True)
+            filename = os.path.join(self.data_dir, f"{self.symbol.replace('/', '_').replace(':', '_')}_{self.timeframe}_train.csv")
             df.to_csv(filename, index=False)
             logging.info(f"📁 Dataset salvo para treino em: {filename}")
 
-    async def run(self):
+    async def get_signal(self):
         df = await self.fetch_ohlcv()
         await self.train_if_due(df)
         signal = self.predict_signal(df)
         logging.info(f"🚦 Sinal ML para {self.symbol}: {signal}")
         return signal
+
 
