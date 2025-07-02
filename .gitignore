@@ -5,3 +5,4 @@ __pycache__/
 .DS_Store
 trading_bot/.DS_Store
 img
+mypy.ini

@@ -7,6 +7,7 @@ import sys
 from dotenv import load_dotenv
 
 from machine_learning.ml_train_pipeline import MLTrainer
+from tests.test_run import BacktestRunner
 from trading_bot.bot import TradingBot
 
 load_dotenv()
@@ -31,7 +32,8 @@ async def run_train():
 
 async def run_backtest():
     print("📊 A executar backtest...")
-    # aqui chamas a função de backtesting
+    backtestRunner = BacktestRunner()
+    await backtestRunner.run() 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

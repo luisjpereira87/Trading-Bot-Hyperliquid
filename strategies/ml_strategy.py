@@ -16,13 +16,14 @@ from ta.volatility import AverageTrueRange
 
 
 class MLStrategy:
-    def __init__(self, exchange, symbol, timeframe='15m', train_interval=100, plot_enabled=False, enable_training=False):
+    def __init__(self, exchange, symbol, timeframe='15m', train_interval=100, plot_enabled=False, enable_training=False, aggressive_mode=False):
         self.exchange = exchange
         self.symbol = symbol
         self.timeframe = timeframe
         self.train_interval = train_interval
         self.plot_enabled = plot_enabled
         self.enable_training = enable_training
+        self.aggressive_mode = aggressive_mode
         self.model = None
         self.last_train_len = 0
         self.confidence_threshold = 0.55
@@ -147,12 +148,23 @@ class MLStrategy:
         logging.info(f"ML prob baixa: {proba[0]:.2f}, neutro: {proba[1]:.2f}, alta: {proba[2]:.2f}")
 
         idx = proba.argmax()
-        if idx == 2 and proba[2] > self.confidence_threshold:
-            return "buy"
-        elif idx == 0 and proba[0] > self.confidence_threshold:
-            return "sell"
+        
+        if self.aggressive_mode:
+            # Executa a previsão com maior probabilidade, sem considerar o threshold
+            if idx == 2:
+                return "buy"
+            elif idx == 0:
+                return "sell"
+            else:
+                return "hold"
         else:
-            return "hold"
+            # Modo conservador: só executa se for confiável
+            if idx == 2 and proba[2] > self.confidence_threshold:
+                return "buy"
+            elif idx == 0 and proba[0] > self.confidence_threshold:
+                return "sell"
+            else:
+                return "hold"
 
     async def train_if_due(self, df):
         if not self.enable_training:
