@@ -67,17 +67,17 @@ class TradingBot:
 
             signal = await StrategyManager(self.exchange, symbol, self.timeframe, 'ml').get_signal()
 
-            #signal = await self.get_combined_signal(symbol)
-
             await exchange_client.print_balance()
             await exchange_client.print_open_orders(symbol)
 
             current_position = await exchange_client.get_open_position(symbol)
 
+            """
             if current_position:
                 closed_early = await self.try_close_position_with_profit(current_position, symbol, atr_now)
                 if closed_early:
                     return
+            """
 
             if signal.get("side") not in ["buy", "sell"]:
                 logging.info(f"\n⛔ No valid signal for {symbol}. Skipping.")

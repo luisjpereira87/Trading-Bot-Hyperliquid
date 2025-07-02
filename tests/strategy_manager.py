@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime
+from typing import Any, Dict
 
 from strategies.ai_supertrend import AISuperTrend
 from strategies.ml_strategy import MLStrategy
@@ -16,7 +17,8 @@ class StrategyManager:
         # Dicionário de estratégias, pode adicionar/remover facilmente
         self.strategies = {
             'ml': MLStrategy(exchange, symbol, timeframe),
-            **self.create_supertrend_variations(self.exchange, self.symbol, self.timeframe)
+            'ml-aggresive': MLStrategy(exchange, symbol, timeframe,aggressive_mode=True)
+            #**self.create_supertrend_variations(self.exchange, self.symbol, self.timeframe)
             #'supertrend_default': AISuperTrend(exchange, symbol, timeframe),
             # Exemplos de várias AISuperTrend com parâmetros diferentes:
             # 'supertrend_param1': AISuperTrend(exchange, symbol, timeframe, param1=123),
@@ -32,7 +34,7 @@ class StrategyManager:
         self.used_margin = 0.0
 
         self.position_sizes = {name: 0.0 for name in self.strategies}
-        self.last_position = {name: None for name in self.strategies}
+        self.last_position : Dict[str, Any] ={name: None for name in self.strategies}
         self.orders = {name: [] for name in self.strategies}
 
         self.signal_counts = {name: {'buy': 0, 'sell': 0, 'hold': 0} for name in self.strategies}
