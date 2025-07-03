@@ -114,41 +114,44 @@ class ExchangeClient:
     async def place_entry_order(self, entry_amount, price_ref, side, sl_price=None, tp_price=None):
         try:
             await self.exchange.set_margin_mode("isolated", self.symbol, {'leverage': self.leverage})
-
-            #params = {'marginMode': 'isolated'}
-
-            # Se SL e TP forem fornecidos, adicionar ao params no formato correto
-            if sl_price is not None and tp_price is not None:
-                params = {
-                    'marginMode': 'isolated',
-                    'stopLoss': {
-                        'triggerPrice': sl_price,
-                        'price': sl_price
-                    },
-                    'takeProfit': {
-                        'triggerPrice': tp_price,
-                        'price': tp_price
-                    },
-                    'reduceOnly': True
+    
+            # Começa com os parâmetros básicos
+            params = {
+                'marginMode': 'isolated',
+                'reduceOnly': True,  # geralmente ordens de saída têm reduceOnly=True, confirme seu uso aqui
+            }
+    
+            # Se SL válido, adiciona
+            if sl_price is not None and sl_price > 0:
+                params['stopLoss'] = {
+                    'triggerPrice': sl_price,
+                    'price': sl_price
                 }
-
+    
+            # Se TP válido, adiciona
+            if tp_price is not None and tp_price > 0:
+                params['takeProfit'] = {
+                    'triggerPrice': tp_price,
+                    'price': tp_price
+                }
+    
             logging.info(f"Enviando ordem market ({side}) com params: {params}")
-
+    
             order = await self.exchange.create_order(
                 self.symbol,
-                'market',  # tipo pode ser 'market' ou 'limit' conforme sua estratégia
+                'market',
                 side,
                 entry_amount,
                 price_ref,
                 params
             )
-
+    
             logging.info(f"✅ Ordem criada: id={order.get('id')}, side={order.get('side')}, amount={order.get('amount')}, price={order.get('price')}")
             return order
-
+    
         except Exception as e:
             logging.error(f"Erro ao criar ordem de entrada: {e}")
-
+    
         return None
 
     async def get_entry_price(self):
