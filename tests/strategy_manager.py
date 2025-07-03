@@ -7,6 +7,10 @@ from strategies.ai_supertrend import AISuperTrend
 from strategies.ml_strategy import MLStrategy
 from tests.strategy_evaluator import StrategyEvaluator
 
+# Assumindo SignalResult tem atributos signal, sl, tp
+# from strategies.signal_result import SignalResult 
+
+
 
 class StrategyManager:
     def __init__(self, exchange, symbol, timeframe, initial_capital=1000.0, leverage=10):
@@ -14,15 +18,9 @@ class StrategyManager:
         self.symbol = symbol
         self.timeframe = timeframe
 
-        # Dicionário de estratégias, pode adicionar/remover facilmente
         self.strategies = {
             'ml': MLStrategy(exchange, symbol, timeframe),
-            'ml-aggresive': MLStrategy(exchange, symbol, timeframe,aggressive_mode=True)
-            #**self.create_supertrend_variations(self.exchange, self.symbol, self.timeframe)
-            #'supertrend_default': AISuperTrend(exchange, symbol, timeframe),
-            # Exemplos de várias AISuperTrend com parâmetros diferentes:
-            # 'supertrend_param1': AISuperTrend(exchange, symbol, timeframe, param1=123),
-            # 'supertrend_param2': AISuperTrend(exchange, symbol, timeframe, param1=456),
+            'ml-aggresive': MLStrategy(exchange, symbol, timeframe, aggressive_mode=True)
         }
 
         self.evaluator = StrategyEvaluator()
@@ -34,39 +32,14 @@ class StrategyManager:
         self.used_margin = 0.0
 
         self.position_sizes = {name: 0.0 for name in self.strategies}
-        self.last_position : Dict[str, Any] ={name: None for name in self.strategies}
-        self.orders = {name: [] for name in self.strategies}
+        self.last_position: Dict[str, Any] = {name: None for name in self.strategies}
 
+        self.orders = {name: [] for name in self.strategies}
         self.signal_counts = {name: {'buy': 0, 'sell': 0, 'hold': 0} for name in self.strategies}
         self.order_counts = {name: {'opened': 0, 'closed': 0} for name in self.strategies}
 
-    def create_supertrend_variations(self, exchange, symbol, timeframe):
-        strategies = {}
-
-        modes = ['conservative', 'aggressive']
-        multipliers = [1.0, 1.2, 1.5]
-        adx_thresholds = [15, 20, 25]
-        rsi_buy_thresholds = [30, 40, 50]
-        rsi_sell_thresholds = [50, 60, 70]
-
-        for mode in modes:
-            for multiplier in multipliers:
-                for adx_th in adx_thresholds:
-                    for rsi_buy in rsi_buy_thresholds:
-                        for rsi_sell in rsi_sell_thresholds:
-                            name = f"supertrend_{mode}_m{multiplier}_adx{adx_th}_rsiBuy{rsi_buy}_rsiSell{rsi_sell}"
-                            strategies[name] = AISuperTrend(
-                                exchange,
-                                symbol,
-                                timeframe,
-                                mode=mode,
-                                multiplier=multiplier,
-                                adx_threshold=adx_th,
-                                rsi_buy_threshold=rsi_buy,
-                                rsi_sell_threshold=rsi_sell
-                            )
-
-        return strategies
+        # Armazenar o último SignalResult completo
+        self.last_signals: Dict[str, Any] = {name: None for name in self.strategies}
 
     def normalize_signal(self, signal):
         if signal not in ['buy', 'sell', 'hold']:
@@ -97,7 +70,7 @@ class StrategyManager:
             msg += f" a preço {price:.4f}"
         logging.info(msg)
 
-    def open_order(self, strategy_name, side, price):
+    def open_order(self, strategy_name, side, price, sl=None, tp=None):
         quantity = self.calculate_quantity(price)
         if quantity <= 0:
             logging.warning(f"[{strategy_name}] Capital insuficiente para abrir nova ordem")
@@ -110,7 +83,9 @@ class StrategyManager:
             'open_time': datetime.utcnow(),
             'close_time': None,
             'profit': None,
-            'status': 'open'
+            'status': 'open',
+            'sl': sl,   # stop loss
+            'tp': tp    # take profit
         }
         self.orders[strategy_name].append(order)
 
@@ -121,7 +96,7 @@ class StrategyManager:
         logging.debug(f"[{strategy_name}] Ordem aberta: {order}")
         return order
 
-    def close_order(self, strategy_name, order, close_price):
+    def close_order(self, strategy_name, order, close_price, reason=''):
         if order is None or order['status'] != 'open':
             return
         order['close_time'] = datetime.utcnow()
@@ -134,21 +109,67 @@ class StrategyManager:
 
         self.order_counts[strategy_name]['closed'] += 1
 
-        logging.info(f"[{strategy_name}] Fechando ordem com lucro {order['profit']:.4f}. Capital agora: {self.capital:.2f}")
+        logging.info(f"[{strategy_name}] Fechando ordem com lucro {order['profit']:.4f} por {reason}. Capital agora: {self.capital:.2f}")
         self.evaluator.record_trade(strategy_name, order['profit'], timestamp=order['close_time'])
 
         logging.debug(f"[{strategy_name}] Ordem fechada: {order}")
 
-    def update_profit(self, strategy_name, signal, current_price):
+    def check_liquidation(self):
+        # Se capital <= 0, fecha todas posições abertas forçando liquidação
+        if self.capital <= 0:
+            logging.warning("Capital <= 0! Forçando fechamento de todas posições (liquidação)")
+            for strat in self.strategies.keys():
+                last_pos = self.last_position[strat]
+                if last_pos and last_pos['status'] == 'open':
+                    self.close_order(strat, last_pos, last_pos['entry_price'], reason='liquidação por capital zero')
+                    self.last_position[strat] = None
+
+    def update_profit(self, strategy_name, signal_result, current_price):
+        # signal_result é o objeto SignalResult com .signal, .sl e .tp
+        signal = getattr(signal_result, 'signal', 'hold')
+        sl = getattr(signal_result, 'sl', None)
+        tp = getattr(signal_result, 'tp', None)
+
         if signal in self.signal_counts[strategy_name]:
             self.signal_counts[strategy_name][signal] += 1
 
         last_pos = self.last_position[strategy_name]
-        logging.debug(f"[{strategy_name}] last_pos={last_pos}, signal={signal}, current_price={current_price}")
 
+        # Primeiro, checar se a posição aberta bateu SL ou TP
+        if last_pos and last_pos['status'] == 'open':
+            if last_pos['sl'] is not None:
+                # Checar stop loss: depende do lado da posição
+                if last_pos['side'] == 'buy' and current_price <= last_pos['sl']:
+                    self.close_order(strategy_name, last_pos, last_pos['sl'], reason='stop loss atingido')
+                    self.log_position_change(strategy_name, "Fechando", last_pos['side'], last_pos['profit'], last_pos['sl'])
+                    self.last_position[strategy_name] = None
+                    last_pos = None
+                elif last_pos['side'] == 'sell' and current_price >= last_pos['sl']:
+                    self.close_order(strategy_name, last_pos, last_pos['sl'], reason='stop loss atingido')
+                    self.log_position_change(strategy_name, "Fechando", last_pos['side'], last_pos['profit'], last_pos['sl'])
+                    self.last_position[strategy_name] = None
+                    last_pos = None
+
+            if last_pos and last_pos['tp'] is not None:
+                # Checar take profit
+                if last_pos['side'] == 'buy' and current_price >= last_pos['tp']:
+                    self.close_order(strategy_name, last_pos, last_pos['tp'], reason='take profit atingido')
+                    self.log_position_change(strategy_name, "Fechando", last_pos['side'], last_pos['profit'], last_pos['tp'])
+                    self.last_position[strategy_name] = None
+                    last_pos = None
+                elif last_pos['side'] == 'sell' and current_price <= last_pos['tp']:
+                    self.close_order(strategy_name, last_pos, last_pos['tp'], reason='take profit atingido')
+                    self.log_position_change(strategy_name, "Fechando", last_pos['side'], last_pos['profit'], last_pos['tp'])
+                    self.last_position[strategy_name] = None
+                    last_pos = None
+
+        # Checa liquidação
+        self.check_liquidation()
+
+        # Atualiza posição baseado no signal
         if signal == 'hold':
             if last_pos is not None and last_pos['status'] == 'open':
-                self.close_order(strategy_name, last_pos, current_price)
+                self.close_order(strategy_name, last_pos, current_price, reason='sinal hold')
                 self.log_position_change(strategy_name, "Fechando", last_pos['side'], last_pos['profit'], current_price)
                 self.last_position[strategy_name] = None
             else:
@@ -157,10 +178,10 @@ class StrategyManager:
         else:
             if last_pos is not None and last_pos['status'] == 'open':
                 if last_pos['side'] != signal:
-                    self.close_order(strategy_name, last_pos, current_price)
+                    self.close_order(strategy_name, last_pos, current_price, reason='mudança de sinal')
                     self.log_position_change(strategy_name, "Fechando", last_pos['side'], last_pos['profit'], current_price)
 
-                    nova_ordem = self.open_order(strategy_name, signal, current_price)
+                    nova_ordem = self.open_order(strategy_name, signal, current_price, sl, tp)
                     if nova_ordem:
                         self.last_position[strategy_name] = nova_ordem
                         self.log_position_change(strategy_name, "Abrindo nova", signal, price=current_price)
@@ -169,25 +190,32 @@ class StrategyManager:
                 else:
                     logging.debug(f"[{strategy_name}] Mantendo posição atual {signal.upper()} aberta.")
             else:
-                nova_ordem = self.open_order(strategy_name, signal, current_price)
+                nova_ordem = self.open_order(strategy_name, signal, current_price, sl, tp)
                 if nova_ordem:
                     self.last_position[strategy_name] = nova_ordem
                     self.log_position_change(strategy_name, "Abrindo nova", signal, price=current_price)
                 else:
                     self.last_position[strategy_name] = None
 
+        # Guarda o signal completo para uso futuro
+        self.last_signals[strategy_name] = signal_result
+
     async def run_strategies(self):
         try:
-            # Executa todos os sinais em paralelo
             coros = []
             for strategy in self.strategies.values():
-                if hasattr(strategy, 'run'):
-                    coros.append(strategy.run())
-                else:
-                    coros.append(strategy.get_signal())
+                coros.append(strategy.get_signal())
             results = await asyncio.gather(*coros)
 
-            signals = {name: self.normalize_signal(signal) for name, signal in zip(self.strategies.keys(), results)}
+            signals = {}
+            for name, result in zip(self.strategies.keys(), results):
+                # extrai o sinal string para normalizar e atualizar contadores
+                if hasattr(result, 'signal'):
+                    signal_str = result.signal
+                else:
+                    signal_str = str(result)
+
+                signals[name] = self.normalize_signal(signal_str)
 
             ohlcv = await self.exchange.fetch_ohlcv(self.symbol, timeframe=self.timeframe)
             if not ohlcv:
@@ -196,8 +224,8 @@ class StrategyManager:
 
             current_price = ohlcv[-1][4]
 
-            for name, signal in signals.items():
-                self.update_profit(name, signal, current_price)
+            for name, result in zip(self.strategies.keys(), results):
+                self.update_profit(name, result, current_price)
 
             return signals
 
@@ -206,8 +234,6 @@ class StrategyManager:
             return {name: 'hold' for name in self.strategies}
 
     def report(self):
-        #self.evaluator.report()
-
         self.evaluator.report_summary()
 
         logging.info("=== Contadores de sinais ===")
@@ -217,5 +243,6 @@ class StrategyManager:
         logging.info("=== Contadores de ordens ===")
         for strat, counts in self.order_counts.items():
             logging.info(f"Strategy {strat}: {counts}")
+
 
 

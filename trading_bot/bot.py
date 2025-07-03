@@ -96,7 +96,7 @@ class TradingBot:
 
             if not current_position:
                 await exchange_client.cancel_all_orders(symbol)
-                await self.open_new_position(exchange_client, signal, capital_amount, pair, signal.sl, signal.tp)
+                await self.open_new_position(exchange_client, signal.signal, capital_amount, pair, signal.sl, signal.tp)
 
             """
             position = await exchange_client.get_open_position(symbol)
@@ -162,7 +162,7 @@ class TradingBot:
             raise ValueError("❌ Invalid reference price (None or <= 0)")
 
         entry_amount = await exchange_client.calculate_entry_amount(price_ref, capital_amount)
-        side = signal["side"]
+        side = signal
 
         logging.info(
             f"{pair.symbol}: Sending entry order {side} with qty {entry_amount} at price {price_ref}"
