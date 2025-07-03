@@ -1,5 +1,6 @@
 from typing import Optional
 
+from enums.signal_enum import Signal
 from utils.config_loader import PairConfig
 
 
@@ -29,11 +30,11 @@ class TradingHelpers:
         return mapping.get(position_side.lower())
 
     @staticmethod
-    def is_opposite_side(side1: str, side2: str) -> bool:
+    def is_opposite_side(side1: Signal, side2: str) -> bool:
         """
         Verifica se side1 e side2 são opostos ('buy' x 'sell').
         """
-        opposites = {"buy": "sell", "sell": "buy"}
+        opposites = {Signal.BUY: Signal.SELL, Signal.SELL: Signal.BUY}
         return opposites.get(side1) == side2
     
     @staticmethod
@@ -51,7 +52,7 @@ class TradingHelpers:
         return mapping.get(side.lower())
 
     @classmethod
-    def is_signal_opposite_position(cls, signal_side: str, position_side: str) -> bool:
+    def is_signal_opposite_position(cls, signal_side: Signal, position_side: str) -> bool:
         """
         Verifica se o sinal é contrário à posição aberta.
         """
