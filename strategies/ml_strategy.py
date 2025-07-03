@@ -14,8 +14,11 @@ from sklearn.model_selection import train_test_split
 from ta.momentum import RSIIndicator, StochasticOscillator
 from ta.volatility import AverageTrueRange
 
+from strategies.signal_result import SignalResult
+from strategies.strategy_base import StrategyBase
 
-class MLStrategy:
+
+class MLStrategy(StrategyBase):
     def __init__(self, exchange, symbol, timeframe='15m', train_interval=100, plot_enabled=False, enable_training=False, aggressive_mode=False):
         self.exchange = exchange
         self.symbol = symbol
@@ -32,8 +35,6 @@ class MLStrategy:
         self.model_path = os.path.join(self.model_dir, "modelo_rf.pkl")
         self.data_dir = "data"
         self.image_path = "img/imagem.png"
-
-        logging.info(f"Tentando carregar modelo em: {self.model_path}")
 
         if os.path.exists(self.model_path):
             self.model = joblib.load(self.model_path)
@@ -68,8 +69,8 @@ class MLStrategy:
             (df['future_return'] > 0.003),
             (df['future_return'] < -0.003)
         ]
-        choices = [2, 0]  # 2 = alta, 0 = baixa
-        df['label'] = np.select(conditions, choices, default=1)  # 1 = neutro
+        choices = [2, 0]
+        df['label'] = np.select(conditions, choices, default=1)
 
         df = df.dropna()
 
@@ -120,16 +121,36 @@ class MLStrategy:
         model = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
         self.model = self.evaluate_model(model, features, labels)
         self.last_train_len = len(features)
-        logging.info("✅ Modelo ML treinado e avaliado com sucesso!")
-
-        os.makedirs(self.model_dir, exist_ok=True)
         joblib.dump(self.model, self.model_path)
         logging.info(f"💾 Modelo salvo em '{self.model_path}'")
 
-    def predict_signal(self, df):
+    def compute_sl_tp(self, price, atr, confidence, direction):
+        """
+        price: preço atual
+        atr: Average True Range atual
+        confidence: confiança do modelo para a classe escolhida (0.0 a 1.0)
+        direction: "buy" ou "sell"
+        """
+        risk_factor = 1 + (confidence - 0.5) * 2  # escala de 1.0 a 2.0
+
+        sl_distance = atr * 1.5 * risk_factor
+        tp_distance = atr * 2.5 * risk_factor
+
+        if direction == "buy":
+            sl = price - sl_distance
+            tp = price + tp_distance
+        elif direction == "sell":
+            sl = price + sl_distance
+            tp = price - tp_distance
+        else:
+            sl = tp = None
+
+        return round(sl, 4), round(tp, 4)
+
+    def predict_signal(self, df) -> SignalResult:
         if self.model is None:
             logging.warning("⚠️ Modelo ainda não treinado.")
-            return "hold"
+            return SignalResult("hold", None, None)
 
         df = self.calculate_features(df)
         latest = df.iloc[-1]
@@ -142,37 +163,40 @@ class MLStrategy:
 
         if features.isnull().values.any():
             logging.warning("⚠️ Features contêm NaNs. Retornando 'hold'.")
-            return "hold"
+            return SignalResult("hold", None, None)
 
         proba = self.model.predict_proba(features)[0]
         logging.info(f"ML prob baixa: {proba[0]:.2f}, neutro: {proba[1]:.2f}, alta: {proba[2]:.2f}")
 
         idx = proba.argmax()
-        
+        confidence = proba[idx]
+        close_price = latest['close']
+        atr = latest['atr']
+
         if self.aggressive_mode:
-            # Executa a previsão com maior probabilidade, sem considerar o threshold
             if idx == 2:
-                return "buy"
+                sl, tp = self.compute_sl_tp(close_price, atr, confidence, "buy")
+                return SignalResult("buy", sl, tp)
             elif idx == 0:
-                return "sell"
+                sl, tp = self.compute_sl_tp(close_price, atr, confidence, "sell")
+                return SignalResult("sell", sl, tp)
             else:
-                return "hold"
+                return SignalResult("hold", None, None)
         else:
-            # Modo conservador: só executa se for confiável
             if idx == 2 and proba[2] > self.confidence_threshold:
-                return "buy"
+                sl, tp = self.compute_sl_tp(close_price, atr, confidence, "buy")
+                return SignalResult("buy", sl, tp)
             elif idx == 0 and proba[0] > self.confidence_threshold:
-                return "sell"
+                sl, tp = self.compute_sl_tp(close_price, atr, confidence, "sell")
+                return SignalResult("sell", sl, tp)
             else:
-                return "hold"
+                return SignalResult("hold", None, None)
 
     async def train_if_due(self, df):
         if not self.enable_training:
-            logging.info("🛑 Treinamento desabilitado (enable_training=False). Pulando treino.")
             return
 
         if len(df) - self.last_train_len >= self.train_interval:
-            logging.info(f"🔄 Treinamento devido. Treinando modelo com {len(df)} registros...")
             features, labels = self.prepare_dataset(df)
             self.train(features, labels)
 
@@ -181,11 +205,12 @@ class MLStrategy:
             df.to_csv(filename, index=False)
             logging.info(f"📁 Dataset salvo para treino em: {filename}")
 
-    async def get_signal(self):
+    async def get_signal(self) -> SignalResult:
         df = await self.fetch_ohlcv()
         await self.train_if_due(df)
-        signal = self.predict_signal(df)
-        logging.info(f"🚦 Sinal ML para {self.symbol}: {signal}")
-        return signal
+        result = self.predict_signal(df)
+        logging.info(f"🚦 Sinal ML para {self.symbol}: {result}")
+        return result
+
 
 

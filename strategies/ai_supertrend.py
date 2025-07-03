@@ -1,9 +1,12 @@
 import logging
 
+from strategies.signal_result import SignalResult
+from strategies.strategy_base import StrategyBase
+
 from .indicators import Indicators
 
 
-class AISuperTrend:
+class AISuperTrend(StrategyBase):
     def __init__(self, exchange, symbol, timeframe, mode='conservative', multiplier=1.2, adx_threshold=20, rsi_buy_threshold=40, rsi_sell_threshold=60):
         self.exchange = exchange
         self.symbol = symbol
@@ -14,11 +17,11 @@ class AISuperTrend:
         self.rsi_buy_threshold = rsi_buy_threshold
         self.rsi_sell_threshold = rsi_sell_threshold
 
-    async def get_signal(self):
+    async def get_signal(self) -> SignalResult:
         ohlcv = await self.exchange.fetch_ohlcv(self.symbol, timeframe=self.timeframe)
         if len(ohlcv) < 21:
             logging.info(f"{self.symbol} - Dados insuficientes para cálculo.")
-            return 'hold'
+            return SignalResult("hold", None, None)
 
         self.indicators = Indicators(ohlcv)
         self.extract_data()
@@ -26,7 +29,22 @@ class AISuperTrend:
         self.detect_lateral_market(adx_threshold=self.adx_threshold)
 
         logging.info(f"{self.symbol} - Modo selecionado: {self.mode}")
-        return self.decide_signal()
+        signal = self.decide_signal()
+
+        if signal in ['buy', 'sell']:
+            try:
+                sl, tp = self.calculate_sl_tp(
+                    entry_price=self.price,
+                    side=signal,
+                    atr_now=self.atr[-1],
+                    mode=self.mode
+                )
+                return SignalResult(signal, sl, tp)
+            except Exception as e:
+                logging.warning(f"{self.symbol} - Erro ao calcular SL/TP: {e}")
+                return SignalResult("hold", None, None)
+
+        return SignalResult("hold", None, None)
 
     def extract_data(self):
         self.closes = self.indicators.closes
@@ -165,6 +183,68 @@ class AISuperTrend:
             logging.info(f"{self.symbol} - 🎯 Modo Conservador: SELL")
             return 'sell'
         return 'hold'
+
+    def calculate_sl_tp(self, entry_price, side, atr_now, mode="normal"):
+        """
+        Calcula SL e TP dinâmicos com base no ATR, percentual e valor absoluto.
+        Ajusta parâmetros dinamicamente para diferentes faixas de preço e modos.
+        """
+        if entry_price < 50:
+            sl_pct_base = 0.01
+            tp_factor_base = 2.0
+        elif entry_price < 500:
+            sl_pct_base = 0.008
+            tp_factor_base = 2.2
+        elif entry_price < 5000:
+            sl_pct_base = 0.006
+            tp_factor_base = 2.5
+        else:
+            sl_pct_base = 0.004
+            tp_factor_base = 3.0
+
+        if mode == "aggressive":
+            sl_pct = sl_pct_base * 0.8
+            tp_factor = tp_factor_base * 1.2
+        elif mode == "conservative":
+            sl_pct = sl_pct_base * 1.5
+            tp_factor = tp_factor_base * 0.9
+        else:
+            sl_pct = sl_pct_base
+            tp_factor = tp_factor_base
+
+        if sl_pct > 1:
+            logging.warning(f"⚠️ sl_pct parece estar em valor absoluto ({sl_pct}). Esperado valor entre 0 e 1.")
+
+        sl_min_dist = sl_pct * entry_price
+        atr_cap = entry_price * 0.015
+        atr_now = min(atr_now, atr_cap)
+
+        sl_distance = max(sl_min_dist, atr_now)
+
+        logging.info(f"🔎 Cálculo TP/SL ({mode}):")
+        logging.info(f"📈 Preço de entrada: {entry_price}")
+        logging.info(f"📊 ATR atual (limitado): {atr_now:.4f}")
+        logging.info(f"🧮 Distância mínima SL (%): {sl_min_dist:.4f}")
+        logging.info(f"🧮 Distância usada SL: {sl_distance:.4f}")
+
+        if side == "buy":
+            sl_price = entry_price - sl_distance
+            tp_price = entry_price + tp_factor * sl_distance
+        else:
+            sl_price = entry_price + sl_distance
+            tp_price = entry_price - tp_factor * sl_distance
+
+        sl_pct_off = abs((sl_price - entry_price) / entry_price)
+        tp_pct_off = abs((tp_price - entry_price) / entry_price)
+
+        if sl_pct_off > 0.10 or tp_pct_off > 0.25:
+            logging.warning(f"🚫 SL ou TP fora de range aceitável. SL: {sl_price}, TP: {tp_price}")
+            raise ValueError("SL ou TP calculado está fora do intervalo aceitável.")
+
+        logging.info(f"✅ SL final: {sl_price:.2f} ({sl_pct_off*100:.2f}%)")
+        logging.info(f"✅ TP final: {tp_price:.2f} ({tp_pct_off*100:.2f}%)")
+
+        return round(sl_price, 2), round(tp_price, 2)
 
 
 

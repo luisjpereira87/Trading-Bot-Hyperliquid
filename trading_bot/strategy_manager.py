@@ -3,6 +3,8 @@ import logging
 from strategies.ai_supertrend import AISuperTrend
 from strategies.combined import CombinedStrategy
 from strategies.ml_strategy import MLStrategy
+from strategies.signal_result import SignalResult
+from strategies.strategy_base import StrategyBase
 from strategies.supertrend import SuperTrend
 from strategies.ut_bot_alerts import UTBotAlerts
 
@@ -13,26 +15,26 @@ class StrategyManager:
         self.symbol = symbol
         self.timeframe = timeframe
         self.name = name.lower()
-        self.strategy = None
+        self.strategy:StrategyBase
         self.mode = 'normal'
 
-    async def get_signal(self):
+    async def get_signal(self)->SignalResult:
         if self.name == 'ai_supertrend':
             self.mode = await self._detect_mode()
             self.strategy = AISuperTrend(self.exchange, self.symbol, self.timeframe, mode=self.mode)
-        elif self.name == 'combined':
-            self.strategy = CombinedStrategy(self.exchange, self.symbol, self.timeframe)
+        #elif self.name == 'combined':
+        #    self.strategy = CombinedStrategy(self.exchange, self.symbol, self.timeframe)
         elif self.name == 'ml':
             self.strategy = MLStrategy(self.exchange, self.symbol, self.timeframe)
-        elif self.name == 'supertrend':
-            self.strategy = SuperTrend(self.exchange, self.symbol, self.timeframe)
-        elif self.name == 'ut_bot_alerts':
-            self.strategy = UTBotAlerts(self.exchange, self.symbol, self.timeframe)
+        #elif self.name == 'supertrend':
+        #    self.strategy = SuperTrend(self.exchange, self.symbol, self.timeframe)
+        #elif self.name == 'ut_bot_alerts':
+        #    self.strategy = UTBotAlerts(self.exchange, self.symbol, self.timeframe)
         else:
             raise ValueError(f"Estratégia '{self.name}' não reconhecida.")
 
-        signal = await self.strategy.get_signal()
-        return {'side':signal, 'mode':self.mode} 
+        return await self.strategy.get_signal()
+        #return {'side':signal, 'mode':self.mode} 
     
 
     async def _detect_mode(self, period=20, volume_multiplier=1.1):
