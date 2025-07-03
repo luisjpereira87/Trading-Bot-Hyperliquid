@@ -79,13 +79,13 @@ class TradingBot:
                     return
             """
 
-            if signal.get("side") not in ["buy", "sell"]:
+            if signal.signal not in ["buy", "sell"]:
                 logging.info(f"\n⛔ No valid signal for {symbol}. Skipping.")
                 return
 
             current_position = await exchange_client.get_open_position(symbol)
             if current_position:
-                if self.helpers.is_signal_opposite_position(signal["side"], current_position["side"]):
+                if self.helpers.is_signal_opposite_position(signal.signal, current_position["side"]):
                     await self.order_manager.close_position(
                         symbol, float(current_position["size"]), self.helpers.get_opposite_side(current_position["side"])
                     )
@@ -96,14 +96,16 @@ class TradingBot:
 
             if not current_position:
                 await exchange_client.cancel_all_orders(symbol)
-                await self.open_new_position(exchange_client, signal, capital_amount, pair)
+                await self.open_new_position(exchange_client, signal, capital_amount, pair, signal.sl, signal.tp)
 
+            """
             position = await exchange_client.get_open_position(symbol)
             if position:
                 await self.order_manager.manage_tp_sl(exchange_client, position, signal, symbol, atr_now)
             else:
                 logging.info(f"⚠️ No open position for {symbol}. Skipping TP/SL management.")
 
+            """
             logging.info(f"✅ Processing for {symbol} completed successfully")
 
         except ccxt.NetworkError as e:
@@ -154,7 +156,7 @@ class TradingBot:
             logging.exception("❌ Error in dynamic profit-based close check")
             return False
 
-    async def open_new_position(self, exchange_client, signal, capital_amount, pair):
+    async def open_new_position(self, exchange_client, signal, capital_amount, pair, sl, tp):
         price_ref = await exchange_client.get_reference_price()
         if not price_ref or price_ref <= 0:
             raise ValueError("❌ Invalid reference price (None or <= 0)")
@@ -173,7 +175,7 @@ class TradingBot:
             )
             return
 
-        await exchange_client.place_entry_order(entry_amount, price_ref, side)
+        await exchange_client.place_entry_order(entry_amount, price_ref, side, sl, tp)
 
     def _calculate_sleep_time(self):
         now = datetime.now(timezone.utc)
