@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import ccxt.async_support as ccxt  # type: ignore
 import pytz  # type: ignore
 
+from enums.signal_enum import Signal
 from strategies.indicators import Indicators  # Para cálculo ATR
 from strategies.signal_result import SignalResult
 from utils.config_loader import PairConfig, load_pair_configs
@@ -80,7 +81,7 @@ class TradingBot:
                     return
             """
 
-            if signal.signal not in ["buy", "sell"]:
+            if signal.signal not in [Signal.BUY, Signal.SELL]:
                 logging.info(f"\n⛔ No valid signal for {symbol}. Skipping.")
                 return
 
