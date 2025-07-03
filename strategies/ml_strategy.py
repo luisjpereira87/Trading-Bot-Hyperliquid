@@ -14,6 +14,7 @@ from sklearn.model_selection import train_test_split
 from ta.momentum import RSIIndicator, StochasticOscillator
 from ta.volatility import AverageTrueRange
 
+from enums.signal_enum import Signal
 from strategies.signal_result import SignalResult
 from strategies.strategy_base import StrategyBase
 
@@ -125,32 +126,30 @@ class MLStrategy(StrategyBase):
         logging.info(f"💾 Modelo salvo em '{self.model_path}'")
 
     def compute_sl_tp(self, price, atr, confidence, direction):
-        """
-        price: preço atual
-        atr: Average True Range atual
-        confidence: confiança do modelo para a classe escolhida (0.0 a 1.0)
-        direction: "buy" ou "sell"
-        """
         risk_factor = 1 + (confidence - 0.5) * 2  # escala de 1.0 a 2.0
 
         sl_distance = atr * 1.5 * risk_factor
         tp_distance = atr * 2.5 * risk_factor
 
-        if direction == "buy":
+        if direction == Signal.BUY:
             sl = price - sl_distance
             tp = price + tp_distance
-        elif direction == "sell":
+        elif direction == Signal.SELL:
             sl = price + sl_distance
             tp = price - tp_distance
         else:
             sl = tp = None
 
-        return round(sl, 4), round(tp, 4)
+        # Só arredonda se não for None
+        sl_rounded = round(sl, 4) if sl is not None else None
+        tp_rounded = round(tp, 4) if tp is not None else None
+
+        return sl_rounded, tp_rounded
 
     def predict_signal(self, df) -> SignalResult:
         if self.model is None:
             logging.warning("⚠️ Modelo ainda não treinado.")
-            return SignalResult("hold", None, None)
+            return SignalResult(Signal.HOLD, None, None)
 
         df = self.calculate_features(df)
         latest = df.iloc[-1]
@@ -163,7 +162,7 @@ class MLStrategy(StrategyBase):
 
         if features.isnull().values.any():
             logging.warning("⚠️ Features contêm NaNs. Retornando 'hold'.")
-            return SignalResult("hold", None, None)
+            return SignalResult(Signal.HOLD, None, None)
 
         proba = self.model.predict_proba(features)[0]
         logging.info(f"ML prob baixa: {proba[0]:.2f}, neutro: {proba[1]:.2f}, alta: {proba[2]:.2f}")
@@ -175,22 +174,22 @@ class MLStrategy(StrategyBase):
 
         if self.aggressive_mode:
             if idx == 2:
-                sl, tp = self.compute_sl_tp(close_price, atr, confidence, "buy")
-                return SignalResult("buy", sl, tp)
+                sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.BUY)
+                return SignalResult(Signal.BUY, sl, tp)
             elif idx == 0:
-                sl, tp = self.compute_sl_tp(close_price, atr, confidence, "sell")
-                return SignalResult("sell", sl, tp)
+                sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.SELL)
+                return SignalResult(Signal.SELL, sl, tp)
             else:
-                return SignalResult("hold", None, None)
+                return SignalResult(Signal.HOLD, None, None)
         else:
             if idx == 2 and proba[2] > self.confidence_threshold:
-                sl, tp = self.compute_sl_tp(close_price, atr, confidence, "buy")
-                return SignalResult("buy", sl, tp)
+                sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.BUY)
+                return SignalResult(Signal.BUY, sl, tp)
             elif idx == 0 and proba[0] > self.confidence_threshold:
-                sl, tp = self.compute_sl_tp(close_price, atr, confidence, "sell")
-                return SignalResult("sell", sl, tp)
+                sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.SELL)
+                return SignalResult(Signal.SELL, sl, tp)
             else:
-                return SignalResult("hold", None, None)
+                return SignalResult(Signal.HOLD, None, None)
 
     async def train_if_due(self, df):
         if not self.enable_training:

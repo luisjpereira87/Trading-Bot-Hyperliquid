@@ -8,7 +8,8 @@ import ccxt.async_support as ccxt  # type: ignore
 import pytz  # type: ignore
 
 from strategies.indicators import Indicators  # Para cálculo ATR
-from utils.config_loader import load_pair_configs
+from strategies.signal_result import SignalResult
+from utils.config_loader import PairConfig, load_pair_configs
 
 from .exchange_client import ExchangeClient
 from .order_manager import OrderManager
@@ -48,7 +49,7 @@ class TradingBot:
         self.order_manager = OrderManager(self.exchange)
         self.helpers = TradingHelpers()
 
-    async def run_pair(self, pair):
+    async def run_pair(self, pair:PairConfig):
         symbol = pair.symbol
         leverage = int(pair.leverage)
         capital_pct = float(pair.capital)

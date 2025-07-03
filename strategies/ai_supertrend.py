@@ -1,5 +1,6 @@
 import logging
 
+from enums.signal_enum import Signal
 from strategies.signal_result import SignalResult
 from strategies.strategy_base import StrategyBase
 
@@ -21,7 +22,7 @@ class AISuperTrend(StrategyBase):
         ohlcv = await self.exchange.fetch_ohlcv(self.symbol, timeframe=self.timeframe)
         if len(ohlcv) < 21:
             logging.info(f"{self.symbol} - Dados insuficientes para cálculo.")
-            return SignalResult("hold", None, None)
+            return SignalResult(Signal.HOLD, None, None)
 
         self.indicators = Indicators(ohlcv)
         self.extract_data()
@@ -31,7 +32,7 @@ class AISuperTrend(StrategyBase):
         logging.info(f"{self.symbol} - Modo selecionado: {self.mode}")
         signal = self.decide_signal()
 
-        if signal in ['buy', 'sell']:
+        if signal in [Signal.BUY, Signal.SELL]:
             try:
                 sl, tp = self.calculate_sl_tp(
                     entry_price=self.price,
@@ -42,9 +43,9 @@ class AISuperTrend(StrategyBase):
                 return SignalResult(signal, sl, tp)
             except Exception as e:
                 logging.warning(f"{self.symbol} - Erro ao calcular SL/TP: {e}")
-                return SignalResult("hold", None, None)
+                return SignalResult(Signal.HOLD, None, None)
 
-        return SignalResult("hold", None, None)
+        return SignalResult(Signal.HOLD, None, None)
 
     def extract_data(self):
         self.closes = self.indicators.closes

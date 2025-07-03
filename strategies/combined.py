@@ -1,3 +1,4 @@
+from enums.signal_enum import Signal
 from strategies.ai_supertrend import AISuperTrend
 from strategies.ml_strategy import MLStrategy
 
@@ -14,11 +15,11 @@ class CombinedStrategy:
         ml_signal = await self.ml_strategy.get_signal()
         other_signal = await self.other_strategy.get_signal()
 
-        valid_signals = {"buy", "sell", "hold"}
+        valid_signals = {Signal.BUY, Signal.SELL, Signal.HOLD}
 
         def extract_side(signal):
             if isinstance(signal, dict):
-                return signal.get("side", "hold")
+                return signal.get("side", Signal.HOLD)
             elif isinstance(signal, str) and signal in valid_signals:
                 return signal
             return "hold"
@@ -28,8 +29,8 @@ class CombinedStrategy:
 
         if ml_side == other_side:
             return {"side": ml_side, "mode": "combined"}
-        if ml_side == "hold" and other_side in {"buy", "sell"}:
+        if ml_side == Signal.HOLD and other_side in {Signal.BUY, Signal.SELL}:
             return {"side": other_side, "mode": "combined"}
-        if other_side == "hold" and ml_side in {"buy", "sell"}:
+        if other_side == Signal.HOLD and ml_side in {Signal.BUY, Signal.SELL}:
             return {"side": ml_side, "mode": "combined"}
-        return {"side": "hold", "mode": "combined"}
+        return {"side":Signal.HOLD, "mode": "combined"}
