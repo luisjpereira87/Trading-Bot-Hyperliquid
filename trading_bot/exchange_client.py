@@ -124,15 +124,15 @@ class ExchangeClient:
             # Se SL válido, adiciona
             if sl_price is not None and sl_price > 0:
                 params['stopLoss'] = {
-                    'triggerPrice': sl_price,
-                    'price': sl_price
+                    'triggerPrice': float(sl_price),
+                    'price': float(sl_price)
                 }
     
             # Se TP válido, adiciona
             if tp_price is not None and tp_price > 0:
                 params['takeProfit'] = {
-                    'triggerPrice': tp_price,
-                    'price': tp_price
+                    'triggerPrice': float(tp_price),
+                    'price': float(tp_price)
                 }
     
             logging.info(f"Enviando ordem market ({side}) com params: {params}")
