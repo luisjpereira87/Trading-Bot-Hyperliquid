@@ -134,6 +134,8 @@ class ExchangeClient:
                     'triggerPrice': float(tp_price),
                     'price': float(tp_price)
                 }
+
+            logging.info(f"🧾 Params finais para create_order: symbol={self.symbol}, type=market, side={side}, amount={entry_amount}, price={price_ref}, params={params}")
     
             logging.info(f"Enviando ordem market ({side}) com params: {params}")
     
