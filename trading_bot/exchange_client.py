@@ -115,21 +115,23 @@ class ExchangeClient:
         try:
             await self.exchange.set_margin_mode("isolated", self.symbol, {'leverage': self.leverage})
 
-            #params = {'marginMode': 'isolated'}
+            params = {}
 
             # Se SL e TP forem fornecidos, adicionar ao params no formato correto
             if sl_price is not None and tp_price is not None:
                 params = {
-                    'marginMode': 'isolated',
+                    #'marginMode': 'isolated',
                     'stopLoss': {
                         'triggerPrice': sl_price,
-                        'price': sl_price
+                        'price': sl_price,
+                        'type': 'limit'
                     },
                     'takeProfit': {
                         'triggerPrice': tp_price,
-                        'price': tp_price
+                        'price': tp_price,
+                        'type': 'limit'
                     },
-                    'reduceOnly': True
+                    #'reduceOnly': True
                 }
 
             logging.info(f"Enviando ordem market ({side}) com params: {params}")
