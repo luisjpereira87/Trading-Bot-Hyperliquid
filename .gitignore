@@ -6,3 +6,5 @@ __pycache__/
 trading_bot/.DS_Store
 img
 mypy.ini
+machine_learning/data/*
+machine_learning/img/*

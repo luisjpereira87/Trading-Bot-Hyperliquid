@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict
 
+from enums.signal_enum import Signal
 from strategies.ai_supertrend import AISuperTrend
 from strategies.ml_strategy import MLStrategy
 from tests.strategy_evaluator import StrategyEvaluator
@@ -42,15 +43,15 @@ class StrategyManager:
         self.last_signals: Dict[str, Any] = {name: None for name in self.strategies}
 
     def normalize_signal(self, signal):
-        if signal not in ['buy', 'sell', 'hold']:
+        if signal not in [Signal.BUY, Signal.SELL, Signal.HOLD]:
             logging.warning(f"Signal inválido recebido: {signal}. Usando 'hold' como fallback.")
             return 'hold'
         return signal
 
     def calculate_profit(self, side, entry_price, current_price):
-        if side == 'buy':
+        if side == Signal.BUY:
             return current_price - entry_price
-        elif side == 'sell':
+        elif side == Signal.SELL:
             return entry_price - current_price
         else:
             return 0.0
@@ -63,7 +64,7 @@ class StrategyManager:
     def log_position_change(self, strategy_name, action, side=None, profit=None, price=None):
         msg = f"[{strategy_name}] {action}"
         if side:
-            msg += f" posição {side.upper()}"
+            msg += f" posição {side}"
         if profit is not None:
             msg += f" com lucro {profit:.4f}"
         if price is not None:
@@ -126,12 +127,12 @@ class StrategyManager:
 
     def update_profit(self, strategy_name, signal_result, current_price):
         # signal_result é o objeto SignalResult com .signal, .sl e .tp
-        signal = getattr(signal_result, 'signal', 'hold')
+        signal = getattr(signal_result, 'signal', Signal.HOLD)
         sl = getattr(signal_result, 'sl', None)
         tp = getattr(signal_result, 'tp', None)
 
-        if signal in self.signal_counts[strategy_name]:
-            self.signal_counts[strategy_name][signal] += 1
+        if signal.value in self.signal_counts[strategy_name]:
+            self.signal_counts[strategy_name][signal.value] += 1
 
         last_pos = self.last_position[strategy_name]
 
@@ -167,7 +168,7 @@ class StrategyManager:
         self.check_liquidation()
 
         # Atualiza posição baseado no signal
-        if signal == 'hold':
+        if signal == Signal.HOLD:
             if last_pos is not None and last_pos['status'] == 'open':
                 self.close_order(strategy_name, last_pos, current_price, reason='sinal hold')
                 self.log_position_change(strategy_name, "Fechando", last_pos['side'], last_pos['profit'], current_price)
@@ -188,7 +189,7 @@ class StrategyManager:
                     else:
                         self.last_position[strategy_name] = None
                 else:
-                    logging.debug(f"[{strategy_name}] Mantendo posição atual {signal.upper()} aberta.")
+                    logging.debug(f"[{strategy_name}] Mantendo posição atual {signal} aberta.")
             else:
                 nova_ordem = self.open_order(strategy_name, signal, current_price, sl, tp)
                 if nova_ordem:

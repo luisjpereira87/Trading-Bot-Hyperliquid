@@ -124,12 +124,12 @@ class ExchangeClient:
                     'stopLoss': {
                         'triggerPrice': sl_price,
                         'price': sl_price,
-                        'type': 'limit'
+                        'type': 'market'
                     },
                     'takeProfit': {
                         'triggerPrice': tp_price,
                         'price': tp_price,
-                        'type': 'limit'
+                        'type': 'market'
                     },
                     #'reduceOnly': True
                 }
