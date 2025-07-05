@@ -5,3 +5,5 @@ class Signal(Enum):
     BUY = "buy"
     SELL = "sell"
     HOLD = "hold"
+    SHORT = "short"
+    LONG = "long"
