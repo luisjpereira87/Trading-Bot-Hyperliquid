@@ -7,6 +7,7 @@ import sys
 from dotenv import load_dotenv
 
 from machine_learning.ml_train_pipeline import MLTrainer
+from tests.test_custom import TestCustom
 from tests.test_run import BacktestRunner
 from trading_bot.bot import TradingBot
 
@@ -35,6 +36,11 @@ async def run_backtest():
     backtestRunner = BacktestRunner()
     await backtestRunner.run() 
 
+async def run_custom_test():
+    print("📊 A executar custom_test...")
+    testCustom = TestCustom()
+    await testCustom.run() 
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
          asyncio.run(run_bot())
@@ -44,6 +50,8 @@ if __name__ == "__main__":
             asyncio.run(run_train())
         elif comando == "backtest":
             asyncio.run(run_backtest())
+        elif comando == "customtest":
+            asyncio.run(run_custom_test())
         else:
             print(f"❌ Comando desconhecido: {comando}")
             print("Usa: python main.py [treino | backtest]")

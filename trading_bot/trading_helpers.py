@@ -6,28 +6,28 @@ from utils.config_loader import PairConfig
 
 class TradingHelpers:
     @staticmethod
-    def position_side_to_signal_side(position_side: str) -> Optional[str]:
+    def position_side_to_signal_side(position_side: Signal) -> Optional[Signal]:
         """
         Converte 'long' para 'buy' e 'short' para 'sell'.
         """
         mapping = {
-            "long": "buy",
-            "short": "sell"
+            Signal.LONG: Signal.BUY,
+            Signal.SHORT: Signal.SELL
         }
-        return mapping.get(position_side.lower(), None)
+        return mapping.get(position_side, None)
     
     @staticmethod
-    def get_close_side_from_position_side(position_side: str) -> Optional[str]:
+    def get_close_side_from_position_side(position_side: Signal) -> Optional[Signal]:
         """
         Dado o lado da posição ('long' ou 'short'), retorna o lado da ordem para fechar a posição:
         'long' -> 'sell'
         'short' -> 'buy'
         """
         mapping = {
-            "long": "sell",
-            "short": "buy"
+            Signal.LONG: Signal.SELL,
+            Signal.SHORT: Signal.BUY
         }
-        return mapping.get(position_side.lower())
+        return mapping.get(position_side)
 
     @staticmethod
     def is_opposite_side(side1: Signal, side2: str) -> bool:
@@ -38,18 +38,18 @@ class TradingHelpers:
         return opposites.get(side1) == side2
     
     @staticmethod
-    def get_opposite_side(side: str) -> Optional[str]:
+    def get_opposite_side(side: Signal) -> Optional[Signal]:
         """
         Dado o lado da posição ('sell' ou 'buy'), retorna o lado oposto 
         'buy' -> 'sell'
         'sell' -> 'buy'
         """
         mapping = {
-            "buy": "sell",
-            "sell": "buy"
+            Signal.BUY: Signal.SELL,
+            Signal.SELL: Signal.BUY
         }
 
-        return mapping.get(side.lower())
+        return mapping.get(side)
 
     @classmethod
     def is_signal_opposite_position(cls, signal_side: Signal, position_side: str) -> bool:
@@ -66,15 +66,15 @@ class TradingHelpers:
         """
         Valida se o dicionário de sinal tem o campo 'side' correto.
         """
-        return signal.get("side") in ["buy", "sell"]
+        return signal.get("side") in [Signal.BUY, Signal.SELL]
 
     @staticmethod
-    def format_side(side: str) -> str:
+    def format_side(side: Signal) -> Signal:
         """
         Normaliza o side para lowercase (ex: 'Buy' -> 'buy')
         """
         if side:
-            return side.lower()
+            return side
         return side
     
     @staticmethod
