@@ -68,6 +68,7 @@ class TradingBot:
             capital_amount = balance_total * capital_pct * leverage
 
             signal = await StrategyManager(self.exchange, symbol, self.timeframe, 'ml').get_signal()
+            #signal.signal = Signal.BUY
 
             await exchange_client.print_balance()
             await exchange_client.print_open_orders(symbol)
@@ -158,7 +159,7 @@ class TradingBot:
             logging.exception("❌ Error in dynamic profit-based close check")
             return False
 
-    async def open_new_position(self, exchange_client, signal, capital_amount, pair, sl, tp):
+    async def open_new_position(self, exchange_client, signal:Signal, capital_amount, pair, sl, tp):
         price_ref = await exchange_client.get_reference_price()
         if not price_ref or price_ref <= 0:
             raise ValueError("❌ Invalid reference price (None or <= 0)")

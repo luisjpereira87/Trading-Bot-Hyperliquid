@@ -35,7 +35,7 @@ class TradingHelpers:
         Verifica se side1 e side2 são opostos ('buy' x 'sell').
         """
         opposites = {Signal.BUY: Signal.SELL, Signal.SELL: Signal.BUY}
-        return opposites.get(side1) == side2
+        return opposites[side1].value == side2
     
     @staticmethod
     def get_opposite_side(side: Signal) -> Optional[Signal]:

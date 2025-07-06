@@ -1,5 +1,7 @@
 import logging
 
+from enums.signal_enum import Signal
+
 from .trading_helpers import TradingHelpers
 
 
@@ -111,7 +113,7 @@ class ExchangeClient:
             logging.error(f"Erro ao calcular quantidade de entrada: {e}")
             return 0.0
 
-    async def place_entry_order(self, entry_amount, price_ref, side, sl_price=None, tp_price=None):
+    async def place_entry_order(self, entry_amount, price_ref, side:Signal, sl_price=None, tp_price=None):
         try:
             await self.exchange.set_margin_mode("isolated", self.symbol, {'leverage': self.leverage})
 
@@ -141,7 +143,7 @@ class ExchangeClient:
             order = await self.exchange.create_order(
                 self.symbol,
                 'market',
-                side,
+                side.value,
                 entry_amount,
                 price_ref,
                 params
