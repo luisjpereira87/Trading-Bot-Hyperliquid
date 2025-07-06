@@ -2,7 +2,7 @@ import logging
 
 from strategies.ai_supertrend import AISuperTrend
 from strategies.combined import CombinedStrategy
-from strategies.ml_strategy import MLStrategy
+from strategies.ml_strategy import MLModelType, MLStrategy
 from strategies.signal_result import SignalResult
 from strategies.strategy_base import StrategyBase
 from strategies.supertrend import SuperTrend
@@ -25,7 +25,7 @@ class StrategyManager:
         #elif self.name == 'combined':
         #    self.strategy = CombinedStrategy(self.exchange, self.symbol, self.timeframe)
         elif self.name == 'ml':
-            self.strategy = MLStrategy(self.exchange, self.symbol, self.timeframe)
+            self.strategy = MLStrategy(self.exchange, self.symbol, self.timeframe, model_type=MLModelType.XGBOOST)
         #elif self.name == 'supertrend':
         #    self.strategy = SuperTrend(self.exchange, self.symbol, self.timeframe)
         #elif self.name == 'ut_bot_alerts':

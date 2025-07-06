@@ -13,9 +13,13 @@ from imblearn.over_sampling import SMOTE
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import (accuracy_score, classification_report,
                              confusion_matrix)
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import GridSearchCV, train_test_split
+from sklearn.neural_network import MLPClassifier
 from ta.momentum import RSIIndicator, StochasticOscillator
 from ta.volatility import AverageTrueRange
+from xgboost import XGBClassifier
+
+from strategies.ml_strategy import MLModelType
 
 logging.basicConfig(level=logging.INFO)
 
@@ -23,13 +27,48 @@ class MLTrainer:
     TIMEFRAME = "15m"
     CANDLE_LIMIT = 10000
     DATA_DIR = "data"
-    MODEL_PATH = "models/modelo_rf.pkl"
+    MODEL_PATH = "models/modelo.pkl"  # Generalizado o nome do arquivo
 
-    def __init__(self):
+    def __init__(self, model_type=MLModelType.RANDOM_FOREST):
+        self.model_type = model_type
         self.base_dir = os.path.dirname(os.path.abspath(__file__))
         self.DATA_DIR = os.path.join(self.base_dir, "data")
-        self.MODEL_PATH = os.path.join(self.base_dir, "models", "modelo_rf.pkl")
+        self.MODEL_PATH = os.path.join(self.base_dir, "models", f"modelo_{model_type.value.lower()}.pkl")
         self.IMG_DIR = os.path.join(self.base_dir, "img")
+
+    def _init_model(self):
+        if self.model_type == MLModelType.RANDOM_FOREST:
+            return RandomForestClassifier(random_state=42)
+        elif self.model_type == MLModelType.XGBOOST:
+            return XGBClassifier(eval_metric='mlogloss', random_state=42)
+        elif self.model_type == MLModelType.MLP:
+            return MLPClassifier(max_iter=500, random_state=42)
+        else:
+            raise ValueError("Modelo desconhecido")
+
+    def _get_param_grid(self):
+        # Grid de hiperparâmetros para GridSearchCV conforme o modelo
+        if self.model_type == MLModelType.RANDOM_FOREST:
+            return {
+                'n_estimators': [50, 100, 200],
+                'max_depth': [None, 10, 20],
+                'class_weight': [None, 'balanced']
+            }
+        elif self.model_type == MLModelType.XGBOOST:
+            return {
+                'n_estimators': [50, 100, 200],
+                'max_depth': [3, 6, 10],
+                'learning_rate': [0.01, 0.1, 0.2],
+                'subsample': [0.7, 1]
+            }
+        elif self.model_type == MLModelType.MLP:
+            return {
+                'hidden_layer_sizes': [(32,), (64, 32), (128, 64)],
+                'activation': ['relu', 'tanh'],
+                'alpha': [0.0001, 0.001]
+            }
+        else:
+            return {}
 
     async def fetch_ohlcv(self, symbol):
         exchange = hyperliquid({
@@ -78,11 +117,21 @@ class MLTrainer:
         return features_res, labels_res
 
     def train_and_save_model(self, features, labels):
-        model = RandomForestClassifier(n_estimators=100, random_state=42, class_weight="balanced")
-        X_train, X_test, y_train, y_test = train_test_split(features, labels, stratify=labels, test_size=0.2)
+        model = self._init_model()
+        param_grid = self._get_param_grid()
 
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
+        X_train, X_test, y_train, y_test = train_test_split(features, labels, stratify=labels, test_size=0.2, random_state=42)
+
+        if param_grid:
+            logging.info(f"🔍 Iniciando GridSearchCV para o modelo {self.model_type}...")
+            grid_search = GridSearchCV(model, param_grid, cv=3, scoring='accuracy', n_jobs=-1, verbose=1)
+            grid_search.fit(X_train, y_train)
+            best_model = grid_search.best_estimator_
+            logging.info(f"✅ Melhor modelo encontrado: {grid_search.best_params_}")
+        else:
+            best_model = model.fit(X_train, y_train)
+
+        y_pred = best_model.predict(X_test)
 
         acc = accuracy_score(y_test, y_pred)
         report = classification_report(y_test, y_pred, digits=4)
@@ -91,18 +140,18 @@ class MLTrainer:
         logging.info(f"📊 Acurácia: {acc:.4f}")
         print(report)
 
-        os.makedirs("img", exist_ok=True)
+        os.makedirs(self.IMG_DIR, exist_ok=True)
         plt.figure(figsize=(6, 5))
         sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
                     xticklabels=["Baixa", "Neutro", "Alta"], yticklabels=["Baixa", "Neutro", "Alta"])
         plt.xlabel("Predito")
         plt.ylabel("Real")
         plt.title("Matriz de Confusão")
-        plt.savefig("img/imagem.png")
+        plt.savefig(os.path.join(self.IMG_DIR, "imagem.png"))
         plt.close()
 
-        os.makedirs("models", exist_ok=True)
-        joblib.dump(model, self.MODEL_PATH)
+        os.makedirs(os.path.dirname(self.MODEL_PATH), exist_ok=True)
+        joblib.dump(best_model, self.MODEL_PATH)
         logging.info(f"💾 Modelo salvo em: {self.MODEL_PATH}")
 
     def load_pair_configs(self):
@@ -139,7 +188,8 @@ class MLTrainer:
 
 
 if __name__ == "__main__":
-    trainer = MLTrainer()
+    trainer = MLTrainer(model_type=MLModelType.RANDOM_FOREST)  # ou 'xgboost' ou 'mlp'
     asyncio.run(trainer.run())
+
 
 

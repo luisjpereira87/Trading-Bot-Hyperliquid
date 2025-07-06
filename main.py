@@ -7,6 +7,7 @@ import sys
 from dotenv import load_dotenv
 
 from machine_learning.ml_train_pipeline import MLTrainer
+from strategies.ml_strategy import MLModelType
 from tests.test_custom import TestCustom
 from tests.test_run import BacktestRunner
 from trading_bot.bot import TradingBot
@@ -30,6 +31,13 @@ async def run_train():
     print("🤖 A treinar o modelo ML...")
     mlTrainer = MLTrainer()
     await mlTrainer.run() 
+
+    mlTrainer = MLTrainer(MLModelType.XGBOOST)
+    await mlTrainer.run() 
+
+    mlTrainer = MLTrainer(MLModelType.MLP)
+    await mlTrainer.run() 
+    
 
 async def run_backtest():
     print("📊 A executar backtest...")

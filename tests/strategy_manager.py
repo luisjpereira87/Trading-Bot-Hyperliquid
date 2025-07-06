@@ -5,7 +5,7 @@ from typing import Any, Dict
 
 from enums.signal_enum import Signal
 from strategies.ai_supertrend import AISuperTrend
-from strategies.ml_strategy import MLStrategy
+from strategies.ml_strategy import MLModelType, MLStrategy
 from tests.strategy_evaluator import StrategyEvaluator
 
 # Assumindo SignalResult tem atributos signal, sl, tp
@@ -20,8 +20,10 @@ class StrategyManager:
         self.timeframe = timeframe
 
         self.strategies = {
-            'ml': MLStrategy(exchange, symbol, timeframe),
-            'ml-aggresive': MLStrategy(exchange, symbol, timeframe, aggressive_mode=True)
+            'ml-random-forest': MLStrategy(exchange, symbol, timeframe),
+            'ml-xgboost': MLStrategy(exchange, symbol, timeframe, model_type=MLModelType.XGBOOST),
+            'ml-mlp': MLStrategy(exchange, symbol, timeframe, model_type=MLModelType.MLP)
+            #'ml-aggresive': MLStrategy(exchange, symbol, timeframe, aggressive_mode=True)
         }
 
         self.evaluator = StrategyEvaluator()
