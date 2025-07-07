@@ -229,7 +229,7 @@ class OrderManager:
         try:
             orderbook = await self.exchange.fetch_order_book(symbol)
 
-            if side == Signal.value:
+            if side == Signal.BUY:
                 price = orderbook['asks'][0][0] if orderbook['asks'] else None
             else:
                 price = orderbook['bids'][0][0] if orderbook['bids'] else None
