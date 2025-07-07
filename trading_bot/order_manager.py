@@ -1,5 +1,7 @@
 import logging
 
+from enums.signal_enum import Signal
+
 
 class OrderManager:
     def __init__(self, exchange, min_order_size=0.01):
@@ -69,7 +71,7 @@ class OrderManager:
             await self.create_tp_sl_orders(symbol, entry_amount, tp_price, sl_price, close_side)
         except Exception:
             logging.exception("❌ Falha ao criar TP/SL. Fechando posição por segurança.")
-            await self.close_position(symbol, entry_amount, close_side)
+            await self.close_position(symbol, entry_amount, Signal.from_str(close_side))
 
     def calculate_sl_tp(self, entry_price, side, atr_now, mode="normal"):
         """
@@ -216,18 +218,18 @@ class OrderManager:
             logging.error(f"❌ Erro ao criar ordens TP/SL: {e}")
             raise
 
-    async def close_position(self, symbol, amount, side):
+    async def close_position(self, symbol, amount, side: Signal):
         """
         Fecha posição com ordem de mercado. Usa 'side' atual para calcular o lado oposto (close_side).
         """
         #close_side = 'sell' if side == 'buy' else 'buy'
 
-        logging.info(f"[DEBUG] Tentando fechar posição: symbol={symbol}, side={side}, amount={amount}")
+        logging.info(f"[DEBUG] Tentando fechar posição: symbol={symbol}, side={side.value}, amount={amount}")
 
         try:
             orderbook = await self.exchange.fetch_order_book(symbol)
 
-            if side == 'buy':
+            if side == Signal.value:
                 price = orderbook['asks'][0][0] if orderbook['asks'] else None
             else:
                 price = orderbook['bids'][0][0] if orderbook['bids'] else None
@@ -241,7 +243,7 @@ class OrderManager:
             order = await self.exchange.create_order(
                 symbol,
                 'market',
-                side,
+                side.value,
                 amount,
                 price,
                 params={'reduceOnly': True}

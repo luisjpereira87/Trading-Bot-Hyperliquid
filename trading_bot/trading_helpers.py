@@ -6,13 +6,13 @@ from utils.config_loader import PairConfig
 
 class TradingHelpers:
     @staticmethod
-    def position_side_to_signal_side(position_side: Signal) -> Optional[Signal]:
+    def position_side_to_signal_side(position_side: str) -> Optional[str]:
         """
         Converte 'long' para 'buy' e 'short' para 'sell'.
         """
         mapping = {
-            Signal.LONG: Signal.BUY,
-            Signal.SHORT: Signal.SELL
+            "long": "buy",
+            "short": "sell"
         }
         return mapping.get(position_side, None)
     
@@ -30,15 +30,15 @@ class TradingHelpers:
         return mapping.get(position_side)
 
     @staticmethod
-    def is_opposite_side(side1: Signal, side2: str) -> bool:
+    def is_opposite_side(side1: Signal, side2: Signal) -> bool:
         """
         Verifica se side1 e side2 são opostos ('buy' x 'sell').
         """
         opposites = {Signal.BUY: Signal.SELL, Signal.SELL: Signal.BUY}
-        return opposites[side1].value == side2
+        return opposites[side1].value == side2.value
     
     @staticmethod
-    def get_opposite_side(side: Signal) -> Optional[Signal]:
+    def get_opposite_side(side: Signal) -> Signal:
         """
         Dado o lado da posição ('sell' ou 'buy'), retorna o lado oposto 
         'buy' -> 'sell'
@@ -49,10 +49,17 @@ class TradingHelpers:
             Signal.SELL: Signal.BUY
         }
 
-        return mapping.get(side)
+        if side == Signal.BUY:
+            return Signal.SELL
+        elif side == Signal.SELL:
+            return Signal.BUY
+        else:
+            return Signal.HOLD
+
+        #return mapping.get(side)
 
     @classmethod
-    def is_signal_opposite_position(cls, signal_side: Signal, position_side: str) -> bool:
+    def is_signal_opposite_position(cls, signal_side: Signal, position_side: Signal) -> bool:
         """
         Verifica se o sinal é contrário à posição aberta.
         """
@@ -61,6 +68,7 @@ class TradingHelpers:
             return False
         return cls.is_opposite_side(signal_side, position_side)
 
+    
     @staticmethod
     def is_valid_signal(signal: dict) -> bool:
         """

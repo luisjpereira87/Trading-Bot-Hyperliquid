@@ -73,7 +73,7 @@ class TradingBot:
             await exchange_client.print_balance()
             await exchange_client.print_open_orders(symbol)
 
-            current_position = await exchange_client.get_open_position(symbol)
+            #current_position = await exchange_client.get_open_position(symbol)
 
             """
             if current_position:
@@ -87,10 +87,11 @@ class TradingBot:
                 return
 
             current_position = await exchange_client.get_open_position(symbol)
+            print(current_position)
             if current_position:
-                if self.helpers.is_signal_opposite_position(signal.signal, current_position["side"]):
+                if self.helpers.is_signal_opposite_position(signal.signal, Signal.from_str(current_position["side"])):
                     await self.order_manager.close_position(
-                        symbol, float(current_position["size"]), self.helpers.get_opposite_side(current_position["side"])
+                        symbol, float(current_position["size"]), self.helpers.get_opposite_side(Signal.from_str(current_position["side"]))
                     )
                     current_position = None
                 else:
