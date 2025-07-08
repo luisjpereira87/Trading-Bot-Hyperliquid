@@ -78,7 +78,7 @@ class TradingBot:
             current_position = await exchange_client.get_open_position(symbol)
 
             if current_position:
-                should_exit = await self.exit_logic.should_exit(self.exchange, pair, signal.signal, current_position, atr_now)
+                should_exit = await self.exit_logic.should_exit(self.exchange, pair, signal, current_position, atr_now)
                 if should_exit:
                     return
 

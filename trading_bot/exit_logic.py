@@ -1,6 +1,7 @@
 import logging
 
 from enums.signal_enum import Signal
+from strategies.signal_result import SignalResult
 from utils.config_loader import PairConfig
 
 
@@ -16,7 +17,7 @@ class ExitLogic:
         self,
         exchange_client,
         pair: PairConfig,
-        signal_result,
+        signal_result:SignalResult,
         position,
         atr_now: float,
     ) -> bool:
@@ -87,7 +88,7 @@ class ExitLogic:
             return True
 
         # --- HOLD persistente ---
-        if signal_result.signal == Signal.HOLD and signal_result.confidence >= 0.9:
+        if signal_result.signal == Signal.HOLD and signal_result.confidence is not None and signal_result.confidence >= 0.9:
             self.hold_counters[symbol] = self.hold_counters.get(symbol, 0) + 1
             logging.info(f"⏸️ HOLD detected for {symbol} ({self.hold_counters[symbol]} times)")
 

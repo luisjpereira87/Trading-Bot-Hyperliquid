@@ -11,6 +11,7 @@ class SignalResult:
     signal: Signal
     sl: Optional[Union[float, None]] = field(default=None)
     tp: Optional[Union[float, None]] = field(default=None)
+    confidence: Optional[Union[float, None]] = field(default=None)
 
     def __post_init__(self):
         # Converte sl e tp para float nativo, se forem np.generic (ex: np.float64)
@@ -18,3 +19,5 @@ class SignalResult:
             self.sl = self.sl.item()
         if isinstance(self.tp, np.generic):
             self.tp = self.tp.item()
+        if isinstance(self.confidence, np.generic):
+            self.confidence = self.confidence.item()
