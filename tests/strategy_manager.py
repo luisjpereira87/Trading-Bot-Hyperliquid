@@ -21,8 +21,10 @@ class StrategyManager:
 
         self.strategies = {
             'ml-random-forest': MLStrategy(exchange, symbol, timeframe),
+            'ml-random-forest-false': MLStrategy(exchange, symbol, timeframe),
             'ml-xgboost': MLStrategy(exchange, symbol, timeframe, model_type=MLModelType.XGBOOST),
-            'ml-mlp': MLStrategy(exchange, symbol, timeframe, model_type=MLModelType.MLP)
+            'ml-xgboost-false': MLStrategy(exchange, symbol, timeframe, model_type=MLModelType.XGBOOST),
+            #'ml-mlp': MLStrategy(exchange, symbol, timeframe, model_type=MLModelType.MLP)
             #'ml-aggresive': MLStrategy(exchange, symbol, timeframe, aggressive_mode=True)
         }
 
@@ -43,6 +45,12 @@ class StrategyManager:
 
         # Armazenar o último SignalResult completo
         self.last_signals: Dict[str, Any] = {name: None for name in self.strategies}
+
+        # NOVO: controle para ativar/desativar exit logic por estratégia
+        self.exit_logic_enabled = {name: True for name in self.strategies}  # padrão: ativado para todas
+
+        self.exit_logic_enabled['ml-xgboost-false'] = False
+        self.exit_logic_enabled['ml-random-forest-false'] = False
 
     def normalize_signal(self, signal):
         if signal not in [Signal.BUY, Signal.SELL, Signal.HOLD]:
@@ -127,6 +135,7 @@ class StrategyManager:
                     self.close_order(strat, last_pos, last_pos['entry_price'], reason='liquidação por capital zero')
                     self.last_position[strat] = None
 
+    """
     def update_profit(self, strategy_name, signal_result, current_price):
         # signal_result é o objeto SignalResult com .signal, .sl e .tp
         signal = getattr(signal_result, 'signal', Signal.HOLD)
@@ -201,6 +210,92 @@ class StrategyManager:
                     self.last_position[strategy_name] = None
 
         # Guarda o signal completo para uso futuro
+        self.last_signals[strategy_name] = signal_result
+    """
+
+    # Novo método para alterar exit logic em runtime
+    def set_exit_logic(self, strategy_name: str, enabled: bool):
+        if strategy_name in self.exit_logic_enabled:
+            self.exit_logic_enabled[strategy_name] = enabled
+            logging.info(f"[{strategy_name}] Exit logic {'ativado' if enabled else 'desativado'}")
+        else:
+            logging.warning(f"Tentativa de configurar exit logic para estratégia desconhecida: {strategy_name}")
+
+
+    def update_profit(self, strategy_name, signal_result, current_price):
+        signal = getattr(signal_result, 'signal', Signal.HOLD)
+        sl = getattr(signal_result, 'sl', None)
+        tp = getattr(signal_result, 'tp', None)
+
+        if signal.value in self.signal_counts[strategy_name]:
+            self.signal_counts[strategy_name][signal.value] += 1
+
+        last_pos = self.last_position[strategy_name]
+
+        # --- 1. Se EXIT LOGIC estiver ativado, processa SL, TP, HOLD ---
+        if self.exit_logic_enabled.get(strategy_name, True):
+            if last_pos and last_pos['status'] == 'open':
+                # Stop Loss
+                if last_pos['sl'] is not None:
+                    if last_pos['side'] == 'buy' and current_price <= last_pos['sl']:
+                        self.close_order(strategy_name, last_pos, last_pos['sl'], reason='stop loss atingido')
+                        self.log_position_change(strategy_name, "Fechando", last_pos['side'], last_pos['profit'], last_pos['sl'])
+                        self.last_position[strategy_name] = None
+                        last_pos = None
+                    elif last_pos['side'] == 'sell' and current_price >= last_pos['sl']:
+                        self.close_order(strategy_name, last_pos, last_pos['sl'], reason='stop loss atingido')
+                        self.log_position_change(strategy_name, "Fechando", last_pos['side'], last_pos['profit'], last_pos['sl'])
+                        self.last_position[strategy_name] = None
+                        last_pos = None
+
+                # Take Profit
+                if last_pos and last_pos['tp'] is not None:
+                    if last_pos['side'] == 'buy' and current_price >= last_pos['tp']:
+                        self.close_order(strategy_name, last_pos, last_pos['tp'], reason='take profit atingido')
+                        self.log_position_change(strategy_name, "Fechando", last_pos['side'], last_pos['profit'], last_pos['tp'])
+                        self.last_position[strategy_name] = None
+                        last_pos = None
+                    elif last_pos['side'] == 'sell' and current_price <= last_pos['tp']:
+                        self.close_order(strategy_name, last_pos, last_pos['tp'], reason='take profit atingido')
+                        self.log_position_change(strategy_name, "Fechando", last_pos['side'], last_pos['profit'], last_pos['tp'])
+                        self.last_position[strategy_name] = None
+                        last_pos = None
+
+            self.check_liquidation()
+
+            # HOLD: fecha posição se houver
+            if signal == Signal.HOLD:
+                if last_pos and last_pos['status'] == 'open':
+                    self.close_order(strategy_name, last_pos, current_price, reason='sinal hold')
+                    self.log_position_change(strategy_name, "Fechando", last_pos['side'], last_pos['profit'], current_price)
+                    self.last_position[strategy_name] = None
+
+        # --- 2. Sempre processa reversão ou nova entrada, independentemente do exit_logic ---
+        if signal != Signal.HOLD:
+            if last_pos and last_pos['status'] == 'open':
+                # Reversão de posição
+                if last_pos['side'] != signal:
+                    self.close_order(strategy_name, last_pos, current_price, reason='mudança de sinal')
+                    self.log_position_change(strategy_name, "Fechando", last_pos['side'], last_pos['profit'], current_price)
+
+                    nova_ordem = self.open_order(strategy_name, signal, current_price, sl, tp)
+                    if nova_ordem:
+                        self.last_position[strategy_name] = nova_ordem
+                        self.log_position_change(strategy_name, "Abrindo nova", signal, price=current_price)
+                    else:
+                        self.last_position[strategy_name] = None
+                else:
+                    logging.debug(f"[{strategy_name}] Mantendo posição atual {signal} aberta.")
+            else:
+                # Nova entrada
+                nova_ordem = self.open_order(strategy_name, signal, current_price, sl, tp)
+                if nova_ordem:
+                    self.last_position[strategy_name] = nova_ordem
+                    self.log_position_change(strategy_name, "Abrindo nova", signal, price=current_price)
+                else:
+                    self.last_position[strategy_name] = None
+
+        # Guarda o signal completo
         self.last_signals[strategy_name] = signal_result
 
     async def run_strategies(self):

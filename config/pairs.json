@@ -2,19 +2,25 @@
   {
     "symbol": "BTC/USDC:USDC",
     "leverage": 10,
-    "capital": 0.30,
-    "min_profit_abs": 10.0
+    "capital": 0.3,
+    "min_profit_abs": 10.0,
+    "min_profit_pct": 0.005,
+    "max_hold_candles": 2
   },
   {
     "symbol": "ETH/USDC:USDC",
     "leverage": 10,
-    "capital": 0.30,
-    "min_profit_abs": 5.0
+    "capital": 0.3,
+    "min_profit_abs": 5.0,
+    "min_profit_pct": 0.005,
+    "max_hold_candles": 2
   },
   {
     "symbol": "SOL/USDC:USDC",
     "leverage": 10,
-    "capital": 0.30,
-    "min_profit_abs": 10.0
+    "capital": 0.3,
+    "min_profit_abs": 10.0,
+    "min_profit_pct": 0.005,
+    "max_hold_candles": 2
   }
 ]

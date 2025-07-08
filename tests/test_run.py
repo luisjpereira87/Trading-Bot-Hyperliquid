@@ -35,7 +35,7 @@ class DummyExchange:
 
 
 class BacktestRunner:
-    def __init__(self, symbol="ETH/USDC:USDC", timeframe="15m", limit=500):
+    def __init__(self, symbol="SOL/USDC:USDC", timeframe="15m", limit=100):
         self.symbol = symbol
         self.timeframe = timeframe
         self.limit = limit

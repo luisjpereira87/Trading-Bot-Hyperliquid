@@ -13,6 +13,7 @@ from strategies.signal_result import SignalResult
 from utils.config_loader import PairConfig, load_pair_configs
 
 from .exchange_client import ExchangeClient
+from .exit_logic import ExitLogic
 from .order_manager import OrderManager
 from .strategy_manager import StrategyManager
 from .trading_helpers import TradingHelpers
@@ -49,6 +50,7 @@ class TradingBot:
         )
         self.order_manager = OrderManager(self.exchange)
         self.helpers = TradingHelpers()
+        self.exit_logic = ExitLogic(self.helpers, self.order_manager)
 
     async def run_pair(self, pair:PairConfig):
         symbol = pair.symbol
@@ -73,21 +75,18 @@ class TradingBot:
             await exchange_client.print_balance()
             await exchange_client.print_open_orders(symbol)
 
-            #current_position = await exchange_client.get_open_position(symbol)
+            current_position = await exchange_client.get_open_position(symbol)
 
-            """
             if current_position:
-                closed_early = await self.try_close_position_with_profit(current_position, symbol, atr_now)
-                if closed_early:
+                should_exit = await self.exit_logic.should_exit(self.exchange, pair, signal.signal, current_position, atr_now)
+                if should_exit:
                     return
-            """
 
             if signal.signal not in [Signal.BUY, Signal.SELL]:
                 logging.info(f"\n⛔ No valid signal for {symbol}. Skipping.")
                 return
 
             current_position = await exchange_client.get_open_position(symbol)
-            print(current_position)
             if current_position:
                 if self.helpers.is_signal_opposite_position(signal.signal, Signal.from_str(current_position["side"])):
                     await self.order_manager.close_position(
