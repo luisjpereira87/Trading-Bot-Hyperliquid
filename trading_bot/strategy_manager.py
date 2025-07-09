@@ -1,10 +1,10 @@
 import logging
 
+from commons.models.signal_result import SignalResult
+from commons.models.strategy_base import StrategyBase
 from strategies.ai_supertrend import AISuperTrend
 from strategies.combined import CombinedStrategy
 from strategies.ml_strategy import MLModelType, MLStrategy
-from strategies.signal_result import SignalResult
-from strategies.strategy_base import StrategyBase
 from strategies.supertrend import SuperTrend
 from strategies.ut_bot_alerts import UTBotAlerts
 

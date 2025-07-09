@@ -1,7 +1,7 @@
 from typing import Optional
 
-from enums.signal_enum import Signal
-from utils.config_loader import PairConfig
+from commons.enums.signal_enum import Signal
+from commons.utils.config_loader import PairConfig
 
 
 class TradingHelpers:
@@ -31,11 +31,16 @@ class TradingHelpers:
 
     @staticmethod
     def is_opposite_side(side1: Signal, side2: Signal) -> bool:
-        """
-        Verifica se side1 e side2 são opostos ('buy' x 'sell').
-        """
-        opposites = {Signal.BUY: Signal.SELL, Signal.SELL: Signal.BUY}
-        return opposites[side1].value == side2.value
+        opposites = {
+            Signal.BUY: Signal.SELL,
+            Signal.SELL: Signal.BUY
+        }
+
+        # Evita comparação inválida com HOLD
+        if side1 not in opposites or side2 not in opposites:
+            return False
+
+        return opposites[side1] == side2
     
     @staticmethod
     def get_opposite_side(side: Signal) -> Signal:

@@ -1,6 +1,6 @@
 import logging
 
-from enums.signal_enum import Signal
+from commons.enums.signal_enum import Signal
 
 
 class OrderManager:

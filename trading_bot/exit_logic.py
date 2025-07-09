@@ -1,8 +1,8 @@
 import logging
 
-from enums.signal_enum import Signal
-from strategies.signal_result import SignalResult
-from utils.config_loader import PairConfig
+from commons.enums.signal_enum import Signal
+from commons.models.signal_result import SignalResult
+from commons.utils.config_loader import PairConfig
 
 
 class ExitLogic:

@@ -1,6 +1,6 @@
 import logging
 
-from enums.signal_enum import Signal
+from commons.enums.signal_enum import Signal
 
 from .trading_helpers import TradingHelpers
 
@@ -13,6 +13,12 @@ class ExchangeClient:
         #self.leverage = leverage
         self.helpers = TradingHelpers()
 
+    async def fetch_ohlcv(self, symbol, timeframe, limit):
+        try:
+            return await self.exchange.fetch_ohlcv(symbol, timeframe, limit)
+        except Exception as e:
+            logging.error(f"Erro ao buscar os candles: {e}")
+    
     async def fetch_ticker(self, symbol):
         try:
             return await self.exchange.fetch_ticker(symbol)

@@ -151,7 +151,7 @@ class MLTrainer:
         plt.close()
 
         os.makedirs(os.path.dirname(self.MODEL_PATH), exist_ok=True)
-        joblib.dump(best_model, self.MODEL_PATH)
+        joblib.dump(best_model, self.MODEL_PATH, compress=3)
         logging.info(f"💾 Modelo salvo em: {self.MODEL_PATH}")
 
     def load_pair_configs(self):

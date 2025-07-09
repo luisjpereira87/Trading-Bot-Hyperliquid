@@ -7,16 +7,11 @@ from datetime import datetime, timedelta, timezone
 import ccxt.async_support as ccxt  # type: ignore
 import pytz  # type: ignore
 
-from enums.signal_enum import Signal
-from strategies.indicators import Indicators  # Para cálculo ATR
-from strategies.signal_result import SignalResult
-from utils.config_loader import PairConfig, load_pair_configs
-
-from .exchange_client import ExchangeClient
-from .exit_logic import ExitLogic
-from .order_manager import OrderManager
-from .strategy_manager import StrategyManager
-from .trading_helpers import TradingHelpers
+from commons.enums.signal_enum import Signal
+from commons.utils.config_loader import PairConfig
+from strategies.indicators import Indicators
+from trading_bot.exit_logic import ExitLogic
+from trading_bot.strategy_manager import StrategyManager  # Para cálculo ATR
 
 
 class TradingBot:
@@ -39,7 +34,7 @@ class TradingBot:
         leverage = int(pair.leverage)
         capital_pct = float(pair.capital)
 
-        ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe=self.timeframe, limit=self.atr_period + 1)
+        ohlcv = await self.exchange_client.fetch_ohlcv(symbol, timeframe=self.timeframe, limit=self.atr_period + 1)
         indicators = Indicators(ohlcv)
         atr_values = indicators.atr()
         atr_now = atr_values[-1]
@@ -53,13 +48,14 @@ class TradingBot:
             balance_total = await self.exchange_client.get_total_balance()
             capital_amount = balance_total * capital_pct * leverage
 
-            signal = await StrategyManager(self.exchange, symbol, self.timeframe, 'ml').get_signal()
+            signal = await StrategyManager(self.exchange_client, symbol, self.timeframe, 'ml').get_signal()
 
             await self.exchange_client.print_balance()
             await self.exchange_client.print_open_orders(symbol)
 
             current_position = await self.exchange_client.get_open_position(symbol)
 
+            """
             if current_position:
                 side = Signal.from_str(current_position["side"])
                 entry_price = float(current_position["entryPrice"])
@@ -96,11 +92,11 @@ class TradingBot:
                         "side": side.value,
                         "amount": position_size,
                     }
-
+            """
             if signal.signal not in [Signal.BUY, Signal.SELL]:
                 logging.info(f"\n⛔ No valid signal for {symbol}. Skipping.")
                 return None
-
+            
             current_position = await self.exchange_client.get_open_position(symbol)
             if current_position:
                 if self.helpers.is_signal_opposite_position(signal.signal, Signal.from_str(current_position["side"])):

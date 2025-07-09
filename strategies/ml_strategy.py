@@ -17,15 +17,10 @@ from ta.momentum import RSIIndicator, StochasticOscillator
 from ta.volatility import AverageTrueRange
 from xgboost import XGBClassifier
 
-from enums.signal_enum import Signal
-from strategies.signal_result import SignalResult
-from strategies.strategy_base import StrategyBase
-
-
-class MLModelType(Enum):
-    RANDOM_FOREST = 'RandomForest'
-    XGBOOST = 'XGBoost'
-    MLP = 'MLP'
+from commons.enums.ml_model_enum import MLModelType
+from commons.enums.signal_enum import Signal
+from commons.models.signal_result import SignalResult
+from commons.models.strategy_base import StrategyBase
 
 
 class MLStrategy(StrategyBase):

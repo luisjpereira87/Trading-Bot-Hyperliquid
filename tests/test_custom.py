@@ -1,5 +1,6 @@
 
-from enums.signal_enum import Signal
+
+from commons.enums.signal_enum import Signal
 from trading_bot.trading_helpers import TradingHelpers
 
 

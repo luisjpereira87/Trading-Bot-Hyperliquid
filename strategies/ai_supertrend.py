@@ -1,8 +1,8 @@
 import logging
 
-from enums.signal_enum import Signal
-from strategies.signal_result import SignalResult
-from strategies.strategy_base import StrategyBase
+from commons.enums.signal_enum import Signal
+from commons.models.signal_result import SignalResult
+from commons.models.strategy_base import StrategyBase
 
 from .indicators import Indicators
 

@@ -7,16 +7,16 @@ import sys
 import ccxt.async_support as ccxt
 from dotenv import load_dotenv
 
+from commons.utils.config_loader import load_pair_configs
 from machine_learning.ml_train_pipeline import MLTrainer
+from old.order_manager import OrderManager
 from strategies.ml_strategy import MLModelType
 from tests.test_custom import TestCustom
 from tests.test_run import BacktestRunner
 from trading_bot.bot import TradingBot
 from trading_bot.exchange_client import ExchangeClient
 from trading_bot.exit_logic import ExitLogic
-from trading_bot.order_manager import OrderManager
 from trading_bot.trading_helpers import TradingHelpers
-from utils.config_loader import load_pair_configs
 
 load_dotenv()
 

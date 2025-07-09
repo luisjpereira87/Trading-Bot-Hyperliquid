@@ -1,4 +1,4 @@
-from enums.signal_enum import Signal
+from commons.enums.signal_enum import Signal
 from strategies.ai_supertrend import AISuperTrend
 from strategies.ml_strategy import MLStrategy
 

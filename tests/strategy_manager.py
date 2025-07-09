@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict
 
-from enums.signal_enum import Signal
+from commons.enums.signal_enum import Signal
 from strategies.ai_supertrend import AISuperTrend
 from strategies.ml_strategy import MLModelType, MLStrategy
 from tests.strategy_evaluator import StrategyEvaluator

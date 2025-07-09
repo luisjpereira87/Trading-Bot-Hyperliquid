@@ -3,7 +3,7 @@ from typing import Optional, Union
 
 import numpy as np
 
-from enums.signal_enum import Signal
+from commons.enums.signal_enum import Signal
 
 
 @dataclass
