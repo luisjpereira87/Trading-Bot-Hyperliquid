@@ -1,7 +1,5 @@
 import asyncio
-
 import ccxt.async_support as ccxt
-
 
 async def get_symbols():
     exchange = ccxt.hyperliquid({
