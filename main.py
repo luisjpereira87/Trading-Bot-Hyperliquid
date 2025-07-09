@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 
+import ccxt.async_support as ccxt
 from dotenv import load_dotenv
 
 from machine_learning.ml_train_pipeline import MLTrainer
@@ -11,6 +12,11 @@ from strategies.ml_strategy import MLModelType
 from tests.test_custom import TestCustom
 from tests.test_run import BacktestRunner
 from trading_bot.bot import TradingBot
+from trading_bot.exchange_client import ExchangeClient
+from trading_bot.exit_logic import ExitLogic
+from trading_bot.order_manager import OrderManager
+from trading_bot.trading_helpers import TradingHelpers
+from utils.config_loader import load_pair_configs
 
 load_dotenv()
 
@@ -24,7 +30,35 @@ logging.basicConfig(
 
 async def run_bot():
     print("🔁 A correr o bot de trading...")
-    bot = TradingBot()
+
+    wallet_address = os.getenv("WALLET_ADDRESS")
+    private_key = os.getenv("PRIVATE_KEY")
+
+    if not wallet_address or not private_key:
+        raise ValueError(
+            "Variáveis de ambiente WALLET_ADDRESS e PRIVATE_KEY devem estar definidas"
+        )
+
+    timeframe = "15m"
+    atr_period = 14
+    pairs = load_pair_configs()
+
+    #last_candle_times: dict[str, datetime | None] = {pair.symbol: None for pair in self.pairs}
+
+    exchange = ccxt.hyperliquid(
+        {
+            "walletAddress": wallet_address,
+            "privateKey":private_key,
+            "testnet": True,
+            "enableRateLimit": True,
+            "options": {"defaultSlippage": 0.01},
+        }
+    )
+    helpers = TradingHelpers()
+    #exit_logic = ExitLogic(helpers, order_manager)
+
+    exchange_client = ExchangeClient(exchange, wallet_address)
+    bot = TradingBot(exchange, exchange_client, wallet_address,helpers,pairs,timeframe,atr_period)
     await bot.start() 
 
 async def run_train():

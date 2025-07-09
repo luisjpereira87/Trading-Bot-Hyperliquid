@@ -6,16 +6,15 @@ from utils.config_loader import PairConfig
 
 
 class ExitLogic:
-    def __init__(self, helpers, order_manager):
+    def __init__(self, helpers, exchange_client):
         self.helpers = helpers
-        self.order_manager = order_manager
+        self.exchange_client = exchange_client
         self.hold_counters: dict[str, int] = {}
         self.last_profits: dict[str, float] = {}
         self.trailing_stops: dict[str, float] = {}  # Armazena o preço do trailing stop por símbolo
 
     async def should_exit(
         self,
-        exchange_client,
         pair: PairConfig,
         signal_result:SignalResult,
         position,
@@ -28,7 +27,7 @@ class ExitLogic:
         notional = float(position["notional"])
 
         # Pega o preço atual (mark price)
-        ticker = await exchange_client.fetch_ticker(symbol)
+        ticker = await self.exchange_client.fetch_ticker(symbol)
         mark_price = ticker.get("last") or ticker.get("close")
         if mark_price is None:
             return False
@@ -64,7 +63,7 @@ class ExitLogic:
             # Se preço atual cair abaixo do trailing stop, fechar posição
             if mark_price <= new_trailing_stop:
                 logging.info(f"🚪 Trailing stop hit for {symbol} at {mark_price:.4f} (stop: {new_trailing_stop:.4f})")
-                await self.order_manager.close_position(symbol, size, self.helpers.get_opposite_side(Signal.from_str(side)))
+                await self.exchange_client.close_position(symbol, size, self.helpers.get_opposite_side(Signal.from_str(side)))
                 self.trailing_stops.pop(symbol, None)
                 return True
 
@@ -76,14 +75,14 @@ class ExitLogic:
             # Se preço atual subir acima do trailing stop, fechar posição
             if mark_price >= new_trailing_stop:
                 logging.info(f"🚪 Trailing stop hit for {symbol} at {mark_price:.4f} (stop: {new_trailing_stop:.4f})")
-                await self.order_manager.close_position(symbol, size, self.helpers.get_opposite_side(Signal.from_str(side)))
+                await self.exchange_client.close_position(symbol, size, self.helpers.get_opposite_side(Signal.from_str(side)))
                 self.trailing_stops.pop(symbol, None)
                 return True
 
         # --- FECHAR SE LUCRO MÍNIMO ATINGIDO (condição existente) ---
         if profit_abs >= min_profit_abs and profit_pct >= min_profit_pct:
             logging.info(f"💰 Exiting {symbol} with profit")
-            await self.order_manager.close_position(symbol, size, self.helpers.get_opposite_side(Signal.from_str(side)))
+            await self.exchange_client.close_position(symbol, size, self.helpers.get_opposite_side(Signal.from_str(side)))
             self.trailing_stops.pop(symbol, None)
             return True
 
@@ -94,7 +93,7 @@ class ExitLogic:
 
             if self.hold_counters[symbol] >= getattr(pair, "max_hold_candles", 2):
                 logging.info(f"🔚 Exiting {symbol} due to persistent HOLD signal")
-                await self.order_manager.close_position(symbol, size, self.helpers.get_opposite_side(Signal.from_str(side)))
+                await self.exchange_client.close_position(symbol, size, self.helpers.get_opposite_side(Signal.from_str(side)))
                 self.hold_counters[symbol] = 0
                 self.trailing_stops.pop(symbol, None)
                 return True
@@ -107,7 +106,7 @@ class ExitLogic:
             logging.info(
                 f"⚠️ Profit reversal detected for {symbol} (from {last_profit:.2f} to {profit_abs:.2f}). Closing position."
             )
-            await self.order_manager.close_position(symbol, size, self.helpers.get_opposite_side(Signal.from_str(side)))
+            await self.exchange_client.close_position(symbol, size, self.helpers.get_opposite_side(Signal.from_str(side)))
             self.last_profits[symbol] = 0
             self.trailing_stops.pop(symbol, None)
             return True

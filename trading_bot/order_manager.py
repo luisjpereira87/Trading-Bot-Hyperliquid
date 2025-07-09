@@ -71,7 +71,7 @@ class OrderManager:
             await self.create_tp_sl_orders(symbol, entry_amount, tp_price, sl_price, close_side)
         except Exception:
             logging.exception("❌ Falha ao criar TP/SL. Fechando posição por segurança.")
-            await self.close_position(symbol, entry_amount, Signal.from_str(close_side))
+            await exchange_client.close_position(symbol, entry_amount, Signal.from_str(close_side))
 
     def calculate_sl_tp(self, entry_price, side, atr_now, mode="normal"):
         """
@@ -216,42 +216,6 @@ class OrderManager:
 
         except Exception as e:
             logging.error(f"❌ Erro ao criar ordens TP/SL: {e}")
-            raise
-
-    async def close_position(self, symbol, amount, side: Signal):
-        """
-        Fecha posição com ordem de mercado. Usa 'side' atual para calcular o lado oposto (close_side).
-        """
-        #close_side = 'sell' if side == 'buy' else 'buy'
-
-        logging.info(f"[DEBUG] Tentando fechar posição: symbol={symbol}, side={side.value}, amount={amount}")
-
-        try:
-            orderbook = await self.exchange.fetch_order_book(symbol)
-
-            if side == Signal.BUY:
-                price = orderbook['asks'][0][0] if orderbook['asks'] else None
-            else:
-                price = orderbook['bids'][0][0] if orderbook['bids'] else None
-
-            logging.info(f"[DEBUG] Preço usado para ordem market: {price}")
-
-            if price is None:
-                raise Exception("⚠️ Livro de ofertas vazio para fechamento.")
-
-            # Não enviar preço em ordens market (exchange pode rejeitar)
-            order = await self.exchange.create_order(
-                symbol,
-                'market',
-                side.value,
-                amount,
-                price,
-                params={'reduceOnly': True}
-            )
-            logging.info(f"✅ Ordem de fechamento enviada: {order.get('info')}")
-
-        except Exception as e:
-            logging.error(f"❌ Erro ao fechar posição: {e}")
             raise
 
 

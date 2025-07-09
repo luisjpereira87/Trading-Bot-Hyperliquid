@@ -6,12 +6,18 @@ from .trading_helpers import TradingHelpers
 
 
 class ExchangeClient:
-    def __init__(self, exchange, wallet_address, symbol, leverage):
+    def __init__(self, exchange, wallet_address):
         self.exchange = exchange
         self.wallet_address = wallet_address
-        self.symbol = symbol
-        self.leverage = leverage
+        #self.symbol = symbol
+        #self.leverage = leverage
         self.helpers = TradingHelpers()
+
+    async def fetch_ticker(self, symbol):
+        try:
+            return await self.exchange.fetch_ticker(symbol)
+        except Exception as e:
+            logging.error(f"Erro ao buscar preço atual: {e}")
 
     async def print_balance(self):
         try:
@@ -64,9 +70,9 @@ class ExchangeClient:
             logging.error(f"Erro ao obter posições abertas: {e}")
         return None
 
-    async def get_reference_price(self):
+    async def get_reference_price(self, symbol):
         try:
-            order_book = await self.exchange.fetch_order_book(self.symbol)
+            order_book = await self.exchange.fetch_order_book(symbol)
             asks = order_book.get('asks', [])
             bids = order_book.get('bids', [])
             logging.info(f"📈 Top 5 Asks: {asks[:5]}")
@@ -113,9 +119,11 @@ class ExchangeClient:
             logging.error(f"Erro ao calcular quantidade de entrada: {e}")
             return 0.0
 
-    async def place_entry_order(self, entry_amount, price_ref, side:Signal, sl_price=None, tp_price=None):
+    async def place_entry_order(self,symbol, leverage, entry_amount, price_ref, side:Signal, sl_price=None, tp_price=None):
+
+        logging.info(f"🧾 Params finais para create_order: symbol={symbol}, type=market, side={side}, amount={entry_amount}, price={price_ref}")
         try:
-            await self.exchange.set_margin_mode("isolated", self.symbol, {'leverage': self.leverage})
+            await self.exchange.set_margin_mode("isolated", symbol, {'leverage': leverage})
 
             params = {}
 
@@ -136,12 +144,12 @@ class ExchangeClient:
                     #'reduceOnly': True
                 }
 
-            logging.info(f"🧾 Params finais para create_order: symbol={self.symbol}, type=market, side={side}, amount={entry_amount}, price={price_ref}, params={params}")
+            logging.info(f"🧾 Params finais para create_order: symbol={symbol}, type=market, side={side}, amount={entry_amount}, price={price_ref}, params={params}")
     
             logging.info(f"Enviando ordem market ({side}) com params: {params}")
     
             order = await self.exchange.create_order(
-                self.symbol,
+                symbol,
                 'market',
                 side.value,
                 entry_amount,
@@ -157,9 +165,9 @@ class ExchangeClient:
     
         return None
 
-    async def get_entry_price(self):
+    async def get_entry_price(self, symbol):
         try:
-            ticker = await self.exchange.fetch_ticker(self.symbol)
+            ticker = await self.exchange.fetch_ticker(symbol)
             return float(ticker['last'])
         except Exception as e:
             logging.error(f"Erro ao obter preço de entrada: {e}")
@@ -173,4 +181,61 @@ class ExchangeClient:
         except Exception as e:
             logging.error(f"Erro ao obter saldo total: {e}")
             return 0
+    
+    async def open_new_position(self, symbol, leverage, signal:Signal, capital_amount, pair, sl, tp):
+        price_ref = await self.get_reference_price(symbol)
+        if not price_ref or price_ref <= 0:
+            raise ValueError("❌ Invalid reference price (None or <= 0)")
+
+        entry_amount = await self.calculate_entry_amount(price_ref, capital_amount)
+        side = signal
+
+        logging.info(
+            f"{pair.symbol}: Sending entry order {side} with qty {entry_amount} at price {price_ref}"
+        )
+
+        min_order_value = 10
+        if entry_amount * price_ref < min_order_value:
+            logging.warning(
+                f"🚫 Order below $10 minimum: {entry_amount * price_ref:.2f}"
+            )
+            return
+
+        await self.place_entry_order(symbol, leverage, entry_amount, price_ref, side, sl, tp)
+
+    async def close_position(self, symbol, amount, side: Signal):
+        """
+        Fecha posição com ordem de mercado. Usa 'side' atual para calcular o lado oposto (close_side).
+        """
+        #close_side = 'sell' if side == 'buy' else 'buy'
+
+        logging.info(f"[DEBUG] Tentando fechar posição: symbol={symbol}, side={side.value}, amount={amount}")
+
+        try:
+            orderbook = await self.exchange.fetch_order_book(symbol)
+
+            if side == Signal.BUY:
+                price = orderbook['asks'][0][0] if orderbook['asks'] else None
+            else:
+                price = orderbook['bids'][0][0] if orderbook['bids'] else None
+
+            logging.info(f"[DEBUG] Preço usado para ordem market: {price}")
+
+            if price is None:
+                raise Exception("⚠️ Livro de ofertas vazio para fechamento.")
+
+            # Não enviar preço em ordens market (exchange pode rejeitar)
+            order = await self.exchange.create_order(
+                symbol,
+                'market',
+                side.value,
+                amount,
+                price,
+                params={'reduceOnly': True}
+            )
+            logging.info(f"✅ Ordem de fechamento enviada: {order.get('info')}")
+
+        except Exception as e:
+            logging.error(f"❌ Erro ao fechar posição: {e}")
+            raise
 

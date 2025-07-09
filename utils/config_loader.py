@@ -1,7 +1,7 @@
 import json
 import logging
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -11,6 +11,10 @@ class PairConfig(BaseModel):
     leverage: int = Field(gt=0)
     capital: float = Field(gt=0, le=1)
     min_profit_abs: float = Field(ge=0)
+    
+    # Novos parâmetros para ExitLogic
+    min_profit_pct: Optional[float] = Field(default=0.005, ge=0)  # 0.5% padrão
+    max_hold_candles: Optional[int] = Field(default=2, ge=1)
 
 
 def load_pair_configs(path: str = "config/pairs.json") -> List[PairConfig]:

@@ -20,42 +20,25 @@ from .trading_helpers import TradingHelpers
 
 
 class TradingBot:
-    def __init__(self):
-        self.wallet_address = os.getenv("WALLET_ADDRESS")
-        self.private_key = os.getenv("PRIVATE_KEY")
-
-        if not self.wallet_address or not self.private_key:
-            raise ValueError(
-                "Variáveis de ambiente WALLET_ADDRESS e PRIVATE_KEY devem estar definidas"
-            )
-
-        self.timeframe = "15m"
-        #self.tp_pct = 0.03
-        #self.sl_pct = 0.01
-        #self.tp_factor = 2
-        self.atr_period = 14
-
-        self.pairs = load_pair_configs()
+    def __init__(self, exchange, exchange_client, wallet_address, helpers, pairs, timeframe, atr_period):
+        self.exchange = exchange
+        self.exchange_client = exchange_client
+        self.wallet_address = wallet_address
+        self.helpers = helpers
+        #self.exit_logic = exit_logic
+        self.pairs = pairs
+        self.timeframe = timeframe
+        self.atr_period = atr_period
 
         self.last_candle_times: dict[str, datetime | None] = {pair.symbol: None for pair in self.pairs}
 
-        self.exchange = ccxt.hyperliquid(
-            {
-                "walletAddress": self.wallet_address,
-                "privateKey": self.private_key,
-                "testnet": True,
-                "enableRateLimit": True,
-                "options": {"defaultSlippage": 0.01},
-            }
-        )
-        self.order_manager = OrderManager(self.exchange)
-        self.helpers = TradingHelpers()
-        self.exit_logic = ExitLogic(self.helpers, self.order_manager)
+        
 
-    async def run_pair(self, pair:PairConfig):
+    async def run_pair(self, pair: PairConfig):
         symbol = pair.symbol
         leverage = int(pair.leverage)
         capital_pct = float(pair.capital)
+
         ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe=self.timeframe, limit=self.atr_period + 1)
         indicators = Indicators(ohlcv)
         atr_values = indicators.atr()
@@ -64,52 +47,78 @@ class TradingBot:
         try:
             logging.info(f"🚀 Starting processing for {symbol}")
 
-            exchange_client = ExchangeClient(self.exchange, self.wallet_address, symbol, leverage)
+            #exchange_client = ExchangeClient(self.exchange, self.wallet_address)
+            exit_logic = ExitLogic(self.helpers, self.exchange_client)
 
-            balance_total = await exchange_client.get_total_balance()
+            balance_total = await self.exchange_client.get_total_balance()
             capital_amount = balance_total * capital_pct * leverage
 
             signal = await StrategyManager(self.exchange, symbol, self.timeframe, 'ml').get_signal()
-            #signal.signal = Signal.BUY
 
-            await exchange_client.print_balance()
-            await exchange_client.print_open_orders(symbol)
+            await self.exchange_client.print_balance()
+            await self.exchange_client.print_open_orders(symbol)
 
-            current_position = await exchange_client.get_open_position(symbol)
+            current_position = await self.exchange_client.get_open_position(symbol)
 
             if current_position:
-                should_exit = await self.exit_logic.should_exit(self.exchange, pair, signal, current_position, atr_now)
+                side = Signal.from_str(current_position["side"])
+                entry_price = float(current_position["entryPrice"])
+                position_size = float(current_position["size"])
+
+                should_exit = await exit_logic.should_exit( pair, signal, current_position, atr_now)
                 if should_exit:
-                    return
+                    # Obtemos preço de saída estimado do orderbook
+                    orderbook = await self.exchange.fetch_order_book(symbol)
+                    if side == Signal.BUY:
+                        exit_price = orderbook['bids'][0][0] if orderbook['bids'] else None
+                    else:
+                        exit_price = orderbook['asks'][0][0] if orderbook['asks'] else None
+
+                    if exit_price is None:
+                        logging.warning("⚠️ Preço de saída indisponível.")
+                        return None
+
+                    # Calcula lucro
+                    pnl = (exit_price - entry_price) * position_size if side == Signal.BUY else (entry_price - exit_price) * position_size
+
+                    # Fecha posição
+                    await self.exchange_client.close_position(
+                        symbol, position_size, self.helpers.get_opposite_side(side)
+                    )
+
+                    logging.info(f"💰 PnL realizado para {symbol}: {pnl:.2f}")
+
+                    return {
+                        "symbol": symbol,
+                        "pnl": pnl,
+                        "entry_price": entry_price,
+                        "exit_price": exit_price,
+                        "side": side.value,
+                        "amount": position_size,
+                    }
 
             if signal.signal not in [Signal.BUY, Signal.SELL]:
                 logging.info(f"\n⛔ No valid signal for {symbol}. Skipping.")
-                return
+                return None
 
-            current_position = await exchange_client.get_open_position(symbol)
+            current_position = await self.exchange_client.get_open_position(symbol)
             if current_position:
                 if self.helpers.is_signal_opposite_position(signal.signal, Signal.from_str(current_position["side"])):
-                    await self.order_manager.close_position(
-                        symbol, float(current_position["size"]), self.helpers.get_opposite_side(Signal.from_str(current_position["side"]))
+                    await self.exchange_client.close_position(
+                        symbol, float(current_position["size"]),
+                        self.helpers.get_opposite_side(Signal.from_str(current_position["side"]))
                     )
                     current_position = None
                 else:
                     logging.info(f"⚠️ Position already in same direction for {symbol}, skipping new entry.")
-                    return
+                    return None
 
             if not current_position:
-                await exchange_client.cancel_all_orders(symbol)
-                await self.open_new_position(exchange_client, signal.signal, capital_amount, pair, signal.sl, signal.tp)
+                await self.exchange_client.cancel_all_orders(symbol)
+                await self.exchange_client.open_new_position(symbol, leverage, signal.signal, capital_amount, pair, signal.sl, signal.tp)
 
-            """
-            position = await exchange_client.get_open_position(symbol)
-            if position:
-                await self.order_manager.manage_tp_sl(exchange_client, position, signal, symbol, atr_now)
-            else:
-                logging.info(f"⚠️ No open position for {symbol}. Skipping TP/SL management.")
-
-            """
             logging.info(f"✅ Processing for {symbol} completed successfully")
+            return None
 
         except ccxt.NetworkError as e:
             logging.error(f"⚠️ Network error for {symbol}: {str(e)}")
@@ -118,67 +127,6 @@ class TradingBot:
         except Exception:
             logging.exception(f"\n❌ Bot error for {symbol}")
     
-    async def try_close_position_with_profit(self, current_position, symbol, atr_now):
-        try:
-            ticker = await self.exchange.fetch_ticker(symbol)
-            mark_price = ticker.get("last") or ticker.get("close")
-            if mark_price is None:
-                return False
-
-            entry_price = current_position["entryPrice"]
-
-            if current_position["side"] == "buy":
-                profit_pct = (mark_price - entry_price) / entry_price
-            else:
-                profit_pct = (entry_price - mark_price) / entry_price
-
-            profit_abs = profit_pct * float(current_position["notional"])
-            profit_min_pct = 0.5 * (atr_now / entry_price)
-
-            pair = self.helpers.get_pair(symbol, self.pairs)
-            profit_min_abs = getattr(pair, "min_profit_abs", 5.0)  # 5.0 é valor padrão se não existir min_profit_abs
-
-            logging.info(
-                f"📈 Checking dynamic close: Profit = {profit_abs:.2f} USDC ({profit_pct*100:.2f}%), Min ATR% = {profit_min_pct*100:.2f}%, Min $ = {profit_min_abs:.2f}"
-            )
-
-            if profit_pct >= profit_min_pct and profit_abs >= profit_min_abs:
-                logging.info(
-                    f"💰 Dynamic exit triggered for {symbol} with {profit_abs:.2f} USDC profit ({profit_pct*100:.2f}%)"
-                )
-                try:
-                    await self.order_manager.close_position(symbol, float(current_position["size"]), self.helpers.get_opposite_side(current_position["side"]))
-                    logging.info(f"✅ Position dynamically closed with profit for {symbol}")
-                    return True
-                except Exception as e:
-                    logging.error(f"Error closing position dynamically: {e}")
-                    return False
-
-            return False
-        except Exception:
-            logging.exception("❌ Error in dynamic profit-based close check")
-            return False
-
-    async def open_new_position(self, exchange_client, signal:Signal, capital_amount, pair, sl, tp):
-        price_ref = await exchange_client.get_reference_price()
-        if not price_ref or price_ref <= 0:
-            raise ValueError("❌ Invalid reference price (None or <= 0)")
-
-        entry_amount = await exchange_client.calculate_entry_amount(price_ref, capital_amount)
-        side = signal
-
-        logging.info(
-            f"{pair.symbol}: Sending entry order {side} with qty {entry_amount} at price {price_ref}"
-        )
-
-        min_order_value = 10
-        if entry_amount * price_ref < min_order_value:
-            logging.warning(
-                f"🚫 Order below $10 minimum: {entry_amount * price_ref:.2f}"
-            )
-            return
-
-        await exchange_client.place_entry_order(entry_amount, price_ref, side, sl, tp)
 
     def _calculate_sleep_time(self):
         now = datetime.now(timezone.utc)
