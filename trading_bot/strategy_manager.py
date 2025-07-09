@@ -25,7 +25,7 @@ class StrategyManager:
         #elif self.name == 'combined':
         #    self.strategy = CombinedStrategy(self.exchange, self.symbol, self.timeframe)
         elif self.name == 'ml':
-            self.strategy = MLStrategy(self.exchange, self.symbol, self.timeframe, model_type=MLModelType.XGBOOST)
+            self.strategy = MLStrategy(self.exchange, self.symbol, self.timeframe, model_type=MLModelType.RANDOM_FOREST)
         #elif self.name == 'supertrend':
         #    self.strategy = SuperTrend(self.exchange, self.symbol, self.timeframe)
         #elif self.name == 'ut_bot_alerts':
