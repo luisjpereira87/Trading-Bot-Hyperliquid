@@ -55,44 +55,16 @@ class TradingBot:
 
             current_position = await self.exchange_client.get_open_position(symbol)
 
-            """
             if current_position:
                 side = Signal.from_str(current_position["side"])
-                entry_price = float(current_position["entryPrice"])
                 position_size = float(current_position["size"])
 
                 should_exit = await exit_logic.should_exit( pair, signal, current_position, atr_now)
                 if should_exit:
-                    # Obtemos preço de saída estimado do orderbook
-                    orderbook = await self.exchange.fetch_order_book(symbol)
-                    if side == Signal.BUY:
-                        exit_price = orderbook['bids'][0][0] if orderbook['bids'] else None
-                    else:
-                        exit_price = orderbook['asks'][0][0] if orderbook['asks'] else None
-
-                    if exit_price is None:
-                        logging.warning("⚠️ Preço de saída indisponível.")
-                        return None
-
-                    # Calcula lucro
-                    pnl = (exit_price - entry_price) * position_size if side == Signal.BUY else (entry_price - exit_price) * position_size
-
-                    # Fecha posição
                     await self.exchange_client.close_position(
                         symbol, position_size, self.helpers.get_opposite_side(side)
                     )
 
-                    logging.info(f"💰 PnL realizado para {symbol}: {pnl:.2f}")
-
-                    return {
-                        "symbol": symbol,
-                        "pnl": pnl,
-                        "entry_price": entry_price,
-                        "exit_price": exit_price,
-                        "side": side.value,
-                        "amount": position_size,
-                    }
-            """
             if signal.signal not in [Signal.BUY, Signal.SELL]:
                 logging.info(f"\n⛔ No valid signal for {symbol}. Skipping.")
                 return None
