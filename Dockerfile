@@ -19,4 +19,4 @@ COPY . /app
 WORKDIR /app
 
 # Comando para iniciar o bot
-CMD ["python", "bot.py"]
+CMD ["python", "main.py"]
