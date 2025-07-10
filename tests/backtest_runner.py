@@ -167,8 +167,6 @@ class ExchangeClientMock:
         print(F"AQUIUIIIII {self.positions.get(symbol)}")
 
         position = self.positions.get(symbol)
-
-        print(F"AQUIUIIIII {candle}")
         
         if position:
             side = position["side"]
@@ -177,6 +175,8 @@ class ExchangeClientMock:
             entry = position["entryPrice"]
             pair = position["pair"].symbol
             size = position["size"]
+
+            print(F"SIZEEEEEEEE {size}")
 
             low = candle[2]
             high = candle[3]
