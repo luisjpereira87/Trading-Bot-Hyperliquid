@@ -42,11 +42,13 @@ class TradingBot:
         try:
             logging.info(f"🚀 Starting processing for {symbol}")
 
-            #exchange_client = ExchangeClient(self.exchange, self.wallet_address)
             exit_logic = ExitLogic(self.helpers, self.exchange_client)
 
             balance_total = await self.exchange_client.get_total_balance()
-            capital_amount = balance_total * capital_pct * leverage
+            available_balance = await self.exchange_client.get_available_balance()
+            capital_amount = min(available_balance, balance_total * capital_pct) * leverage
+            logging.info(f"[DEBUG] Available balance: {available_balance}")
+            logging.info(f"[DEBUG] Capital to deploy (after leverage): {capital_amount}")
 
             signal = await StrategyManager(self.exchange_client, symbol, self.timeframe, 'ml').get_signal()
 
@@ -55,23 +57,30 @@ class TradingBot:
 
             current_position = await self.exchange_client.get_open_position(symbol)
 
+            # 1) Verifica saída via ExitLogic, se posição aberta e tamanho > 0
             if current_position:
                 side = Signal.from_str(current_position["side"])
                 position_size = float(current_position["size"])
+                logging.info(f"[DEBUG] Current position size: {position_size}")
 
-                should_exit = await exit_logic.should_exit( pair, signal, current_position, atr_now)
-                if should_exit:
-                    await self.exchange_client.close_position(
-                        symbol, position_size, self.helpers.get_opposite_side(side)
-                    )
+                if position_size > 0:
+                    should_exit = await exit_logic.should_exit(pair, signal, current_position, atr_now)
+                    if should_exit:
+                        logging.info(f"[DEBUG] Closing position with size={position_size} due to exit logic")
+                        await self.exchange_client.close_position(
+                            symbol, position_size, self.helpers.get_opposite_side(side)
+                        )
+                        current_position = None  # atualiza para evitar fechar de novo
 
+            # 2) Se não há sinal válido, skip
             if signal.signal not in [Signal.BUY, Signal.SELL]:
                 logging.info(f"\n⛔ No valid signal for {symbol}. Skipping.")
                 return None
-            
-            current_position = await self.exchange_client.get_open_position(symbol)
+
+            # 3) Se posição ainda aberta, verifica se sinal é oposto para fechar
             if current_position:
                 if self.helpers.is_signal_opposite_position(signal.signal, Signal.from_str(current_position["side"])):
+                    logging.info(f"[DEBUG] Closing position due to opposite signal for {symbol}")
                     await self.exchange_client.close_position(
                         symbol, float(current_position["size"]),
                         self.helpers.get_opposite_side(Signal.from_str(current_position["side"]))
@@ -81,9 +90,14 @@ class TradingBot:
                     logging.info(f"⚠️ Position already in same direction for {symbol}, skipping new entry.")
                     return None
 
+            # 4) Se não há posição aberta, abre nova posição
             if not current_position:
+                logging.info(f"[DEBUG] Cancelling all orders before opening new position for {symbol}")
                 await self.exchange_client.cancel_all_orders(symbol)
-                await self.exchange_client.open_new_position(symbol, leverage, signal.signal, capital_amount, pair, signal.sl, signal.tp)
+                logging.info(f"[DEBUG] Opening new position for {symbol} with size {capital_amount}")
+                await self.exchange_client.open_new_position(
+                    symbol, leverage, signal.signal, capital_amount, pair, signal.sl, signal.tp
+                )
 
             logging.info(f"✅ Processing for {symbol} completed successfully")
             return None
@@ -94,6 +108,7 @@ class TradingBot:
             logging.error(f"⚠️ Exchange error for {symbol}: {str(e)}")
         except Exception:
             logging.exception(f"\n❌ Bot error for {symbol}")
+
     
 
     def _calculate_sleep_time(self):
