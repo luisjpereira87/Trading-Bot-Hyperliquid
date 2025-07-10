@@ -70,10 +70,6 @@ class TradingBot:
                 if position_size > 0:
                     should_exit = await exit_logic.should_exit(pair, signal, current_position, atr_now)
                     if should_exit:
-                        logging.info(f"[DEBUG] Closing position with size={position_size} due to exit logic")
-                        await self.exchange_client.close_position(
-                            symbol, position_size, self.helpers.get_opposite_side(side)
-                        )
                         current_position = None  # atualiza para evitar fechar de novo
                         return
 
