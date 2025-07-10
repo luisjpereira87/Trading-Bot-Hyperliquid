@@ -19,6 +19,9 @@ python3 main.py train
 4. Execute o bot:
 python3 main.py
 
+5. Executar backtests:
+python tests/backtest_runner.py;  
+
 ## Estrutura do projeto
 
 - `trading_bot/`: código fonte do bot

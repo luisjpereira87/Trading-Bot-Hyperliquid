@@ -40,12 +40,12 @@ class AISuperTrend(StrategyBase):
                     atr_now=self.atr[-1],
                     mode=self.mode
                 )
-                return SignalResult(signal, sl, tp)
+                return SignalResult(signal, sl, tp, self.calculate_confidence(signal))
             except Exception as e:
                 logging.warning(f"{self.symbol} - Erro ao calcular SL/TP: {e}")
-                return SignalResult(Signal.HOLD, None, None)
+                return SignalResult(Signal.HOLD, None, None, None)
 
-        return SignalResult(Signal.HOLD, None, None)
+        return SignalResult(Signal.HOLD, None, None, None)
 
     def extract_data(self):
         self.closes = self.indicators.closes
@@ -246,6 +246,28 @@ class AISuperTrend(StrategyBase):
         logging.info(f"✅ TP final: {tp_price:.2f} ({tp_pct_off*100:.2f}%)")
 
         return round(sl_price, 2), round(tp_price, 2)
+    
+    def calculate_confidence(self, signal):
+        # Exemplo heurístico: quanto maior o ADX e mais próximo do limite da banda, maior a confiança
+        confidence = 0.0
+
+        if signal == Signal.BUY:
+            # Exemplo: força do RSI e proximidade do preço à lower band
+            rsi_conf = max(0, (self.rsi - self.rsi_buy_threshold) / (100 - self.rsi_buy_threshold))
+            band_conf = max(0, 1 - abs(self.price - self.lower_band[-1]) / self.lower_band[-1])
+            adx_conf = min(1, self.adx_now / 50)  # ADX normalizado entre 0 e 1 (50 arbitrário)
+            confidence = (rsi_conf + band_conf + adx_conf) / 3
+
+        elif signal == Signal.SELL:
+            rsi_conf = max(0, (self.rsi_sell_threshold - self.rsi) / self.rsi_sell_threshold)
+            band_conf = max(0, 1 - abs(self.price - self.upper_band[-1]) / self.upper_band[-1])
+            adx_conf = min(1, self.adx_now / 50)
+            confidence = (rsi_conf + band_conf + adx_conf) / 3
+
+        else:
+            confidence = 0.0
+
+        return round(confidence, 2)
 
 
 

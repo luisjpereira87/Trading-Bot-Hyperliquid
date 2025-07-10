@@ -1,15 +1,22 @@
-# Escolhe imagem com Python 3.12.6
-FROM python:3.12.6-slim
+FROM python:3.10-slim
 
-# Define diretório de trabalho no container
+# Instala dependências do sistema
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libatlas-base-dev \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Instala dependências Python
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copia o código do bot
+COPY . /app
 WORKDIR /app
 
-# Copia arquivos do projeto
-COPY . /app
-
-# Instala dependências
-RUN pip install --upgrade pip \
- && pip install -r requirements.txt
-
-# Define o comando padrão (pode ajustar conforme seu entrypoint real)
-CMD ["python", "main.py"]
+# Comando para iniciar o bot
+CMD ["python", "bot.py"]

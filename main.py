@@ -63,7 +63,7 @@ async def run_bot():
 
 async def run_train():
     print("🤖 A treinar o modelo ML...")
-    mlTrainer = MLTrainer()
+    mlTrainer = MLTrainer(MLModelType.LSTM)
     await mlTrainer.run() 
 
     #mlTrainer = MLTrainer(MLModelType.XGBOOST)

@@ -37,8 +37,10 @@ class ExchangeClientMock:
         self.total_pnl = 0.0  # USDC
         self.num_wins = 0
         self.num_losses = 0
+        self.current_candle = []
 
     def update_candles(self, symbol, sliced):
+        self.current_candle = sliced[-1]
         self.symbol_data[symbol] = sliced
         self.current_index[symbol] = len(sliced) - 1
 
@@ -68,6 +70,9 @@ class ExchangeClientMock:
     
     async def get_available_balance(self):
         return self.balance
+    
+    async def fetch_ticker(self, symbol):
+        return {"close": self.current_candle[4]}
 
     async def cancel_all_orders(self, symbol, params=None, **kwargs):
         pass
@@ -167,7 +172,6 @@ class ExchangeClientMock:
         return None
     
     async def simulate_tp_sl(self, candle, symbol):
-        print(F"AQUIUIIIII {self.positions.get(symbol)}")
 
         position = self.positions.get(symbol)
         

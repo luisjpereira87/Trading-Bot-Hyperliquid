@@ -2,6 +2,7 @@ import asyncio
 import logging
 import math
 import os
+import warnings
 from datetime import datetime, timedelta, timezone
 
 import ccxt.async_support as ccxt  # type: ignore
@@ -12,6 +13,9 @@ from commons.utils.config_loader import PairConfig
 from strategies.indicators import Indicators
 from trading_bot.exit_logic import ExitLogic
 from trading_bot.strategy_manager import StrategyManager  # Para cálculo ATR
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+warnings.filterwarnings("ignore", category=UserWarning)
 
 
 class TradingBot:
