@@ -66,11 +66,11 @@ async def run_train():
     mlTrainer = MLTrainer()
     await mlTrainer.run() 
 
-    mlTrainer = MLTrainer(MLModelType.XGBOOST)
-    await mlTrainer.run() 
+    #mlTrainer = MLTrainer(MLModelType.XGBOOST)
+    #await mlTrainer.run() 
 
-    mlTrainer = MLTrainer(MLModelType.MLP)
-    await mlTrainer.run() 
+    #mlTrainer = MLTrainer(MLModelType.MLP)
+    #await mlTrainer.run() 
     
 
 async def run_backtest():

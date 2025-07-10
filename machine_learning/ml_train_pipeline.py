@@ -19,7 +19,7 @@ from ta.momentum import RSIIndicator, StochasticOscillator
 from ta.volatility import AverageTrueRange
 from xgboost import XGBClassifier
 
-from strategies.ml_strategy import MLModelType
+from commons.enums.ml_model_enum import MLModelType
 
 logging.basicConfig(level=logging.INFO)
 
@@ -29,8 +29,10 @@ class MLTrainer:
     DATA_DIR = "data"
     MODEL_PATH = "models/modelo.pkl"  # Generalizado o nome do arquivo
 
-    def __init__(self, model_type=MLModelType.RANDOM_FOREST):
+    def __init__(self, model_type=MLModelType.RANDOM_FOREST, save_csv = False, save_img = False):
         self.model_type = model_type
+        self.save_csv = save_csv
+        self.save_img = save_img
         self.base_dir = os.path.dirname(os.path.abspath(__file__))
         self.DATA_DIR = os.path.join(self.base_dir, "data")
         self.MODEL_PATH = os.path.join(self.base_dir, "models", f"modelo_{model_type.value.lower()}.pkl")
@@ -81,10 +83,11 @@ class MLTrainer:
         df = pd.DataFrame(data, columns=["timestamp", "open", "high", "low", "close", "volume"])
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
 
-        os.makedirs(self.DATA_DIR, exist_ok=True)
-        csv_path = os.path.join(self.DATA_DIR, f"ohlcv_data_{symbol.replace('/', '_').replace(':', '_')}.csv")
-        df.to_csv(csv_path, index=False)
-        logging.info(f"✅ CSV salvo em: {csv_path}")
+        if self.save_csv:
+            os.makedirs(self.DATA_DIR, exist_ok=True)
+            csv_path = os.path.join(self.DATA_DIR, f"ohlcv_data_{symbol.replace('/', '_').replace(':', '_')}.csv")
+            df.to_csv(csv_path, index=False)
+            logging.info(f"✅ CSV salvo em: {csv_path}")
 
         await exchange.close()
         return df
@@ -140,18 +143,19 @@ class MLTrainer:
         logging.info(f"📊 Acurácia: {acc:.4f}")
         print(report)
 
-        os.makedirs(self.IMG_DIR, exist_ok=True)
-        plt.figure(figsize=(6, 5))
-        sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
-                    xticklabels=["Baixa", "Neutro", "Alta"], yticklabels=["Baixa", "Neutro", "Alta"])
-        plt.xlabel("Predito")
-        plt.ylabel("Real")
-        plt.title("Matriz de Confusão")
-        plt.savefig(os.path.join(self.IMG_DIR, "imagem.png"))
-        plt.close()
+        if self.save_img:
+            os.makedirs(self.IMG_DIR, exist_ok=True)
+            plt.figure(figsize=(6, 5))
+            sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
+                        xticklabels=["Baixa", "Neutro", "Alta"], yticklabels=["Baixa", "Neutro", "Alta"])
+            plt.xlabel("Predito")
+            plt.ylabel("Real")
+            plt.title("Matriz de Confusão")
+            plt.savefig(os.path.join(self.IMG_DIR, "imagem.png"))
+            plt.close()
 
         os.makedirs(os.path.dirname(self.MODEL_PATH), exist_ok=True)
-        joblib.dump(best_model, self.MODEL_PATH, compress=3)
+        joblib.dump(best_model, self.MODEL_PATH, compress=0, protocol=4)
         logging.info(f"💾 Modelo salvo em: {self.MODEL_PATH}")
 
     def load_pair_configs(self):

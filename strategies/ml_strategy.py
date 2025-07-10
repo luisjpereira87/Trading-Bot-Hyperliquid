@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from enum import Enum
@@ -21,6 +22,7 @@ from commons.enums.ml_model_enum import MLModelType
 from commons.enums.signal_enum import Signal
 from commons.models.signal_result import SignalResult
 from commons.models.strategy_base import StrategyBase
+from machine_learning.ml_train_pipeline import MLTrainer
 
 
 class MLStrategy(StrategyBase):
@@ -44,12 +46,17 @@ class MLStrategy(StrategyBase):
         self.model_path = os.path.join(self.model_dir, f"modelo_{self.model_type.value.lower()}.pkl")
         self.data_dir = "data"
         self.image_path = "img/imagem.png"
+            
 
+    async def initialize(self, model_type):
         if os.path.exists(self.model_path):
             self.model = joblib.load(self.model_path)
             logging.info(f"📥 Modelo {self.model_type.value} carregado de '{self.model_path}'")
         else:
-            logging.warning(f"⚠️ Modelo {self.model_type.value} ainda não treinado.")
+            logging.warning(f"⚠️ Modelo {self.model_type.value} ainda não treinado, a executar treino...")
+            mlTrainer = MLTrainer(model_type, False, False)
+            await mlTrainer.run()
+            logging.warning(f"✅ Modelo {self.model_type.value} com treino finalizado")
 
     async def fetch_ohlcv(self, limit=500):
         data = await self.exchange.fetch_ohlcv(self.symbol, timeframe=self.timeframe, limit=limit)
@@ -227,6 +234,7 @@ class MLStrategy(StrategyBase):
             logging.info(f"📁 Dataset salvo para treino em: {filename}")
 
     async def get_signal(self) -> SignalResult:
+        await self.initialize(self.model_type)
         df = await self.fetch_ohlcv()
         await self.train_if_due(df)
         result = self.predict_signal(df)
