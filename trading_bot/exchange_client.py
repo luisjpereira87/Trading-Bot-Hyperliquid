@@ -18,6 +18,14 @@ class ExchangeClient:
             return await self.exchange.fetch_ohlcv(symbol, timeframe, limit)
         except Exception as e:
             logging.error(f"Erro ao buscar os candles: {e}")
+
+    async def get_available_balance(self):
+        try:
+            balance = await self.exchange.fetch_balance(params={'user': self.wallet_address})
+            return balance['total']['USDC']
+        except Exception as e:
+            logging.error(f"Erro ao buscar saldo: {e}")
+
     
     async def fetch_ticker(self, symbol):
         try:
