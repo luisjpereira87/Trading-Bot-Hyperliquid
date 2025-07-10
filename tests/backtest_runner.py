@@ -65,6 +65,9 @@ class ExchangeClientMock:
             'bids': [[3100.0, 12], [3099.5, 20], [3099.0, 7]]
         }
         return order_book_mock
+    
+    async def get_available_balance(self):
+        return self.balance
 
     async def cancel_all_orders(self, symbol, params=None, **kwargs):
         pass

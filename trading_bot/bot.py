@@ -71,6 +71,7 @@ class TradingBot:
                             symbol, position_size, self.helpers.get_opposite_side(side)
                         )
                         current_position = None  # atualiza para evitar fechar de novo
+                        return
 
             # 2) Se não há sinal válido, skip
             if signal.signal not in [Signal.BUY, Signal.SELL]:
