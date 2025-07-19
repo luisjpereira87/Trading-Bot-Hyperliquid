@@ -1,6 +1,7 @@
 import logging
 
 from commons.enums.signal_enum import Signal
+from commons.models.open_position import OpenPosition
 from commons.models.signal_result import SignalResult
 from commons.utils.config_loader import PairConfig
 
@@ -18,14 +19,14 @@ class ExitLogic:
         self,
         pair: PairConfig,
         signal_result: SignalResult,
-        position,
+        position: OpenPosition,
         atr_now: float,
     ) -> bool:
         symbol = pair.symbol
-        entry_price = position["entryPrice"]
-        side = position["side"]
-        size = float(position["size"])
-        notional = float(position["notional"])
+        entry_price = position.entry_price
+        side = position.side
+        size = float(position.size)
+        notional = float(position.notional)
 
         ticker = await self.exchange_client.fetch_ticker(symbol)
         mark_price = ticker.get("last") or ticker.get("close")
@@ -136,7 +137,7 @@ class ExitLogic:
         self.last_profits[symbol] = 0
         self.partial_taken[symbol] = False
 
-    def is_trend_against_position(self, symbol: str, side: str) -> bool:
+    def is_trend_against_position(self, symbol: str, side: (str | None)) -> bool:
         df = self.helpers.get_candles(symbol)
         if df is None or len(df) < 21:
             return False

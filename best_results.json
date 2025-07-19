@@ -1,0 +1,212 @@
+[
+    {
+        "profit": 283.8506894044242,
+        "params": {
+            "mode": "conservative",
+            "multiplier": 1.0196337162569011,
+            "adx_threshold": 34,
+            "rsi_buy_threshold": 38,
+            "rsi_sell_threshold": 74,
+            "sl_multiplier_aggressive": 1.6816425883757815,
+            "tp_multiplier_aggressive": 5.75750829070019,
+            "sl_multiplier_conservative": 2.5827703526518913,
+            "tp_multiplier_conservative": 3.7510384150801936,
+            "volume_threshold_ratio": 0.37315864135750537,
+            "atr_threshold_ratio": 0.6762329366019504,
+            "w_0": 0.6737337753020423,
+            "w_1": 0.9376269328456465,
+            "w_2": 0.8649563624684286,
+            "w_3": 0.6277759006325644,
+            "w_4": 0.9753113820732648
+        }
+    },
+    {
+        "profit": 283.8506894044242,
+        "params": {
+            "mode": "conservative",
+            "multiplier": 1.0798957925613557,
+            "adx_threshold": 13,
+            "rsi_buy_threshold": 29,
+            "rsi_sell_threshold": 72,
+            "sl_multiplier_aggressive": 2.3062442182877594,
+            "tp_multiplier_aggressive": 4.256764472014576,
+            "sl_multiplier_conservative": 2.363121513210182,
+            "tp_multiplier_conservative": 2.4537229770243414,
+            "volume_threshold_ratio": 0.37379637198205073,
+            "atr_threshold_ratio": 0.4626696073176164,
+            "w_0": 0.6415074342766426,
+            "w_1": 0.883203408483368,
+            "w_2": 0.9988601593831921,
+            "w_3": 0.4837529613594851,
+            "w_4": 0.7031246511548973
+        }
+    },
+    {
+        "profit": 258.7545050157739,
+        "params": {
+            "mode": "conservative",
+            "multiplier": 1.393907988433103,
+            "adx_threshold": 13,
+            "rsi_buy_threshold": 25,
+            "rsi_sell_threshold": 73,
+            "sl_multiplier_aggressive": 2.4809996378329613,
+            "tp_multiplier_aggressive": 4.181424698268016,
+            "sl_multiplier_conservative": 2.292930167755967,
+            "tp_multiplier_conservative": 2.4725215664752094,
+            "volume_threshold_ratio": 0.3795688420679767,
+            "atr_threshold_ratio": 0.46223845048824813,
+            "w_0": 0.657497570889047,
+            "w_1": 0.6077241083372065,
+            "w_2": 0.9831835675494569,
+            "w_3": 0.933582299413118,
+            "w_4": 0.7112995383238556
+        }
+    },
+    {
+        "profit": 214.24286178624908,
+        "params": {
+            "mode": "conservative",
+            "multiplier": 1.0866224943592675,
+            "adx_threshold": 28,
+            "rsi_buy_threshold": 34,
+            "rsi_sell_threshold": 72,
+            "sl_multiplier_aggressive": 1.2367916114354474,
+            "tp_multiplier_aggressive": 5.764622969512844,
+            "sl_multiplier_conservative": 2.6360678467792513,
+            "tp_multiplier_conservative": 3.073770214934329,
+            "volume_threshold_ratio": 0.37102037655431047,
+            "atr_threshold_ratio": 0.5740224971165406,
+            "w_0": 0.7020071380595613,
+            "w_1": 0.7916150240173248,
+            "w_2": 0.8234092251317764,
+            "w_3": 0.4987568004784293,
+            "w_4": 0.8939931715668167
+        }
+    },
+    {
+        "profit": 214.24286178624908,
+        "params": {
+            "mode": "aggressive",
+            "multiplier": 1.2270375454978941,
+            "adx_threshold": 34,
+            "rsi_buy_threshold": 38,
+            "rsi_sell_threshold": 74,
+            "sl_multiplier_aggressive": 1.671400966306559,
+            "tp_multiplier_aggressive": 5.801513759734348,
+            "sl_multiplier_conservative": 2.6078341538496495,
+            "tp_multiplier_conservative": 2.2100785922761186,
+            "volume_threshold_ratio": 0.38813022848868706,
+            "atr_threshold_ratio": 0.5740960597950168,
+            "w_0": 0.8369752754949636,
+            "w_1": 0.93298850458968,
+            "w_2": 0.9972826115966458,
+            "w_3": 0.6248809640755177,
+            "w_4": 0.9972956330975429
+        }
+    },
+    {
+        "profit": 210.4786434929604,
+        "params": {
+            "mode": "aggressive",
+            "multiplier": 1.4112387721273472,
+            "adx_threshold": 17,
+            "rsi_buy_threshold": 23,
+            "rsi_sell_threshold": 72,
+            "sl_multiplier_aggressive": 2.0860422347324623,
+            "tp_multiplier_aggressive": 3.5869943768156753,
+            "sl_multiplier_conservative": 1.9697455331030045,
+            "tp_multiplier_conservative": 4.318421941291252,
+            "volume_threshold_ratio": 0.3013682337638393,
+            "atr_threshold_ratio": 0.41158575429463085,
+            "w_0": 0.7048612243177216,
+            "w_1": 0.8444453484378391,
+            "w_2": 0.5993694779030607,
+            "w_3": 0.9028590720795213,
+            "w_4": 0.5244065141480808
+        }
+    },
+    {
+        "profit": 210.4786434929604,
+        "params": {
+            "mode": "aggressive",
+            "multiplier": 1.2127200870784627,
+            "adx_threshold": 14,
+            "rsi_buy_threshold": 21,
+            "rsi_sell_threshold": 74,
+            "sl_multiplier_aggressive": 2.1710589294995533,
+            "tp_multiplier_aggressive": 4.003934929795426,
+            "sl_multiplier_conservative": 1.7029810198723652,
+            "tp_multiplier_conservative": 4.787599709184981,
+            "volume_threshold_ratio": 0.23341795140149524,
+            "atr_threshold_ratio": 0.41254389914663436,
+            "w_0": 0.6179818650324052,
+            "w_1": 0.9297560993833903,
+            "w_2": 0.6391679783098496,
+            "w_3": 0.9568763110793592,
+            "w_4": 0.385065158372883
+        }
+    },
+    {
+        "profit": 179.19815967098452,
+        "params": {
+            "mode": "conservative",
+            "multiplier": 1.396671386465501,
+            "adx_threshold": 14,
+            "rsi_buy_threshold": 25,
+            "rsi_sell_threshold": 73,
+            "sl_multiplier_aggressive": 2.56486021857302,
+            "tp_multiplier_aggressive": 4.233295995079992,
+            "sl_multiplier_conservative": 2.2694530849730334,
+            "tp_multiplier_conservative": 2.5462321104702315,
+            "volume_threshold_ratio": 0.3793221548662978,
+            "atr_threshold_ratio": 0.4592398340315873,
+            "w_0": 0.4687010248653659,
+            "w_1": 0.469424549844032,
+            "w_2": 0.9871354132969609,
+            "w_3": 0.5713027392456537,
+            "w_4": 0.6050206491546329
+        }
+    },
+    {
+        "profit": 173.75746728618353,
+        "params": {
+            "mode": "aggressive",
+            "multiplier": 1.3494477653413328,
+            "adx_threshold": 29,
+            "rsi_buy_threshold": 23,
+            "rsi_sell_threshold": 62,
+            "sl_multiplier_aggressive": 1.7498391072378223,
+            "tp_multiplier_aggressive": 3.932252402527073,
+            "sl_multiplier_conservative": 2.048676968519874,
+            "tp_multiplier_conservative": 4.547800958998937,
+            "volume_threshold_ratio": 0.2693513671021229,
+            "atr_threshold_ratio": 0.3600359269026128,
+            "w_0": 0.6771922001312258,
+            "w_1": 0.8179561493620451,
+            "w_2": 0.6143098627773487,
+            "w_3": 0.9136974173513442,
+            "w_4": 0.5023559831816873
+        }
+    },
+    {
+        "profit": -283.8506894044242,
+        "params": {
+            "mode": "aggressive",
+            "multiplier": 1.8689400264485005,
+            "adx_threshold": 12,
+            "rsi_buy_threshold": 39,
+            "rsi_sell_threshold": 75,
+            "sl_multiplier_aggressive": 2.131155990240159,
+            "tp_multiplier_aggressive": 2.9430986261971848,
+            "sl_multiplier_conservative": 1.015956340599491,
+            "tp_multiplier_conservative": 3.4992623361305535,
+            "volume_threshold_ratio": 0.40445926243642044,
+            "atr_threshold_ratio": 0.3958249287955698,
+            "w_0": 0.7892177893632812,
+            "w_1": 0.6824512200387889,
+            "w_2": 0.7814486855127809,
+            "w_3": 0.9245642225027116,
+            "w_4": 0.6258412109450744
+        }
+    }
+]

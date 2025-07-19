@@ -9,39 +9,44 @@ import ccxt.async_support as ccxt  # type: ignore
 import pytz  # type: ignore
 
 from commons.enums.signal_enum import Signal
+from commons.enums.strategy_enum import StrategyEnum
+from commons.enums.timeframe_enum import TimeframeEnum
+from commons.models.ohlcv_format import OhlcvFormat
+from commons.models.signal_result import SignalResult
 from commons.utils.config_loader import PairConfig
+from commons.utils.load_params import LoadParams
+from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from strategies.indicators import Indicators
+from strategies.strategy_manager import StrategyManager  # Para cálculo ATR
+from trading_bot.exchange_client import ExchangeClient
 from trading_bot.exit_logic import ExitLogic
-from trading_bot.strategy_manager import StrategyManager  # Para cálculo ATR
+from trading_bot.trading_helpers import TradingHelpers
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 warnings.filterwarnings("ignore", category=UserWarning)
 
 
 class TradingBot:
-    def __init__(self, exchange, exchange_client, wallet_address, helpers, pairs, timeframe, atr_period):
-        self.exchange = exchange
+    def __init__(self, exchange_client: ExchangeClient, strategy: StrategyManager, helpers: TradingHelpers, pairs: list[PairConfig], timeframe: TimeframeEnum):
         self.exchange_client = exchange_client
-        self.wallet_address = wallet_address
         self.helpers = helpers
-        #self.exit_logic = exit_logic
         self.pairs = pairs
-        self.timeframe = timeframe
-        self.atr_period = atr_period
-
+        self.timeframe: TimeframeEnum = timeframe
         self.last_candle_times: dict[str, datetime | None] = {pair.symbol: None for pair in self.pairs}
+        self.signal = None
+        self.strategy = strategy
 
-        
+        self.strategy.set_params(LoadParams.load_best_params_with_weights())
 
-    async def run_pair(self, pair: PairConfig):
+    async def run_pair(self, pair: PairConfig) -> SignalResult:
         symbol = pair.symbol
         leverage = int(pair.leverage)
         capital_pct = float(pair.capital)
+        ohlcv_obj: OhlcvFormat = await self.exchange_client.fetch_ohlcv(symbol, self.timeframe, self.strategy.MIN_REQUIRED_CANDLES, True)
 
-        ohlcv = await self.exchange_client.fetch_ohlcv(symbol, timeframe=self.timeframe, limit=self.atr_period + 1)
-        indicators = Indicators(ohlcv)
-        atr_values = indicators.atr()
-        atr_now = atr_values[-1]
+        ohlcv = ohlcv_obj.ohlcv
+        ohlcv_higher = ohlcv_obj.ohlcv_higher
+
 
         try:
             logging.info(f"🚀 Starting processing for {symbol}")
@@ -54,42 +59,49 @@ class TradingBot:
             logging.info(f"[DEBUG] Available balance: {available_balance}")
             logging.info(f"[DEBUG] Capital to deploy (after leverage): {capital_amount}")
 
-            signal = await StrategyManager(self.exchange_client, symbol, self.timeframe, 'ml').get_signal()
+            price_ref = await self.exchange_client.get_entry_price(symbol)
+
+            self.strategy.required_init(ohlcv, ohlcv_higher, symbol, price_ref)
+
+            signal = await self.strategy.get_signal()
 
             await self.exchange_client.print_balance()
             await self.exchange_client.print_open_orders(symbol)
 
             current_position = await self.exchange_client.get_open_position(symbol)
-
+ 
             # 1) Verifica saída via ExitLogic, se posição aberta e tamanho > 0
+            
+            """
             if current_position:
-                side = Signal.from_str(current_position["side"])
-                position_size = float(current_position["size"])
+                side = Signal.from_str(current_position.side)
+                position_size = float(current_position.size)
                 logging.info(f"[DEBUG] Current position size: {position_size}")
 
                 if position_size > 0:
                     should_exit = await exit_logic.should_exit(pair, signal, current_position, atr_now)
                     if should_exit:
                         current_position = None  # atualiza para evitar fechar de novo
-                        return
+                        #return
+            """
 
             # 2) Se não há sinal válido, skip
             if signal.signal not in [Signal.BUY, Signal.SELL]:
                 logging.info(f"\n⛔ No valid signal for {symbol}. Skipping.")
-                return None
+                return signal
 
             # 3) Se posição ainda aberta, verifica se sinal é oposto para fechar
             if current_position:
-                if self.helpers.is_signal_opposite_position(signal.signal, Signal.from_str(current_position["side"])):
+                if self.helpers.is_signal_opposite_position(signal.signal, Signal.from_str(current_position.side)):
                     logging.info(f"[DEBUG] Closing position due to opposite signal for {symbol}")
                     await self.exchange_client.close_position(
-                        symbol, float(current_position["size"]),
-                        self.helpers.get_opposite_side(Signal.from_str(current_position["side"]))
+                        symbol, float(current_position.size),
+                        self.helpers.get_opposite_side(Signal.from_str(current_position.side))
                     )
                     current_position = None
                 else:
                     logging.info(f"⚠️ Position already in same direction for {symbol}, skipping new entry.")
-                    return None
+                    return signal
 
             # 4) Se não há posição aberta, abre nova posição
             if not current_position:
@@ -101,7 +113,7 @@ class TradingBot:
                 )
 
             logging.info(f"✅ Processing for {symbol} completed successfully")
-            return None
+            return signal
 
         except ccxt.NetworkError as e:
             logging.error(f"⚠️ Network error for {symbol}: {str(e)}")
@@ -109,7 +121,8 @@ class TradingBot:
             logging.error(f"⚠️ Exchange error for {symbol}: {str(e)}")
         except Exception:
             logging.exception(f"\n❌ Bot error for {symbol}")
-
+            
+        return signal
     
 
     def _calculate_sleep_time(self):
@@ -188,11 +201,20 @@ class TradingBot:
 
     async def get_last_closed_candle_time(self, symbol):
         try:
-            candles = await self.exchange.fetch_ohlcv(symbol, timeframe=self.timeframe)
-            last_candle = candles[-2]
-            timestamp = last_candle[0]
+            candles_obj: OhlcvFormat = await self.exchange_client.fetch_ohlcv(symbol, timeframe=self.timeframe)
+            candles: OhlcvWrapper = candles_obj.ohlcv
+            last_candle = candles.get_last_closed_candle()
+            timestamp = last_candle.timestamp
+
+            print("\n🔍 Últimos 5 candles:")
+            for i in range(-5, 0):
+                candle = candles.get_candle(i)
+                ts = datetime.utcfromtimestamp(candle.timestamp / 1000).strftime('%Y-%m-%d %H:%M:%S')
+                print(f"Candle [{i - 5}] -> Time: {ts}, O: {candle.open}, H: {candle.high}, L: {candle.low}, C: {candle.close}, V: {candle.volume}")
+
+
             utc_dt = datetime.utcfromtimestamp(timestamp / 1000).replace(
-                tzinfo=pytz.UTC
+                tzinfo=pytz.UTC # type: ignore
             )
             lisbon_tz = pytz.timezone("Europe/Lisbon")
             local_dt = utc_dt.astimezone(lisbon_tz)

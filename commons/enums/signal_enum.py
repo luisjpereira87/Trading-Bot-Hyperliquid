@@ -9,7 +9,7 @@ class Signal(Enum):
     LONG = "long"
 
     @staticmethod
-    def from_str(value: str):
+    def from_str(value: (str|None)):
         if not value:
             raise ValueError("⚠️ Valor nulo ou vazio recebido em Signal.from_str")
 

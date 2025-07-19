@@ -1,6 +1,11 @@
 import logging
 
 from commons.enums.signal_enum import Signal
+from commons.enums.timeframe_enum import TimeframeEnum
+from commons.models.ohlcv_format import OhlcvFormat
+from commons.models.open_position import OpenPosition
+from commons.utils.config_loader import PairConfig
+from commons.utils.ohlcv_wrapper import OhlcvWrapper
 
 from .trading_helpers import TradingHelpers
 
@@ -13,21 +18,34 @@ class ExchangeClient:
         #self.leverage = leverage
         self.helpers = TradingHelpers()
 
-    async def fetch_ohlcv(self, symbol, timeframe, limit):
+    async def fetch_ohlcv(self, symbol: str, timeframe: TimeframeEnum = TimeframeEnum.M15, limit: int = 14, is_higher: bool = False) -> OhlcvFormat:
         try:
-            return await self.exchange.fetch_ohlcv(symbol, timeframe, limit)
-        except Exception as e:
-            logging.error(f"Erro ao buscar os candles: {e}")
+            # Fetch timeframe principal
+            ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe.value, limit)
+            
+            # Fetch timeframe maior, se necessário
+            ohlcv_higher = []
+            if is_higher:
+                higher_tf = timeframe.get_higher()
+                ohlcv_higher = await self.exchange.fetch_ohlcv(symbol, higher_tf.value, limit)
 
-    async def get_available_balance(self):
+            
+            return OhlcvFormat(OhlcvWrapper(ohlcv), OhlcvWrapper(ohlcv_higher))
+        
+        except Exception as e:
+            logging.error(f"[{symbol}] Erro ao buscar os candles ({timeframe.value}): {e}")
+            raise
+
+    async def get_available_balance(self) -> float:
         try:
             balance = await self.exchange.fetch_balance(params={'user': self.wallet_address})
             return balance['total']['USDC']
         except Exception as e:
             logging.error(f"Erro ao buscar saldo: {e}")
+            raise
 
     
-    async def fetch_ticker(self, symbol):
+    async def fetch_ticker(self, symbol: str):
         try:
             return await self.exchange.fetch_ticker(symbol)
         except Exception as e:
@@ -40,7 +58,7 @@ class ExchangeClient:
         except Exception as e:
             logging.error(f"Erro ao buscar saldo: {e}")
 
-    async def print_open_orders(self, symbol=None):
+    async def print_open_orders(self, symbol: str = ''):
         try:
             params = {'user': self.wallet_address}
             if symbol:
@@ -53,7 +71,7 @@ class ExchangeClient:
         except Exception as e:
             logging.error(f"Erro ao buscar ordens abertas: {e}")
 
-    async def cancel_all_orders(self, symbol=None):
+    async def cancel_all_orders(self, symbol: str = ''):
         try:
             params = {'user': self.wallet_address}
             if symbol:
@@ -67,24 +85,21 @@ class ExchangeClient:
         except Exception as e:
             logging.error(f"Erro ao cancelar ordens: {e}")
 
-    async def get_open_position(self, symbol=None):
+    async def get_open_position(self, symbol: str = '') -> (OpenPosition | None):
         try:
             positions = await self.exchange.fetch_positions(params={'user': self.wallet_address})
             for pos in positions:
                 if pos["symbol"] == symbol and float(pos.get('contracts', 0)) > 0:
                     size = float(pos['contracts'])
                     entry_price = pos.get('entryPrice') or pos.get('entry_price') or pos.get('averagePrice') or 0.0
-                    return {
-                        'side': self.helpers.position_side_to_signal_side(pos['side']),
-                        'size': size,
-                        'entryPrice': entry_price,
-                        'notional': size * entry_price
-                    }
+                    
+                    return OpenPosition(self.helpers.position_side_to_signal_side(pos['side']), size, entry_price, size * entry_price, None, None)
+
         except Exception as e:
             logging.error(f"Erro ao obter posições abertas: {e}")
         return None
 
-    async def get_reference_price(self, symbol):
+    async def get_reference_price(self, symbol: str):
         try:
             order_book = await self.exchange.fetch_order_book(symbol)
             asks = order_book.get('asks', [])
@@ -133,7 +148,7 @@ class ExchangeClient:
             logging.error(f"Erro ao calcular quantidade de entrada: {e}")
             return 0.0
 
-    async def place_entry_order(self,symbol, leverage, entry_amount, price_ref, side:Signal, sl_price=None, tp_price=None):
+    async def place_entry_order(self, symbol: str, leverage: float, entry_amount: float, price_ref: float, side: Signal, sl_price: (float|None) = None, tp_price: (float|None) = None):
 
         logging.info(f"🧾 Params finais para create_order: symbol={symbol}, type=market, side={side}, amount={entry_amount}, price={price_ref}")
         try:
@@ -179,7 +194,7 @@ class ExchangeClient:
     
         return None
 
-    async def get_entry_price(self, symbol):
+    async def get_entry_price(self, symbol: str) -> float:
         try:
             ticker = await self.exchange.fetch_ticker(symbol)
             return float(ticker['last'])
@@ -196,7 +211,7 @@ class ExchangeClient:
             logging.error(f"Erro ao obter saldo total: {e}")
             return 0
     
-    async def open_new_position(self, symbol, leverage, signal:Signal, capital_amount, pair, sl, tp):
+    async def open_new_position(self, symbol: str, leverage: float, signal: Signal, capital_amount: float, pair: PairConfig, sl: (float|None), tp: (float|None)):
         price_ref = await self.get_reference_price(symbol)
         if not price_ref or price_ref <= 0:
             raise ValueError("❌ Invalid reference price (None or <= 0)")
@@ -217,7 +232,7 @@ class ExchangeClient:
 
         await self.place_entry_order(symbol, leverage, entry_amount, price_ref, side, sl, tp)
 
-    async def close_position(self, symbol, amount, side: Signal):
+    async def close_position(self, symbol: str, amount: float, side: Signal):
         """
         Fecha posição com ordem de mercado. Usa 'side' atual para calcular o lado oposto (close_side).
         """

@@ -10,7 +10,7 @@ async def get_symbols():
     })
     await exchange.load_markets()
     print("Símbolos disponíveis:")
-    for symbol in exchange.symbols:
+    for symbol in exchange.symbols: # type: ignore
         print(symbol)
     await exchange.close()
 

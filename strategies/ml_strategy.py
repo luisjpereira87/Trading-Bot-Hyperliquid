@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 from enum import Enum
+from typing import List
 
 import joblib
 import matplotlib.pyplot as plt
@@ -16,7 +17,15 @@ from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.neural_network import MLPClassifier
 from ta.momentum import RSIIndicator, StochasticOscillator
 from ta.volatility import AverageTrueRange
-from tensorflow.keras.models import load_model
+
+from commons.enums.mode_enum import ModeEnum
+from commons.models.strategy_params import StrategyParams
+from commons.utils.ohlcv_wrapper import OhlcvWrapper
+from trading_bot.exchange_client import ExchangeClient
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # ou '3'
+import tensorflow as tf
+from tensorflow.keras.models import load_model  # type: ignore
 from xgboost import XGBClassifier
 
 from commons.enums.ml_model_enum import MLModelType
@@ -27,34 +36,58 @@ from machine_learning.ml_train_pipeline import MLTrainer
 
 
 class MLStrategy(StrategyBase):
-    def __init__(self, exchange, symbol, timeframe='15m', train_interval=100,
-                 plot_enabled=False, enable_training=False, aggressive_mode=False,
-                 model_type=MLModelType.RANDOM_FOREST):
+    def __init__(self, exchange :ExchangeClient, model_type = MLModelType.RANDOM_FOREST):
+        super().__init__()
+
         self.exchange = exchange
-        self.symbol = symbol
-        self.timeframe = timeframe
-        self.train_interval = train_interval
-        self.plot_enabled = plot_enabled
-        self.enable_training = enable_training
-        self.aggressive_mode = aggressive_mode
+        self.aggressive_mode = ModeEnum.CONSERVATIVE
         self.model_type = model_type
+        self.ohlcv: OhlcvWrapper
+        self.symbol = None
         self.model = None
+        self.scaler = None
         self.last_train_len = 0
         self.confidence_threshold = 0.55
-        
+        self.price_ref: float = 0.0
 
+        self.model_loaded = False
+        
         self.model_dir = os.path.join("machine_learning", "models")
         os.makedirs(self.model_dir, exist_ok=True)
         self.model_path = os.path.join(self.model_dir, f"modelo_{self.model_type.value.lower()}.pkl")
         self.keras_model_path = os.path.join(self.model_dir, f"modelo_{self.model_type.value.lower()}.keras")
+        self.scaler_model_path = os.path.join(self.model_dir, f"modelo_{self.model_type.value.lower()}_scaler.pkl")
         self.data_dir = "data"
         self.image_path = "img/imagem.png"
-            
+    
+    def required_init(self, ohlcv: OhlcvWrapper, ohlcv_higher: (OhlcvWrapper | None), symbol: str, price_ref: float):
+        self.ohlcv = ohlcv
+        self.symbol = symbol
+        self.ohlcv_higher = ohlcv_higher
+        self.price_ref = price_ref
 
+    def set_params(self, params: StrategyParams):
+        self.mode = params.mode
+        self.multiplier = params.multiplier
+
+    def set_candles(self, ohlcv):
+        self.ohlcv = ohlcv
+    
+    def set_higher_timeframe_candles(self, ohlcv_higher: List[list]):
+       pass
+
+    def get_sl_tp(self):
+        pass
+            
     async def initialize(self, model_type):
+        if self.model_loaded == True:
+            return
+
         if self.model_type == MLModelType.LSTM:
             if os.path.exists(self.keras_model_path):
                 self.model = load_model(self.keras_model_path)
+                self.scaler = joblib.load(self.scaler_model_path) 
+                self.model_loaded = True
                 logging.info(f"📥 Modelo LSTM carregado de '{self.keras_model_path}'")
             else:
                 logging.warning("⚠️ Modelo LSTM ainda não treinado, a executar treino...")
@@ -62,9 +95,11 @@ class MLStrategy(StrategyBase):
                 await mlTrainer.run()
                 logging.warning("✅ Modelo LSTM com treino finalizado")
                 self.model = load_model(self.keras_model_path)  # Recarrega após treino
+                self.scaler = joblib.load(self.scaler_model_path) 
         else:
             if os.path.exists(self.model_path):
                 self.model = joblib.load(self.model_path)
+                self.model_loaded = True
                 logging.info(f"📥 Modelo {self.model_type.value} carregado de '{self.model_path}'")
             else:
                 logging.warning(f"⚠️ Modelo {self.model_type.value} ainda não treinado, a executar treino...")
@@ -100,8 +135,8 @@ class MLStrategy(StrategyBase):
         y = np.array(y)
         return X, y
 
-    async def fetch_ohlcv(self, limit=500):
-        data = await self.exchange.fetch_ohlcv(self.symbol, timeframe=self.timeframe, limit=limit)
+    def fetch_ohlcv(self, data):
+        #data = await self.exchange.fetch_ohlcv(self.symbol, timeframe=self.timeframe, limit=limit)
         df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
         return df
@@ -119,106 +154,6 @@ class MLStrategy(StrategyBase):
         df['stoch_d'] = stoch.stoch_signal()
         df['pct_change'] = df['close'].pct_change()
         return df
-    
-
-    """
-    def prepare_dataset(self, df):
-        df = self.calculate_features(df)
-        df['future_return'] = df['close'].shift(-3) / df['close'] - 1
-
-        conditions = [
-            (df['future_return'] > 0.003),
-            (df['future_return'] < -0.003)
-        ]
-        choices = [2, 0]
-        df['label'] = np.select(conditions, choices, default=1)
-
-        df = df.dropna()
-
-        features = df[['rsi', 'atr', 'macd', 'pct_change', 'ema9', 'ema21', 'stoch_k', 'stoch_d']]
-        labels = df['label']
-
-        smote = SMOTE(random_state=42)
-        features_res, labels_res = smote.fit_resample(features, labels)
-
-        return features_res, labels_res
-    """
-
-    """    
-    def get_model_with_gridsearch(self):
-        if self.model_type == MLModelType.RANDOM_FOREST:
-            param_grid = {
-                'n_estimators': [100, 200],
-                'max_depth': [None, 5, 10]
-            }
-            base_model = RandomForestClassifier(random_state=42, class_weight='balanced')
-        elif self.model_type == MLModelType.XGBOOST:
-            param_grid = {
-                'n_estimators': [100, 200],
-                'learning_rate': [0.01, 0.1],
-                'max_depth': [3, 5]
-            }
-            base_model = XGBClassifier(use_label_encoder=False, eval_metric='mlogloss')
-        elif self.model_type == MLModelType.MLP:
-            param_grid = {
-                'hidden_layer_sizes': [(50,), (100,)],
-                'activation': ['relu', 'tanh'],
-                'max_iter': [300]
-            }
-            base_model = MLPClassifier(random_state=42)
-        else:
-            raise ValueError("Modelo não suportado")
-
-        return GridSearchCV(base_model, param_grid, cv=3, scoring='accuracy', n_jobs=-1)
-    """
-    """
-    def evaluate_model(self, model, features, labels):
-        X_train, X_test, y_train, y_test = train_test_split(
-            features, labels, test_size=0.2, random_state=42, stratify=labels
-        )
-
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
-
-        acc = accuracy_score(y_test, y_pred)
-        report = classification_report(y_test, y_pred, digits=4)
-        cm = confusion_matrix(y_test, y_pred)
-
-        logging.info(f"📊 Avaliação do Modelo ({self.model_type.value}) - Acurácia: {acc:.4f}")
-        logging.info(f"Matriz de Confusão:\n{cm}")
-        logging.info(f"\nRelatório de Classificação:\n{report}")
-
-        if self.plot_enabled:
-            plt.figure(figsize=(6, 5))
-            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                        xticklabels=['Baixa', 'Neutro', 'Alta'],
-                        yticklabels=['Baixa', 'Neutro', 'Alta'])
-            plt.xlabel('Predito')
-            plt.ylabel('Real')
-            plt.title('Matriz de Confusão')
-            os.makedirs(os.path.dirname(self.image_path), exist_ok=True)
-            plt.savefig(self.image_path)
-            plt.close()
-
-        return model
-    """
-
-    """
-    def train(self, features, labels):
-        model = self.get_model_with_gridsearch()
-        self.model = self.evaluate_model(model, features, labels)
-        self.last_train_len = len(features)
-
-        # Salva o GridSearchCV completo para análise futura
-        grid_path = self.model_path.replace(".pkl", "_grid.pkl")
-        joblib.dump(self.model, grid_path)
-        logging.info(f"💾 GridSearchCV completo salvo em '{grid_path}'")
-
-        # Salva só o melhor estimador para uso prático
-        joblib.dump(self.model.best_estimator_, self.model_path)
-        logging.info(f"💾 Melhor modelo salvo em '{self.model_path}'")
-
-    """
 
     def compute_sl_tp(self, price, atr, confidence, direction):
         risk_factor = 1 + (confidence - 0.5) * 2
@@ -248,8 +183,20 @@ class MLStrategy(StrategyBase):
             if len(features) < window_size:
                 logging.warning("⚠️ Dados insuficientes para predição LSTM. Retornando HOLD.")
                 return SignalResult(Signal.HOLD, None, None, None)
-            X_input = features[-window_size:]
-            X_input = np.expand_dims(X_input, axis=0)  # shape (1, window_size, n_features)
+            
+            if self.scaler is None:
+                logging.warning("Scaler não carregado, não é possível fazer predição LSTM")
+                return SignalResult(Signal.HOLD, None, None, None)
+            
+            X_input_raw = features[-window_size:]
+            # Escalar os dados aqui, usando self.scaler
+            X_input_scaled = self.scaler.transform(X_input_raw)  # assume scaler foi treinado com essas features na mesma ordem
+
+            X_input = np.expand_dims(X_input_scaled, axis=0)  # shape (1, window_size, n_features)
+
+
+            #X_input = features[-window_size:]
+            #X_input = np.expand_dims(X_input, axis=0)  # shape (1, window_size, n_features)
 
             proba = self.model.predict(X_input)[0]  # output shape (3,) p[baixa, neutro, alta]
             logging.info(f"ML LSTM prob baixa: {proba[0]:.2f}, neutro: {proba[1]:.2f}, alta: {proba[2]:.2f}")
@@ -259,6 +206,8 @@ class MLStrategy(StrategyBase):
             latest = df.iloc[-1]
             close_price = latest['close']
             atr = latest['atr']
+
+            logging.info(f"Classe prevista: {idx} (0=Baixa,1=Neutra,2=Alta), probabilidades: {proba}, confidence_threshold={self.confidence_threshold}")
 
             if self.aggressive_mode:
                 if idx == 2:
@@ -313,24 +262,13 @@ class MLStrategy(StrategyBase):
                     return SignalResult(Signal.SELL, sl, tp, confidence)
 
             return SignalResult(Signal.HOLD, None, None, confidence)
-    """
-    async def train_if_due(self, df):
-        if not self.enable_training:
-            return
-
-        if len(df) - self.last_train_len >= self.train_interval:
-            features, labels = self.prepare_dataset(df)
-            self.train(features, labels)
-
-            os.makedirs(self.data_dir, exist_ok=True)
-            filename = os.path.join(self.data_dir, f"{self.symbol.replace('/', '_').replace(':', '_')}_{self.timeframe}_train.csv")
-            df.to_csv(filename, index=False)
-            logging.info(f"📁 Dataset salvo para treino em: {filename}")
-    """
 
     async def get_signal(self) -> SignalResult:
+        if self.ohlcv is None and self.symbol is None:
+            logging.error("Tem que executar em primeiro lugar o método required_init")
+
         await self.initialize(self.model_type)
-        df = await self.fetch_ohlcv()
+        df = self.fetch_ohlcv(self.ohlcv)
         #await self.train_if_due(df)
         result = self.predict_signal(df)
         logging.info(f"🚦 Sinal ML para {self.symbol}: {result}")

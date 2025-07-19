@@ -1,8 +1,10 @@
 import numpy as np
 
+from commons.utils.ohlcv_wrapper import OhlcvWrapper
+
 
 class Indicators:
-    def __init__(self, ohlcv, mode='ta'):
+    def __init__(self, ohlcv: OhlcvWrapper, mode='ta'):
         """
         ohlcv: lista de velas, onde cada vela é [timestamp, open, high, low, close, volume]
         mode: 'custom' (default) para usar seus cálculos manuais,
@@ -10,12 +12,12 @@ class Indicators:
         """
         self.ohlcv = ohlcv
         self.mode = mode
-
-        self.opens = [c[1] for c in ohlcv]
-        self.highs = [c[2] for c in ohlcv]
-        self.lows = [c[3] for c in ohlcv]
-        self.closes = [c[4] for c in ohlcv]
-        self.volumes = [c[5] for c in ohlcv] if len(ohlcv[0]) > 5 else []
+        print(ohlcv)
+        self.opens = ohlcv.opens
+        self.highs = ohlcv.highs
+        self.lows = ohlcv.lows
+        self.closes = ohlcv.closes
+        self.volumes = ohlcv.volumes
 
         if self.mode == 'ta':
             import pandas as pd
@@ -75,7 +77,7 @@ class Indicators:
             rsi_series = self.RSIIndicator(close=self.df['close'], window=period).rsi()
             return rsi_series.tolist()
 
-    def atr(self, period=14):
+    def atr(self, period=14) -> list[float]:
         if self.mode == 'custom':
             trs = []
             for i in range(1, len(self.highs)):

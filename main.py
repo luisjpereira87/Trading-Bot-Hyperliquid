@@ -7,15 +7,15 @@ import sys
 import ccxt.async_support as ccxt
 from dotenv import load_dotenv
 
+from commons.enums.strategy_enum import StrategyEnum
+from commons.enums.timeframe_enum import TimeframeEnum
 from commons.utils.config_loader import load_pair_configs
 from machine_learning.ml_train_pipeline import MLTrainer
-from old.order_manager import OrderManager
 from strategies.ml_strategy import MLModelType
+from strategies.strategy_manager import StrategyManager
 from tests.test_custom import TestCustom
-from tests.test_run import BacktestRunner
 from trading_bot.bot import TradingBot
 from trading_bot.exchange_client import ExchangeClient
-from trading_bot.exit_logic import ExitLogic
 from trading_bot.trading_helpers import TradingHelpers
 
 load_dotenv()
@@ -39,11 +39,8 @@ async def run_bot():
             "Variáveis de ambiente WALLET_ADDRESS e PRIVATE_KEY devem estar definidas"
         )
 
-    timeframe = "15m"
-    atr_period = 14
+    timeframe = TimeframeEnum.M15
     pairs = load_pair_configs()
-
-    #last_candle_times: dict[str, datetime | None] = {pair.symbol: None for pair in self.pairs}
 
     exchange = ccxt.hyperliquid(
         {
@@ -55,15 +52,15 @@ async def run_bot():
         }
     )
     helpers = TradingHelpers()
-    #exit_logic = ExitLogic(helpers, order_manager)
-
     exchange_client = ExchangeClient(exchange, wallet_address)
-    bot = TradingBot(exchange, exchange_client, wallet_address,helpers,pairs,timeframe,atr_period)
+    strategy = StrategyManager(exchange_client, StrategyEnum.AI_SUPERTREND)
+    bot = TradingBot(exchange_client, strategy, helpers, pairs, timeframe)
+
     await bot.start() 
 
 async def run_train():
     print("🤖 A treinar o modelo ML...")
-    mlTrainer = MLTrainer(MLModelType.LSTM)
+    mlTrainer = MLTrainer(MLModelType.MLP)
     await mlTrainer.run() 
 
     #mlTrainer = MLTrainer(MLModelType.XGBOOST)
@@ -72,11 +69,12 @@ async def run_train():
     #mlTrainer = MLTrainer(MLModelType.MLP)
     #await mlTrainer.run() 
     
-
+"""
 async def run_backtest():
     print("📊 A executar backtest...")
     backtestRunner = BacktestRunner()
     await backtestRunner.run() 
+"""
 
 async def run_custom_test():
     print("📊 A executar custom_test...")
@@ -90,8 +88,6 @@ if __name__ == "__main__":
         comando = sys.argv[1].lower()
         if comando == "train":
             asyncio.run(run_train())
-        elif comando == "backtest":
-            asyncio.run(run_backtest())
         elif comando == "customtest":
             asyncio.run(run_custom_test())
         else:

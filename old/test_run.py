@@ -5,7 +5,7 @@ import logging
 
 from ccxt.async_support import hyperliquid
 
-from tests.strategy_manager import StrategyManager
+from old.strategy_manager import StrategyManager
 
 
 class DummyExchange:

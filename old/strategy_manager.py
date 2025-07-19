@@ -4,9 +4,9 @@ from datetime import datetime
 from typing import Any, Dict
 
 from commons.enums.signal_enum import Signal
+from old.strategy_evaluator import StrategyEvaluator
 from strategies.ai_supertrend import AISuperTrend
 from strategies.ml_strategy import MLModelType, MLStrategy
-from tests.strategy_evaluator import StrategyEvaluator
 
 # Assumindo SignalResult tem atributos signal, sl, tp
 # from strategies.signal_result import SignalResult 
