@@ -54,7 +54,7 @@ class PlotTrades:
                     ax.text(
                         x,
                         circle_y,    # ligeiramente abaixo do círculo
-                        f"Buy ({score:.2f})",
+                        f"Buy ({score:.2f}), Index {index}",
                         fontsize=9,
                         ha='center',
                         va='top',           # alinhado pelo topo do texto
@@ -72,7 +72,7 @@ class PlotTrades:
                     ax.text(
                         x,
                         circle_y ,   # ligeiramente acima do círculo
-                        f"Sell ({score:.2f})",
+                        f"Sell ({score:.2f}), Index {index}",
                         fontsize=9,
                         ha='center',
                         va='bottom',        # alinhado pela base do texto

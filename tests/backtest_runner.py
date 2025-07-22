@@ -1,8 +1,5 @@
 import os
-import random
 import sys
-from enum import Enum
-from itertools import product
 
 ROOT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if ROOT_PATH not in sys.path:
@@ -10,42 +7,25 @@ if ROOT_PATH not in sys.path:
 
 import asyncio
 import logging
-from datetime import datetime
-from typing import List
 
-import matplotlib.dates as mdates
-import matplotlib.pyplot as plt
 import nest_asyncio
-import optuna
 from ccxt.async_support import hyperliquid
 
-from commons.enums.mode_enum import ModeEnum
-from commons.enums.signal_enum import Signal
 from commons.enums.strategy_enum import StrategyEnum
 from commons.enums.timeframe_enum import TimeframeEnum
 from commons.models.ohlcv_format import OhlcvFormat
 from commons.models.open_position import OpenPosition
-from commons.models.strategy_params import StrategyParams
-from commons.utils.config_loader import PairConfig, load_pair_configs
+from commons.utils.config_loader import (PairConfig, get_pair_by_symbol,
+                                         load_pair_configs)
 from commons.utils.load_params import LoadParams
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from strategies.strategy_manager import StrategyManager
-from tests.grid_search_param import GridSearchParams
 from tests.plot_trades import PlotTrades
 from trading_bot.bot import TradingBot
 from trading_bot.exchange_client import ExchangeClient
 from trading_bot.trading_helpers import TradingHelpers
 
 nest_asyncio.apply()
-
-
-# Mock simples de Exchange
-class MockExchange:
-    def __init__(self, candles):
-        self.candles = candles
-        #self.symbol_data = {}
-        self.position = None
-
 
 class ExchangeClientMock(ExchangeClient):
     def __init__(self, candles, candles_higher, pair: PairConfig):
@@ -115,78 +95,98 @@ class ExchangeClientMock(ExchangeClient):
         pass
         
     async def calculate_entry_amount(self, price_ref, capital_amount):
-        # Exemplo simples: calcula quantidade a comprar/vender dividindo capital pelo preço
-        if price_ref is None or price_ref <= 0:
-            raise ValueError("Preço de referência inválido")
-        
-        return capital_amount / price_ref
+        try:
+            if price_ref is None or price_ref <= 0 or capital_amount <= 0:
+                # Retorna 0 em caso de dados inválidos (sem exceção)
+                return 0.0
+
+            quantity = capital_amount / price_ref
+
+            # Ordem mínima de $10
+            min_order_value = 10
+            if quantity * price_ref < min_order_value:
+                return 0.0
+
+            return round(quantity, 6)
+
+        except Exception as e:
+            logging.error(f"Erro ao calcular quantidade de entrada (mock): {e}")
+            return 0.0
     
     async def open_new_position(self, symbol, leverage, signal, capital_amount, pair, sl, tp):
-        idx = self.current_index[symbol]
-        price = self.current_price
-        size = capital_amount / price
+        price = self.current_price  # simula get_reference_price
 
-        self.positions[symbol] = { "pair": pair, "side": signal.value, "size": size, "entryPrice": price, "sl": sl,
-        "tp": tp}
+        entry_amount = await self.calculate_entry_amount(price, capital_amount)
+
+        min_order_value = 10
+        if entry_amount * price < min_order_value:
+            logging.warning(f"🚫 Order below $10 minimum: {entry_amount * price:.2f}")
+            return
+
+        size = entry_amount #usa o entry_amount para o tamanho
+
+        idx = self.current_index[symbol]
+
+        self.positions[symbol] = {
+            "pair": pair,
+            "side": signal.value,
+            "size": size,
+            "entryPrice": price,
+            "sl": sl,
+            "tp": tp,
+        }
 
         self.trades.append({
             "type": "entry",
             "side": signal.value,
-            "index": idx,
+            "index": idx + 1,
             "price": price,
+            "current_candle": self.current_candle,
             "sl": sl,
             "tp": tp,
-            #"timestamp": self.current_time_or_candle_index,
         })
 
-        await self.calculate_entry_amount(price, capital_amount)
-        logging.info(f"OPEN {signal.value} {symbol} idx={idx} size={size:.4f} price={price:.2f}, sl={sl} tp={tp}")
+        logging.info(f"OPEN {signal.value} {symbol} entry_amount={entry_amount} idx={idx} size={size:.4f} price={price:.2f}, sl={sl} tp={tp}")
+
 
     async def close_position(self, pair, size, side):
         pos = self.positions.get(pair)
         if not pos:
             logging.warning(f"Tentou fechar posição que não existe: {pair}")
             return 0
-    
 
-        # Preço atual de fechamento da posição (preço do candle atual)
         idx = self.current_index[pair]
-        close_price = self.candles[pair][idx][4]  # close price do candle atual
+        close_price = self.candles[pair][idx][4]
 
         entry_price = pos['entryPrice']
-        position_side = pos['side']  # 'buy' ou 'sell'
+        position_side = pos['side']
 
-        # Calcular PnL dependendo da direção da posição
+        #leverage = pos['pair'].leverage if 'pair' in pos and hasattr(pos['pair'], 'leverage') else 1
+
         if position_side == 'buy':
             pnl = (close_price - entry_price) * pos['size']
-            pnl *= self.pair.leverage
         elif position_side == 'sell':
             pnl = (entry_price - close_price) * pos['size']
-            pnl *= self.pair.leverage
         else:
             pnl = 0
 
         self.trades.append({
             "type": "exit",
             "side": pos['side'],
-            "index": idx,
-            "price": pos['entryPrice'],
+            "index": idx + 1,
+            "price": close_price,
             "pnl": pnl,
-            #"timestamp": self.current_time_or_candle_index,
         })
 
-        # Atualizar saldo e acumular PnL total
-        #self.balance += (pnl + entry_price * pos['size'])  # devolve o capital + lucro/prejuízo
-        self.balance += pnl  # devolve o capital + lucro/prejuízo
+        # Atualiza balance somando PnL (capital investido está considerado dentro do balance)
+        self.balance += pnl
         self.total_pnl += pnl
 
-        # Contabilizar vitória ou perda
         if pnl > 0:
             self.num_wins += 1
         elif pnl < 0:
             self.num_losses += 1
 
-        # Remover posição fechada
         del self.positions[pair]
 
         logging.info(f"CLOSE {side} {pair} size={size:.4f} entry={entry_price:.2f} close={close_price:.2f} PnL={pnl:.2f}")
@@ -218,20 +218,37 @@ class ExchangeClientMock(ExchangeClient):
             high = candle[3]
 
             if side == "buy":
-                if sl is not None and low <= sl:
-                    print(F"close buy SL {high} {sl}")
+                hit_sl = sl is not None and low <= sl
+                hit_tp = tp is not None and high >= tp
+
+                if hit_tp and hit_sl:
+                    # Decide prioridade (ex: assume SL primeiro)
+                    print(f"Candle ambíguo BUY: SL e TP atingidos. Prioridade ao SL.")
                     await self.close_position(pair, size, side)
-                elif tp is not None and high >= tp:
-                    print(F"close buy TP {low} {tp}")
+                elif hit_sl:
+                    print(f"close buy SL {low} {sl}")
+                    await self.close_position(pair, size, side)
+                elif hit_tp:
+                    print(f"close buy TP {high} {tp}")
                     await self.close_position(pair, size, side)
 
-            elif side == "sell":
-                if sl is not None and high >= sl:
-                    print(F"close sell SL {high} {sl}")
+                return candle
+
+            if side == "sell":
+                hit_sl = sl is not None and high >= sl
+                hit_tp = tp is not None and low <= tp
+
+                if hit_tp and hit_sl:
+                    print(f"Candle ambíguo SELL: SL e TP atingidos. Prioridade ao SL.")
                     await self.close_position(pair, size, side)
-                elif tp is not None and low <= tp:
-                    print(F"close sell TP {low} {tp}")
+                elif hit_sl:
+                    print(f"close sell SL {high} {sl}")
                     await self.close_position(pair, size, side)
+                elif hit_tp:
+                    print(f"close sell TP {low} {tp}")
+                    await self.close_position(pair, size, side)
+                return candle
+        
 
     def get_performance_summary(self):
         total_trades = self.num_wins + self.num_losses
@@ -288,6 +305,7 @@ class ExchangeClientMock(ExchangeClient):
                 'entry_price': entry['price'],
                 'exit_index': exit['index'],
                 'exit_price': exit['price'],
+                'current_candle': entry['current_candle'],
                 'pnl': trade_pnl,
                 'result': 'win' if trade_pnl > 0 else ('loss' if trade_pnl < 0 else 'breakeven')
             }
@@ -314,6 +332,7 @@ class ExchangeClientMock(ExchangeClient):
         print(f"Win rate: {win_rate:.2f}%")
         print(f"Total PnL: {total_pnl:.2f}")
         print(f"Average PnL per trade: {avg_pnl:.2f}")
+#        print(f"Current candle: {trade['current_candle']}")
         print("----------------------------")
 
         return detailed_trades
@@ -330,6 +349,7 @@ class BacktestRunner:
         # Guardar operações para plot
         self.trades = []  # lista de dicts: {"type": "entry"|"exit", "side": "buy"|"sell", "index": int, "price": float}
         self.ohlcv = []
+        self.st_tp = []
         # Define o espaço de busca dos parâmetros
 
     async def run(self, params=None, is_plot = False):
@@ -352,12 +372,14 @@ class BacktestRunner:
 
         for i in range(strategy.MIN_REQUIRED_CANDLES, len(self.ohlcv)):
             #candles_slice = self.ohlcv[:i]  # candles até i-1 fechados
-            current_candle = self.ohlcv[i]  # vela em que vais abrir posição no início
+            current_candle = self.ohlcv[i-1]  # vela em que vais abrir posição no início
 
             exchange_client.update_candles(self.pair.symbol, current_candle, i-1)
 
-           
-            print(f"[VALIDAÇÃO] i={i} | current_index={exchange_client.current_index[self.pair.symbol]} | candle[i][4]={self.ohlcv[i][4]}")
+            t = await exchange_client.simulate_tp_sl(current_candle, self.pair.symbol)
+
+            self.st_tp.append(t)
+            #print(f"[VALIDAÇÃO] i={i} | current_index={exchange_client.current_index[self.pair.symbol]} | candle[i][4]={self.ohlcv[i][4]}")
             signal = await bot.run_pair(self.pair)
 
             signals.append({'signal': signal, 'index': i-1})
@@ -372,6 +394,7 @@ class BacktestRunner:
 
         exchange_client.generate_detailed_report(exchange_client.trades)
         summary = exchange_client.get_performance_summary()
+        #print(self.st_tp)
         return summary
     
     # Função para obter candles históricos (ajuste para o seu projeto)
@@ -397,11 +420,13 @@ class BacktestRunner:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = PairConfig(symbol="BTC/USDC:USDC", leverage=10, capital=1, min_profit_abs= 5.0)
-    runner = BacktestRunner(StrategyEnum.AI_SUPERTREND, TimeframeEnum.M15, pair, 250)
+    pair = get_pair_by_symbol("SOL/USDC:USDC")
 
-    
-    await runner.run(LoadParams.load_best_params_with_weights(), True)
+    if pair != None:
+
+        runner = BacktestRunner(StrategyEnum.AI_SUPERTREND, TimeframeEnum.M15, pair, 250)
+        
+        await runner.run(LoadParams.load_best_params_with_weights(pair.symbol), True)
     #print(LoadParams.load_best_params_with_weights())
 
 if __name__ == "__main__":

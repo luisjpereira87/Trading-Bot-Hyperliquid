@@ -6,6 +6,7 @@ from commons.models.signal_result import SignalResult
 from commons.models.strategy_base import StrategyBase
 from commons.models.strategy_params import StrategyParams
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
+from strategies.strategy_utils import StrategyUtils
 from trading_bot.exchange_client import ExchangeClient
 
 from .indicators import Indicators
@@ -22,6 +23,7 @@ class AISuperTrend(StrategyBase):
         self.mode = ModeEnum.CONSERVATIVE
         self.multiplier = 0.9
         self.adx_threshold = 15
+        self.rsi:float
         self.rsi_buy_threshold = 40
         self.rsi_sell_threshold = 60
         self.signals = []
@@ -35,6 +37,8 @@ class AISuperTrend(StrategyBase):
 
         self.volume_threshold_ratio = 0.6
         self.atr_threshold_ratio = 0.6
+
+        self.block_lateral_market = True
 
         self.weights = {
             "trend": 1.0,         # EMA
@@ -67,13 +71,16 @@ class AISuperTrend(StrategyBase):
         self.volume_threshold_ratio = params.volume_threshold_ratio
         self.atr_threshold_ratio = params.atr_threshold_ratio
 
+        self.block_lateral_market = params.block_lateral_market
+
         self.weights = {
             "trend": params.weights_trend, 
             "rsi": params.weights_rsi,
             "stochastic": params.weights_stochastic,
             "price_action": params.weights_price_action,  
             "proximity_to_bands" : params.weights_proximity_to_bands,
-            "exhaustion" : params.weights_exhaustion
+            "exhaustion" : params.weights_exhaustion,
+            "penalty_factor": params.weights_penalty_factor
         }
         
     def set_candles(self, ohlcv):
@@ -124,26 +131,54 @@ class AISuperTrend(StrategyBase):
         if not self.has_enough_candles():
             logging.info(f"{self.symbol} - Dados insuficientes para cálculo.")
             return SignalResult(Signal.HOLD, None, None)
+    
 
        
         self.indicators = Indicators(self.ohlcv)
         self.extract_data()
-        self.calculate_bands(multiplier=self.multiplier)
-        self.detect_lateral_market(adx_threshold=self.adx_threshold)
+        StrategyUtils.detect_lateral_market(self.ohlcv, self.symbol, self.adx_threshold)
+
+ 
+        is_bearish_reversal, is_bullish_reversal = StrategyUtils.detect_reversal_pattern(self.ohlcv)
+
+        if is_bearish_reversal:
+            logging.info(f"{self.symbol} - Reversão de topo detetada: HOLD")
+            return SignalResult(Signal.HOLD, None, None)
+
+        if is_bullish_reversal:
+            logging.info(f"{self.symbol} - Reversão de fundo detetada: HOLD")
+            return SignalResult(Signal.HOLD, None, None)
+  
+        """
+        if StrategyUtils.is_flat_candle(self.ohlcv):
+            logging.info(f"{self.symbol} - Candle sem corpo")
+            return SignalResult(Signal.HOLD, None, None)
+        """
         
-        if not self.passes_volume_volatility_filter():
+        if not StrategyUtils.passes_volume_volatility_filter(self.ohlcv, self.symbol, self.volume_threshold_ratio, self.atr_threshold_ratio):
             logging.info(f"{self.symbol} - Filtro de volume/volatilidade não passou: HOLD")
             return SignalResult(Signal.HOLD, None, None)
         
-        if not self.calculate_higher_tf_trend():
+        if not StrategyUtils.calculate_higher_tf_trend(self.ohlcv_higher, self.adx_threshold):
             logging.info(f"{self.symbol} - Sinal rejeitado por tendência contrária no timeframe maior.: HOLD")
             return SignalResult(Signal.HOLD, None, None)
         
+        """
+        # ⛔️ Bloqueio por lateralização com ADX
+        if self.block_lateral_market:
+            adx_threshold = self.adx_threshold
+            if StrategyUtils.detect_lateral_market(self.ohlcv, self.symbol, adx_threshold):
+                return SignalResult(Signal.HOLD, None, None)  # mercado lateral, ignora sinal
+        """
+    
+        
+        """
         is_top, is_bottom = self.is_exhaustion_candle(self.ohlcv)
 
         if is_top or is_bottom:
             logging.info(f"{self.symbol} - Sinal rejeitado por mercado estar no topo ou resistencia.: HOLD")
             return SignalResult(Signal.HOLD, None, None)
+        """
 
         logging.info(f"{self.symbol} - Modo selecionado: {self.mode}")
         score = self.calculate_score()
@@ -164,11 +199,15 @@ class AISuperTrend(StrategyBase):
             return SignalResult(Signal.HOLD, None, None, None, raw_score)
     
         try:
-            sl, tp = self.calculate_sl_tp(
+            sl, tp = StrategyUtils.calculate_sl_tp(
+                        self.ohlcv,
                         self.price_ref, 
                         signal,
-                        atr_value=self.atr[-1],
-                        mode=self.mode
+                        self.mode,
+                        self.sl_multiplier_aggressive,
+                        self.tp_multiplier_aggressive,
+                        self.sl_multiplier_conservative,
+                        self.tp_multiplier_conservative
                     )
         except Exception as e:
             logging.warning(f"{self.symbol} - Erro ao calcular SL/TP: {e}")
@@ -176,28 +215,7 @@ class AISuperTrend(StrategyBase):
 
         return SignalResult(signal, sl, tp, None, raw_score)
 
-
-    def passes_volume_volatility_filter(self):
-        volumes = getattr(self.indicators, 'volumes', None)
-        if volumes is None or len(volumes) < 20:
-            return True  # Sem dados suficientes
-
-        avg_volume = sum(volumes[-20:]) / 20
-        current_volume = volumes[-1]
-
-        if current_volume < self.volume_threshold_ratio * avg_volume:
-            logging.info(f"{self.symbol} - Volume baixo: {current_volume:.2f} < {self.volume_threshold_ratio*100:.0f}% da média ({avg_volume:.2f})")
-            return False
-
-        avg_atr = sum(self.atr[-20:]) / 20
-        current_atr = self.atr[-1]
-
-        if current_atr < self.atr_threshold_ratio * avg_atr:
-            logging.info(f"{self.symbol} - ATR baixo: {current_atr:.4f} < {self.atr_threshold_ratio*100:.0f}% da média ({avg_atr:.4f})")
-            return False
-
-        return True
-
+    
     def extract_data(self):
         self.closes = self.indicators.closes
         self.highs = self.indicators.highs
@@ -225,116 +243,8 @@ class AISuperTrend(StrategyBase):
         self.high_prev = self.highs[-2]
         self.low_prev = self.lows[-2]
 
-    def calculate_bands(self, multiplier):
-        self.upper_band = [self.closes[i] + multiplier * self.atr[i] for i in range(len(self.atr))]
-        self.lower_band = [self.closes[i] - multiplier * self.atr[i] for i in range(len(self.atr))]
 
-    def detect_lateral_market(self, adx_threshold):
-        adx = self.indicators.adx()
-        self.adx_now = adx[-1]
-        self.lateral_market = self.adx_now < adx_threshold
-        logging.info(f"{self.symbol} - ADX: {self.adx_now:.2f} → Lateral: {self.lateral_market}")
-        return self.lateral_market
 
-    def detect_setup_123(self):
-        if len(self.closes) < 5:
-            return False, False
-
-        h = self.highs[-5:]
-        l = self.lows[-5:]
-
-        # Buy Setup 123
-        buy_123 = (
-            l[2] < l[1] and l[2] < l[3] and  # ponto 2 é mínimo local
-            h[3] > h[2] and  # ponto 3 alta local
-            l[4] > l[2] and  # ponto 4 confirma subida
-            self.price > h[3]  # preço acima de ponto 3
-        )
-
-        # Sell Setup 123
-        sell_123 = (
-            h[2] > h[1] and h[2] > h[3] and  # ponto 2 é máximo local
-            l[3] < l[2] and  # ponto 3 baixa local
-            h[4] < h[2] and  # ponto 4 confirma queda
-            self.price < l[3]  # preço abaixo do ponto 3
-        )
-
-        return buy_123, sell_123
-    
-    def is_breakout_candle(self, idx: int, multiplier: float = 2.0, window: int = 20) -> bool:
-        if idx < window:
-            return False
-
-        candle_bodies = [abs(self.closes[i] - self.opens[i]) for i in range(idx - window, idx)]
-        avg_body = sum(candle_bodies) / window
-        current_body = abs(self.closes[idx] - self.opens[idx])
-
-        return current_body > multiplier * avg_body
-    
-    def check_price_action_signals(self):
-       # Prioridade 1: Breakout candle (mais forte)
-        if self.is_breakout_candle(-1):
-            return "buy"  # ou True, se quiseres só booleano
-
-        # Prioridade 2: Setup 123
-        buy_123, sell_123 = self.detect_setup_123()
-        if buy_123:
-            return "buy"
-        if sell_123:
-            return "sell"
-
-        # Prioridade 3: Cor da vela atual
-        if self.close_now > self.open_now:
-            return "buy"
-        elif self.close_now < self.open_now:
-            return "sell"
-
-        # Se nenhuma condição for satisfeita
-        return None
-    
-    def trend_signal_with_adx(self,ema_now, ema_prev):
-        if self.detect_lateral_market(self.adx_threshold):
-            if ema_now > ema_prev:
-                return 1  # buy
-            elif ema_now < ema_prev:
-                return -1  # sell
-        return 0  # sem sinal
-    
-    def is_exhaustion_candle(self, candles: OhlcvWrapper, lookback: int = 20, threshold: float = 0.95) -> tuple[bool, bool]:
-        """
-        Verifica se o candle atual está em zona de exaustão:
-        - Topo (para penalizar BUY)
-        - Fundo (para penalizar SELL)
-
-        Parâmetros:
-        - candles: OhlcvWrapper com dados OHLCV
-        - lookback: Número de candles anteriores a considerar (excluindo o atual)
-        - threshold: Percentil acima/abaixo do qual se considera exaustão
-        """
-        if len(candles) < lookback + 1:
-            return False, False
-
-        # Últimos N candles fechados
-        recent_candles = candles.get_recent_closed(lookback=lookback)
-
-        highs = [c.high for c in recent_candles]
-        lows = [c.low for c in recent_candles]
-
-        range_high = max(highs)
-        range_low = min(lows)
-
-        current_close = candles.get_current_candle().close
-
-        # Evita divisão por zero se todos os candles forem flat
-        if range_high == range_low:
-            return False, False
-
-        relative_position = (current_close - range_low) / (range_high - range_low)
-
-        is_top_exhaustion = relative_position >= threshold
-        is_bottom_exhaustion = relative_position <= (1 - threshold)
-
-        return is_top_exhaustion, is_bottom_exhaustion
         
     
     def calculate_score(self):
@@ -342,7 +252,7 @@ class AISuperTrend(StrategyBase):
         weights_sum = sum(self.weights.values())
 
         # 1. Tendência
-        trend_signal = self.trend_signal_with_adx(self.ema, self.prev_ema)
+        trend_signal = StrategyUtils.trend_signal_with_adx(self.ohlcv, self.symbol, self.adx_threshold, self.ema, self.prev_ema)
         if trend_signal == 1:
             score["buy"] += 1 * self.weights["trend"]
         elif trend_signal == -1:
@@ -355,22 +265,24 @@ class AISuperTrend(StrategyBase):
             score["sell"] += 1 * self.weights["rsi"]
 
         # 3. Estocástico
-        if self.k_now > self.d_now and self.k_prev <= self.d_prev:
+        stochastic_signal = StrategyUtils.stochastic(self.ohlcv)
+        if stochastic_signal == Signal.BUY:
             score["buy"] += 1 * self.weights["stochastic"]
-        elif self.k_now < self.d_now and self.k_prev >= self.d_prev:
+        elif stochastic_signal == Signal.SELL:
             score["sell"] += 1 * self.weights["stochastic"]
 
         # 4. Price action
-        price_action = self.check_price_action_signals()
+        price_action = StrategyUtils.check_price_action_signals(self.ohlcv)
         if price_action == 'buy':
             score["buy"] += 1 * self.weights["price_action"]
         elif price_action == 'sell':
             score["sell"] += 1 * self.weights["price_action"]
 
         # 5. Proximidade às bandas
-        dist_to_upper = abs(self.price - self.upper_band[-1])
-        dist_to_lower = abs(self.price - self.lower_band[-1])
-        band_range = self.upper_band[-1] - self.lower_band[-1]
+        upper_band, lower_band = StrategyUtils.calculate_bands(self.ohlcv, multiplier=self.multiplier)
+        dist_to_upper = abs(self.price - upper_band[-1])
+        dist_to_lower = abs(self.price - lower_band[-1])
+        band_range = upper_band[-1] - lower_band[-1]
 
         if band_range > 0:
             if dist_to_lower / band_range < 0.1:
@@ -378,20 +290,44 @@ class AISuperTrend(StrategyBase):
             elif dist_to_upper / band_range < 0.1:
                 score["sell"] += 1 * self.weights["proximity_to_bands"]
 
-        # 6. ADX filtro de lateralidade
-        #if self.lateral_market:
-        #    score["buy"] -= 1  * self.weights["adx"]
-        #    score["sell"] -= 1 * self.weights["adx"]
+        # 6. Verifica lateralidade com método existente
+        is_lateral = StrategyUtils.detect_lateral_market(self.ohlcv, self.symbol, self.adx_threshold)
+        breakout = StrategyUtils.is_breakout_candle(self.ohlcv, -1)
 
-        # Peso de exaustão (apenas penaliza o BUY score)
-        is_top, is_bottom = self.is_exhaustion_candle(self.ohlcv)
+        if self.block_lateral_market and is_lateral and not breakout:
+            adx = self.indicators.adx()
+            self.adx_now = adx[-1]
+            multiplier = self.adx_now / (self.adx_threshold + 1e-8)
+            score["buy"] *= multiplier
+            score["sell"] *= multiplier
+            logging.info(f"{self.symbol} - Mercado lateral → Penalização aplicada ao score: x{multiplier:.2f}")
+        elif breakout:
+            score["buy"] += 0.2
+            score["sell"] += 0.2
+            logging.info(f"{self.symbol} - Breakout detetado → Bónus aplicado")
+
+        # 7. Peso de exaustão
+        is_top, is_bottom = StrategyUtils.is_exhaustion_candle(self.ohlcv)
         if is_top:
             score["buy"] -= self.weights["exhaustion"]
         if is_bottom:
             score["sell"] -= self.weights["exhaustion"]
 
-        max_score = sum(self.weights.values())
+ 
+        # 8. Deteta se o candle está em zona de suporte ou resistencia
+        support, resistance = StrategyUtils.detect_support_resistance(self.ohlcv)
+        price = self.price_ref  # último preço de fecho
 
+        dist_to_res, dist_to_sup = StrategyUtils.get_distance_to_levels(self.ohlcv, self.price_ref, lookback=50)
+        penalty_buy = min(1.0, max(0.0, 1 - (dist_to_res / (price * 0.01))))
+        penalty_sell = min(1.0, max(0.0, 1 - (dist_to_sup / (price * 0.01))))
+
+        # Penalização: reduz score proporcionalmente (podes ajustar a força multiplicando por um fator)
+        score["buy"] *= (1 - penalty_buy * self.weights["penalty_factor"])
+        score["sell"] *= (1 - penalty_sell * self.weights["penalty_factor"])
+   
+        max_score = sum(self.weights.values())
+        
         # Garante que score não seja negativo antes da normalização
         score["buy"] = max(score["buy"], 0)
         score["sell"] = max(score["sell"], 0)
@@ -404,29 +340,10 @@ class AISuperTrend(StrategyBase):
             score["hold"] = max(score["hold"], 0)
         else:
             score["hold"] = 1  # fallback, nenhum peso definido
-
+        print(f"SCOREEEEEE {score}")
         return score
     
-    def calculate_sl_tp(self, price_ref: float, side: Signal, atr_value, mode: ModeEnum):
-        
-        atr_avg = atr_value  # já está suavizado
-        
-        if mode == ModeEnum.AGGRESSIVE:
-            sl_dist = self.sl_multiplier_aggressive * atr_avg
-            tp_dist = self.tp_multiplier_aggressive * atr_avg
-        else:
-            sl_dist = self.sl_multiplier_conservative * atr_avg
-            tp_dist = self.tp_multiplier_conservative * atr_avg
 
-        if side == Signal.BUY:
-            sl = price_ref - sl_dist
-            tp = price_ref + tp_dist
-        else:
-            sl = price_ref + sl_dist
-            tp = price_ref - tp_dist
-
-        #print(f"entry_price: {price_ref} SL: {sl} TP:{tp}")
-        return sl, tp
 
 
 

@@ -1,0 +1,218 @@
+[
+    {
+        "profit": 38632.33921809444,
+        "params": {
+           "mode": "conservative",
+            "multiplier": 1.5,
+            "adx_threshold": 25,
+            "rsi_buy_threshold": 25,
+            "rsi_sell_threshold": 75,
+            "sl_multiplier_conservative": 2.2,
+            "tp_multiplier_conservative": 3.5,
+            "volume_threshold_ratio": 0.35,
+            "atr_threshold_ratio": 0.35,
+            "block_lateral_market": true,
+            "weights_trend": 0.25,
+            "weights_rsi": 0.2,
+            "weights_stochastic": 0.2,
+            "weights_price_action": 0.2,
+            "weights_proximity_to_bands": 0.15
+        }
+    },
+    {
+        "profit": 38632.33921809444,
+        "params": {
+            "mode": "aggressive",
+            "multiplier": 1.002796492290672,
+            "adx_threshold": 22,
+            "rsi_buy_threshold": 23,
+            "rsi_sell_threshold": 65,
+            "sl_multiplier_aggressive": 1.2366464706003029,
+            "tp_multiplier_aggressive": 5.012220085240247,
+            "sl_multiplier_conservative": 1.1566747330441305,
+            "tp_multiplier_conservative": 3.648453327647538,
+            "volume_threshold_ratio": 0.20577685731410233,
+            "atr_threshold_ratio": 0.5339903088856194,
+            "block_lateral_market": false,
+            "weights_trend": 0.28108949699635366,
+            "weights_rsi": 0.13778713201251994,
+            "weights_stochastic": 0.13045743744101038,
+            "weights_price_action": 0.3297979916147238,
+            "weights_proximity_to_bands": 0.12086794193539227
+        }
+    },
+    {
+        "profit": 7906.012367898467,
+        "params": {
+            "mode": "aggressive",
+            "multiplier": 1.0038938938987099,
+            "adx_threshold": 22,
+            "rsi_buy_threshold": 23,
+            "rsi_sell_threshold": 62,
+            "sl_multiplier_aggressive": 1.1880943563100295,
+            "tp_multiplier_aggressive": 5.682077428690867,
+            "sl_multiplier_conservative": 1.598250794569025,
+            "tp_multiplier_conservative": 4.168914396761089,
+            "volume_threshold_ratio": 0.2631123243335591,
+            "atr_threshold_ratio": 0.3880528787774412,
+            "block_lateral_market": false,
+            "weights_trend": 0.24164598484213953,
+            "weights_rsi": 0.15712776564708408,
+            "weights_stochastic": 0.1359830867981044,
+            "weights_price_action": 0.33201503270880245,
+            "weights_proximity_to_bands": 0.13322813000386943
+        }
+    },
+    {
+        "profit": 839.6157489832726,
+        "params": {
+            "mode": "conservative",
+            "multiplier": 1.3124652354186357,
+            "adx_threshold": 24,
+            "rsi_buy_threshold": 22,
+            "rsi_sell_threshold": 69,
+            "sl_multiplier_aggressive": 1.6842288657240916,
+            "tp_multiplier_aggressive": 2.399161027737168,
+            "sl_multiplier_conservative": 2.105878718800381,
+            "tp_multiplier_conservative": 3.9926743504619617,
+            "volume_threshold_ratio": 0.45378174688925105,
+            "atr_threshold_ratio": 0.6062408586031635,
+            "block_lateral_market": false,
+            "weights_trend": 0.10719286595346424,
+            "weights_rsi": 0.2098861251365271,
+            "weights_stochastic": 0.28169124882734303,
+            "weights_price_action": 0.21427815256784022,
+            "weights_proximity_to_bands": 0.18695160751482545
+        }
+    },
+    {
+        "profit": 820.0544504618022,
+        "params": {
+            "mode": "aggressive",
+            "multiplier": 1.1781781910779336,
+            "adx_threshold": 32,
+            "rsi_buy_threshold": 36,
+            "rsi_sell_threshold": 79,
+            "sl_multiplier_aggressive": 2.8983988436008525,
+            "tp_multiplier_aggressive": 4.270491344007089,
+            "sl_multiplier_conservative": 2.681235166688868,
+            "tp_multiplier_conservative": 2.790909406095813,
+            "volume_threshold_ratio": 0.49072680285316606,
+            "atr_threshold_ratio": 0.4179647932078748,
+            "weights_trend": 0.29197104208322827,
+            "weights_rsi": 0.1737307488909872,
+            "weights_stochastic": 0.2102188016962343,
+            "weights_price_action": 0.22182590341396552,
+            "weights_proximity_to_bands": 0.10225350391558481
+        }
+    },
+    {
+        "profit": 781.879839786282,
+        "params": {
+            "mode": "conservative",
+            "multiplier": 1.0707065597564407,
+            "adx_threshold": 35,
+            "rsi_buy_threshold": 35,
+            "rsi_sell_threshold": 78,
+            "sl_multiplier_aggressive": 2.2919108793716894,
+            "tp_multiplier_aggressive": 2.2191452757574135,
+            "sl_multiplier_conservative": 1.932048539012506,
+            "tp_multiplier_conservative": 4.229980246689828,
+            "volume_threshold_ratio": 0.5101785089146341,
+            "atr_threshold_ratio": 0.30079219484690684,
+            "block_lateral_market": false,
+            "weights_trend": 0.3137218323605834,
+            "weights_rsi": 0.15284358492960848,
+            "weights_stochastic": 0.20729709192137316,
+            "weights_price_action": 0.12284795335120198,
+            "weights_proximity_to_bands": 0.20328953743723296
+        }
+    },
+    {
+        "profit": 781.879839786282,
+        "params": {
+            "mode": "conservative",
+            "multiplier": 1.2160418085277565,
+            "adx_threshold": 35,
+            "rsi_buy_threshold": 38,
+            "rsi_sell_threshold": 64,
+            "sl_multiplier_aggressive": 2.2201181066749154,
+            "tp_multiplier_aggressive": 3.7855958809357224,
+            "sl_multiplier_conservative": 1.2045512534958034,
+            "tp_multiplier_conservative": 4.2445087184383645,
+            "volume_threshold_ratio": 0.4546155618652379,
+            "atr_threshold_ratio": 0.3136324294367242,
+            "block_lateral_market": false,
+            "weights_trend": 0.3215332280446954,
+            "weights_rsi": 0.15455574426048427,
+            "weights_stochastic": 0.20303154944558283,
+            "weights_price_action": 0.13182456253230046,
+            "weights_proximity_to_bands": 0.18905491571693697
+        }
+    },
+    {
+        "profit": 781.879839786282,
+        "params": {
+            "mode": "conservative",
+            "multiplier": 1.3094601505448882,
+            "adx_threshold": 35,
+            "rsi_buy_threshold": 34,
+            "rsi_sell_threshold": 64,
+            "sl_multiplier_aggressive": 1.9451981147686763,
+            "tp_multiplier_aggressive": 3.6770613207984506,
+            "sl_multiplier_conservative": 1.231624866090403,
+            "tp_multiplier_conservative": 4.7748058435501886,
+            "volume_threshold_ratio": 0.45211301337398596,
+            "atr_threshold_ratio": 0.5019655879307684,
+            "block_lateral_market": false,
+            "weights_trend": 0.25235328618480946,
+            "weights_rsi": 0.15375300376150938,
+            "weights_stochastic": 0.20439067098698627,
+            "weights_price_action": 0.12997315584317815,
+            "weights_proximity_to_bands": 0.2595298832235167
+        }
+    },
+    {
+        "profit": 678.2241103153011,
+        "params": {
+            "mode": "aggressive",
+            "multiplier": 1.9066267977603253,
+            "adx_threshold": 34,
+            "rsi_buy_threshold": 24,
+            "rsi_sell_threshold": 75,
+            "sl_multiplier_aggressive": 1.6168948533518508,
+            "tp_multiplier_aggressive": 5.967019727516221,
+            "sl_multiplier_conservative": 2.4934351605830365,
+            "tp_multiplier_conservative": 3.6374369816021845,
+            "volume_threshold_ratio": 0.40502972927172615,
+            "atr_threshold_ratio": 0.5330310687583971,
+            "block_lateral_market": false,
+            "weights_trend": 0.40784347308389557,
+            "weights_rsi": 0.1343372487893066,
+            "weights_stochastic": 0.1759293213338486,
+            "weights_price_action": 0.10020270397708488,
+            "weights_proximity_to_bands": 0.18168725281586443
+        }
+    },
+    {
+        "profit": 633.13368360224,
+        "params": {
+            "mode": "conservative",
+            "multiplier": 1.0339014443370538,
+            "adx_threshold": 38,
+            "rsi_buy_threshold": 28,
+            "rsi_sell_threshold": 79,
+            "sl_multiplier_aggressive": 2.5494219492481545,
+            "tp_multiplier_aggressive": 3.203884889315553,
+            "sl_multiplier_conservative": 2.9819568664027583,
+            "tp_multiplier_conservative": 3.9336116101521155,
+            "volume_threshold_ratio": 0.5832616011487023,
+            "atr_threshold_ratio": 0.6812372203744684,
+            "weights_trend": 0.27978784099451465,
+            "weights_rsi": 0.1843611000827379,
+            "weights_stochastic": 0.12872074206169054,
+            "weights_price_action": 0.283726836826205,
+            "weights_proximity_to_bands": 0.1234034800348519
+        }
+    }
+]

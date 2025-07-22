@@ -13,6 +13,7 @@ from commons.enums.strategy_enum import StrategyEnum
 from commons.enums.timeframe_enum import TimeframeEnum
 from commons.models.ohlcv_format import OhlcvFormat
 from commons.models.signal_result import SignalResult
+from commons.utils.best_params_loader import BestParamsLoader
 from commons.utils.config_loader import PairConfig
 from commons.utils.load_params import LoadParams
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
@@ -35,8 +36,7 @@ class TradingBot:
         self.last_candle_times: dict[str, datetime | None] = {pair.symbol: None for pair in self.pairs}
         self.signal = None
         self.strategy = strategy
-
-        self.strategy.set_params(LoadParams.load_best_params_with_weights())
+        self.params_loader = BestParamsLoader()
 
     async def run_pair(self, pair: PairConfig) -> SignalResult:
         symbol = pair.symbol
@@ -47,6 +47,10 @@ class TradingBot:
         ohlcv = ohlcv_obj.ohlcv
         ohlcv_higher = ohlcv_obj.ohlcv_higher
 
+        params = self.params_loader.get_best_strategy_params(symbol)
+        if params != None:
+            self.strategy.set_params(params)
+
 
         try:
             logging.info(f"🚀 Starting processing for {symbol}")
@@ -56,6 +60,8 @@ class TradingBot:
             balance_total = await self.exchange_client.get_total_balance()
             available_balance = await self.exchange_client.get_available_balance()
             capital_amount = min(available_balance, balance_total * capital_pct) * leverage
+
+            logging.info(f"[DEBUG] Available capital_pct: {capital_pct}")
             logging.info(f"[DEBUG] Available balance: {available_balance}")
             logging.info(f"[DEBUG] Capital to deploy (after leverage): {capital_amount}")
 
@@ -206,14 +212,15 @@ class TradingBot:
             last_candle = candles.get_last_closed_candle()
             timestamp = last_candle.timestamp
 
+            """
             print("\n🔍 Últimos 5 candles:")
             for i in range(-5, 0):
                 candle = candles.get_candle(i)
-                ts = datetime.utcfromtimestamp(candle.timestamp / 1000).strftime('%Y-%m-%d %H:%M:%S')
+                ts = datetime.fromtimestamp(candle.timestamp / 1000).strftime('%Y-%m-%d %H:%M:%S')
                 print(f"Candle [{i - 5}] -> Time: {ts}, O: {candle.open}, H: {candle.high}, L: {candle.low}, C: {candle.close}, V: {candle.volume}")
+            """
 
-
-            utc_dt = datetime.utcfromtimestamp(timestamp / 1000).replace(
+            utc_dt = datetime.fromtimestamp(timestamp / 1000).replace(
                 tzinfo=pytz.UTC # type: ignore
             )
             lisbon_tz = pytz.timezone("Europe/Lisbon")

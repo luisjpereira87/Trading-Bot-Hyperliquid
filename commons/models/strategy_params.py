@@ -30,12 +30,15 @@ class StrategyParams:
     volume_threshold_ratio : float = 0.0
     atr_threshold_ratio : float = 0.0
 
+    block_lateral_market: bool = True
+
     weights_trend: float = 0.0
     weights_rsi : float = 0.0
     weights_stochastic: float = 0.0
     weights_price_action: float = 0.0
     weights_proximity_to_bands: float = 0.0
     weights_exhaustion: float = 0.0
+    weights_penalty_factor: float = 0.0
 
     def __post_init__(self):
         for field_name in self.__dataclass_fields__:
