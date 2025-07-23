@@ -89,39 +89,6 @@ class AISuperTrend(StrategyBase):
     def set_higher_timeframe_candles(self, ohlcv_higher: OhlcvWrapper):
         self.ohlcv_higher = ohlcv_higher
 
-    def calculate_higher_tf_trend(self):
-        if not hasattr(self, 'ohlcv_higher') or len(self.ohlcv_higher) < 21:
-            # Sem dados suficientes para timeframe maior → assume neutro
-            return 0
-
-        indicators_htf = Indicators(self.ohlcv_higher)
-        closes_htf = indicators_htf.closes
-        atr_htf = indicators_htf.atr()
-        ema_htf = indicators_htf.ema()
-        adx_htf = indicators_htf.adx()
-
-        ema_now = ema_htf[-1]
-        ema_prev = ema_htf[-2]
-        adx_now = adx_htf[-1]
-
-        lateral = adx_now < self.adx_threshold
-
-        if lateral:
-            if ema_now > ema_prev:
-                return 1
-            elif ema_now < ema_prev:
-                return -1
-            else:
-                return 0
-        else:
-            # Se mercado não lateral, confia na tendência EMA simples
-            if ema_now > ema_prev:
-                return 1
-            elif ema_now < ema_prev:
-                return -1
-            else:
-                return 0
-
     async def get_signal(self) -> SignalResult:
 
         if len(self.ohlcv) == 0 or self.symbol is None:
@@ -186,6 +153,7 @@ class AISuperTrend(StrategyBase):
         # Confiança normalizada
         score["buy"] = round(score["buy"], 2)
         score["sell"] = round(score["sell"], 2)
+        score["hold"] = round(score["sell"], 2)
         raw_score = max(score["buy"], score["sell"])
         #confidence = raw_score / max_possible_score if max_possible_score > 0 else 0.0
 
@@ -196,7 +164,7 @@ class AISuperTrend(StrategyBase):
         elif score["sell"] > score["buy"] and score["sell"] > 0.55:
             signal = Signal.SELL
         else:
-            return SignalResult(Signal.HOLD, None, None, None, raw_score)
+            return SignalResult(Signal.HOLD, None, None, score["hold"], raw_score)
     
         try:
             sl, tp = StrategyUtils.calculate_sl_tp(
@@ -213,7 +181,7 @@ class AISuperTrend(StrategyBase):
             logging.warning(f"{self.symbol} - Erro ao calcular SL/TP: {e}")
             return SignalResult(Signal.HOLD, None, None, None, 0)
 
-        return SignalResult(signal, sl, tp, None, raw_score)
+        return SignalResult(signal, sl, tp, score["hold"], raw_score)
 
     
     def extract_data(self):
@@ -340,7 +308,6 @@ class AISuperTrend(StrategyBase):
             score["hold"] = max(score["hold"], 0)
         else:
             score["hold"] = 1  # fallback, nenhum peso definido
-        print(f"SCOREEEEEE {score}")
         return score
     
 

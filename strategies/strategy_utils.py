@@ -2,6 +2,7 @@ import logging
 
 from commons.enums.mode_enum import ModeEnum
 from commons.enums.signal_enum import Signal
+from commons.models.ohlcv_type import Ohlcv
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from strategies.indicators import Indicators
 
@@ -21,6 +22,7 @@ class StrategyUtils:
             return False, False
 
         recent = ohlcv.get_recent_closed(lookback=2)
+        print(f"RECENT {recent}")
         prev = recent[-2]
         curr = recent[-1]
 
@@ -54,7 +56,20 @@ class StrategyUtils:
             rsi_now <= rsi_oversold
         )
 
+        # Engolfo de baixa como fallback
+        if not is_bearish:
+            is_bearish = StrategyUtils.is_bearish_engulfing(prev, curr)
+
         return is_bearish, is_bullish
+    
+    @staticmethod
+    def is_bearish_engulfing(prev: Ohlcv, curr: Ohlcv) -> bool:
+        return (
+            prev.close > prev.open and  # Candle anterior é de alta
+            curr.close < curr.open and  # Candle atual é de baixa
+            curr.open > prev.close and  # Abertura acima do fechamento anterior
+            curr.close < prev.open      # Fechamento abaixo da abertura anterior
+        )
 
     @staticmethod
     def detect_support_resistance(

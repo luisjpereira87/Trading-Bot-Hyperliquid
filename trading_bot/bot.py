@@ -37,6 +37,7 @@ class TradingBot:
         self.signal = None
         self.strategy = strategy
         self.params_loader = BestParamsLoader()
+        self.exit_logic = ExitLogic(self.helpers, self.exchange_client)
 
     async def run_pair(self, pair: PairConfig) -> SignalResult:
         symbol = pair.symbol
@@ -54,8 +55,6 @@ class TradingBot:
 
         try:
             logging.info(f"🚀 Starting processing for {symbol}")
-
-            exit_logic = ExitLogic(self.helpers, self.exchange_client)
 
             balance_total = await self.exchange_client.get_total_balance()
             available_balance = await self.exchange_client.get_available_balance()
@@ -78,18 +77,18 @@ class TradingBot:
  
             # 1) Verifica saída via ExitLogic, se posição aberta e tamanho > 0
             
-            """
+
             if current_position:
-                side = Signal.from_str(current_position.side)
+                #side = Signal.from_str(current_position.side)
                 position_size = float(current_position.size)
                 logging.info(f"[DEBUG] Current position size: {position_size}")
 
                 if position_size > 0:
-                    should_exit = await exit_logic.should_exit(pair, signal, current_position, atr_now)
+                    should_exit = await self.exit_logic.should_exit(ohlcv, pair, signal, current_position)
                     if should_exit:
                         current_position = None  # atualiza para evitar fechar de novo
                         #return
-            """
+
 
             # 2) Se não há sinal válido, skip
             if signal.signal not in [Signal.BUY, Signal.SELL]:

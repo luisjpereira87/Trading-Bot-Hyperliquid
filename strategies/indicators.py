@@ -12,7 +12,6 @@ class Indicators:
         """
         self.ohlcv = ohlcv
         self.mode = mode
-        print(ohlcv)
         self.opens = ohlcv.opens
         self.highs = ohlcv.highs
         self.lows = ohlcv.lows
