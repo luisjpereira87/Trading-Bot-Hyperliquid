@@ -46,7 +46,8 @@ class AISuperTrend(StrategyBase):
             "stochastic": 1.2,
             "price_action": 0.5,  # candle, setup 123, breakout, bandas
             "proximity_to_bands" :0.5,
-            "exhaustion": 0.8
+            "exhaustion": 0.8,
+            "penalty_factor": 0.7
         }
 
     def required_init(self, ohlcv: OhlcvWrapper, ohlcv_higher: OhlcvWrapper, symbol: str, price_ref: float):
@@ -153,7 +154,7 @@ class AISuperTrend(StrategyBase):
         # Confiança normalizada
         score["buy"] = round(score["buy"], 2)
         score["sell"] = round(score["sell"], 2)
-        score["hold"] = round(score["sell"], 2)
+        score["hold"] = round(score["hold"], 2)
         raw_score = max(score["buy"], score["sell"])
         #confidence = raw_score / max_possible_score if max_possible_score > 0 else 0.0
 

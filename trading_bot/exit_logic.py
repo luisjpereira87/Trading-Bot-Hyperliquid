@@ -97,7 +97,6 @@ class ExitLogic:
     def _should_exit_by_reversal(self, symbol: str, side: str) -> bool:
 
         reversal_top, reversal_bottom = StrategyUtils.detect_reversal_pattern(self.ohlcv)
-        print(f"ENTROU AQUIIIIII {reversal_top} {reversal_bottom}")
         return (
             reversal_top if side == "buy"
             else reversal_bottom if side == "sell"
@@ -135,6 +134,40 @@ class ExitLogic:
 
     def _should_take_profit(self, profit_abs, profit_pct, pair):
         return profit_abs >= getattr(pair, "min_profit_abs", 5.0) and profit_pct >= getattr(pair, "min_profit_pct", 0.005)
+    
+    def _should_take_profit_momentum(self, profit_abs, profit_pct, pair) -> bool:
+        # Critérios mínimos para take profit
+        min_profit_abs = getattr(pair, "min_profit_abs", 5.0)
+        min_profit_pct = getattr(pair, "min_profit_pct", 0.005)
+
+        # Se não alcançou o lucro mínimo, nem pensar em fechar
+        if profit_abs < min_profit_abs or profit_pct < min_profit_pct:
+            return False
+
+        # Agora confirmar momentum/tendência:
+        # Exemplo simples com indicadores (podes adaptar para o que tens)
+        indicators = Indicators(self.ohlcv)
+        rsi = indicators.rsi(period=14)[-1]
+        adx = indicators.adx(period=14)[-1]
+        curr_candle = self.ohlcv.get_recent_closed(lookback=1)[-1]
+        body = abs(curr_candle.close - curr_candle.open)
+        candle_range = curr_candle.high - curr_candle.low
+        body_ratio = body / candle_range if candle_range != 0 else 0
+
+        # Condições para continuar (não fechar):
+        # 1. RSI não está em zona de sobrecompra (ex: < 70)
+        # 2. ADX mostra tendência forte (ex: > 25)
+        # 3. Candle atual tem corpo grande (ex: > 50% do range) -> momentum ainda forte
+
+        momentum_forte = (rsi < 70) and (adx > 25) and (body_ratio > 0.5)
+
+        # Se o momentum está forte, mantém o trade mesmo com lucro alcançado
+        if momentum_forte:
+            return False
+
+        # Se não, fecha pois o lucro mínimo foi atingido e não há momentum forte
+        return True
+
 
     def _should_exit_by_hold(self, pair, signal_result, symbol, side, size) -> bool:
         if signal_result.signal == Signal.HOLD and signal_result.confidence and signal_result.confidence >= 0.9:
