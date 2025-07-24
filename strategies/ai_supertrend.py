@@ -162,7 +162,7 @@ class AISuperTrend(StrategyBase):
 
         if score["buy"] > score["sell"] and score["buy"] >= 0.55:
             signal = Signal.BUY
-        elif score["sell"] > score["buy"] and score["sell"] > 0.55:
+        elif score["sell"] > score["buy"] and score["sell"] >= 0.55:
             signal = Signal.SELL
         else:
             return SignalResult(Signal.HOLD, None, None, score["hold"], raw_score)
