@@ -17,6 +17,7 @@ class ExitLogic:
         self.last_profits: dict[str, float] = {}
         self.trailing_stops: dict[str, float] = {}
         self.partial_taken: dict[str, bool] = {}
+        self.max_profit_abs: dict[str, float] = {}  # Inicializa aqui!
 
     async def should_exit(
         self,
@@ -65,7 +66,7 @@ class ExitLogic:
             return await self._exit(symbol, size, side, reason="🚪 Trailing stop")
 
         # Prioridade 5: Lucro mínimo atingido
-        if self._should_take_profit(profit_abs, profit_pct, pair):
+        if self._should_take_profit_momentum(profit_abs, profit_pct, pair):
             return await self._exit(symbol, size, side, reason="💰 Profit target")
 
         # Prioridade 6: HOLD prolongado + tendência contra
@@ -117,20 +118,45 @@ class ExitLogic:
 
     def _should_exit_by_trailing_stop(self, symbol, mark_price, entry_price, atr, side, size) -> bool:
         multiplier = getattr(self.pair, "trailing_stop_multiplier", 1.5)
-        if self.last_profits.get(symbol, 0) > 0.05:
+        min_gap = getattr(self.pair, "trailing_stop_min_gap", 0.005)  # 0.5% gap mínimo
+
+        current_profit_abs = self.last_profits.get(symbol, 0)
+        prev_max_profit = self.max_profit_abs.get(symbol, 0)
+
+        # ⚠️ Só ativa trailing se o lucro já passou de 0 (break-even)
+        if current_profit_abs <= 0:
+            return False
+
+        # Atualiza o lucro máximo absoluto
+        if current_profit_abs > prev_max_profit:
+            self.max_profit_abs[symbol] = current_profit_abs
+            prev_max_profit = current_profit_abs
+
+        # Se lucro máximo alto, aperta trailing (multiplicador reduzido)
+        if prev_max_profit > 0.05:
             multiplier *= 0.5
 
         distance = atr * multiplier
         prev_stop = self.trailing_stops.get(symbol)
 
         if side == "buy":
-            new_stop = max(prev_stop or entry_price, mark_price - distance)
+            # Trailing stop só sobe, nunca desce
+            candidate_stop = max(prev_stop or entry_price, mark_price - distance)
+            # Aplica gap mínimo para evitar stops colados
+            min_stop = mark_price * (1 - min_gap)
+            new_stop = max(candidate_stop, min_stop)
             self.trailing_stops[symbol] = new_stop
             return mark_price <= new_stop
-        else:
-            new_stop = min(prev_stop or entry_price, mark_price + distance)
+
+        else:  # sell
+            # Trailing stop só desce, nunca sobe
+            candidate_stop = min(prev_stop or entry_price, mark_price + distance)
+            min_stop = mark_price * (1 + min_gap)
+            new_stop = min(candidate_stop, min_stop)
             self.trailing_stops[symbol] = new_stop
             return mark_price >= new_stop
+
+
 
     def _should_take_profit(self, profit_abs, profit_pct, pair):
         return profit_abs >= getattr(pair, "min_profit_abs", 5.0) and profit_pct >= getattr(pair, "min_profit_pct", 0.005)
@@ -181,8 +207,10 @@ class ExitLogic:
         return False
 
     def _should_exit_by_profit_reversal(self, symbol, profit_abs, pair):
-        last = self.last_profits.get(symbol)
-        return last and last >= getattr(pair, "min_profit_abs", 5.0) and profit_abs < last * 0.75
+        max_profit = self.max_profit_abs.get(symbol, 0)
+        if max_profit >= getattr(pair, "min_profit_abs", 5.0) and profit_abs < max_profit * 0.75:
+            return True
+        return False
 
     async def _exit(self, symbol: str, size: float, side: str, reason: str) -> bool:
         logging.info(f"{reason} for {symbol}")

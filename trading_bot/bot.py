@@ -76,6 +76,7 @@ class TradingBot:
             current_position = await self.exchange_client.get_open_position(symbol)
  
             # 1) Verifica saída via ExitLogic, se posição aberta e tamanho > 0
+            
             if current_position:
                 #side = Signal.from_str(current_position.side)
                 position_size = float(current_position.size)

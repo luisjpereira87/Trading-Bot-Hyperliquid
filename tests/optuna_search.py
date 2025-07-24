@@ -60,9 +60,9 @@ class OptunaSearch:
                 "rsi_buy_threshold": trial.suggest_int("rsi_buy_threshold", 20, 40),
                 "rsi_sell_threshold": trial.suggest_int("rsi_sell_threshold", 60, 80),
                 "sl_multiplier_aggressive": trial.suggest_float("sl_multiplier_aggressive", 1.0, 3.0),
-                "tp_multiplier_aggressive": trial.suggest_float("tp_multiplier_aggressive", 2.0, 6.0),
+                "tp_multiplier_aggressive": trial.suggest_float("tp_multiplier_aggressive", 2.0, 4.0),
                 "sl_multiplier_conservative": trial.suggest_float("sl_multiplier_conservative", 1.0, 3.0),
-                "tp_multiplier_conservative": trial.suggest_float("tp_multiplier_conservative", 2.0, 5.0),
+                "tp_multiplier_conservative": trial.suggest_float("tp_multiplier_conservative", 2.0, 4.0),
                 "volume_threshold_ratio": trial.suggest_float("volume_threshold_ratio", 0.2, 0.6),
                 "atr_threshold_ratio": trial.suggest_float("atr_threshold_ratio", 0.3, 0.7),
                 #"block_lateral_market":  trial.suggest_categorical("block_lateral_market", [True, False]),
@@ -78,7 +78,7 @@ class OptunaSearch:
             params_obj = StrategyParams(**params)
             summary = await runner.run(params_obj)
 
-            neg_wins = -summary["wins"]
+            neg_wins = -summary["total_pnl"]
 
             #score = -(summary['total_pnl'] * (summary['wins'] / summary['trades']))  
             # Regista o log numa string, não imprime direto

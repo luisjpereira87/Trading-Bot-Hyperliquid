@@ -22,7 +22,6 @@ class StrategyUtils:
             return False, False
 
         recent = ohlcv.get_recent_closed(lookback=2)
-        print(f"RECENT {recent}")
         prev = recent[-2]
         curr = recent[-1]
 
@@ -183,9 +182,6 @@ class StrategyUtils:
                 return -1  # sell
         return 0  # sem sinal
     
-
-
-
     @staticmethod
     def detect_setup_123(ohlcv: OhlcvWrapper):
 
