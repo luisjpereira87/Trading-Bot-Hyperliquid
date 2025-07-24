@@ -16,18 +16,26 @@ from commons.models.strategy_params import StrategyParams
 from commons.utils.config_loader import PairConfig, load_pair_configs
 from commons.utils.load_params import LoadParams
 from tests.backtest_runner import BacktestRunner
-from tests.grid_search import GridSearch
 from tests.save_json import SaveJson
 
 
 class OptunaSearch:
+    WEIGHT_NAMES = [
+        "weights_trend",         # EMA
+        "weights_momentum",
+        "weights_oscillators",
+        "weights_price_action", # candle, setup 123, breakout, bandas
+        "weights_price_levels",
+    ]
+
+
     async def run_optuna_search(self, runner:BacktestRunner, n_trials=50):
 
         trial_logs = []
 
         def suggest_weights(trial, min_weight=0.10):
             while True:
-                raw = [trial.suggest_float(f"w_{i}", min_weight, 1.0) for i in range(5)]
+                raw = [trial.suggest_float(f"w_{i}", min_weight, 1.0) for i in range(len(self.WEIGHT_NAMES))]
                 total = sum(raw)
                 normalized = [w / total for w in raw]
 
@@ -44,9 +52,15 @@ class OptunaSearch:
                 "weights_rsi",
                 "weights_stochastic",
                 "weights_price_action",
-                "weights_proximity_to_bands"
+                "weights_proximity_to_bands",
+                "weights_exhaustion",
+                "weights_penalty_factor",
+                "weights_macd",
+                "weights_cci",
+                "weights_confirmation_candle_penalty",
+                "weights_divergence"
             ]
-            for i, name in enumerate(weight_names):
+            for i, name in enumerate(self.WEIGHT_NAMES):
                 w_key = f"w_{i}"
                 if w_key in params_dict:
                     params_dict[name] = params_dict.pop(w_key)
@@ -69,10 +83,7 @@ class OptunaSearch:
 
                 "block_lateral_market":  trial.suggest_categorical("block_lateral_market", [True, False]),
 
-                **dict(zip([
-                    "weights_trend", "weights_rsi", "weights_stochastic", "weights_price_action",
-                    "weights_proximity_to_bands", "weights_exhaustion", "weights_penalty_factor"
-                ], suggest_weights(trial)))
+                **dict(zip(self.WEIGHT_NAMES, suggest_weights(trial)))
             }
 
             params_obj = StrategyParams(**params)

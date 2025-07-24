@@ -77,7 +77,12 @@ class GridSearchParams:
             'weights_stochastic',
             'weights_price_action',
             'weights_proximity_to_bands'
-            'weights_exhaustion'
+            'weights_exhaustion',
+            'weights_penalty_factor', 
+            'weights_macd',
+            'weights_cci',
+            'weights_confirmation_candle_penalty',
+            'weights_divergence'
         ]
 
         for _ in range(n_samples):

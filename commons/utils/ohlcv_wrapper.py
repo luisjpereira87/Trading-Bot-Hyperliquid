@@ -1,3 +1,5 @@
+import numpy as np
+
 from commons.models.ohlcv_type import Ohlcv
 
 
@@ -45,3 +47,11 @@ class OhlcvWrapper:
 
     def __len__(self):
         return len(self.ohlcv)
+    
+    def candles_to_arrays(self):
+        opens = np.array([c.open for c in self.ohlcv])
+        highs = np.array([c.high for c in self.ohlcv])
+        lows = np.array([c.low for c in self.ohlcv])
+        closes = np.array([c.close for c in self.ohlcv])
+        volumes = np.array([c.volume for c in self.ohlcv])
+        return opens, highs, lows, closes, volumes

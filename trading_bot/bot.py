@@ -64,6 +64,14 @@ class TradingBot:
             logging.info(f"[DEBUG] Available balance: {available_balance}")
             logging.info(f"[DEBUG] Capital to deploy (after leverage): {capital_amount}")
 
+
+            last_closed = ohlcv.get_last_closed_candle()
+            ts = datetime.fromtimestamp(last_closed.timestamp / 1000).astimezone(pytz.timezone('Europe/Lisbon'))
+
+            logging.info(f"✅ Último candle fechado usado para {symbol}: {ts.strftime('%Y-%m-%d %H:%M:%S')}")
+
+
+
             price_ref = await self.exchange_client.get_entry_price(symbol)
 
             self.strategy.required_init(ohlcv, ohlcv_higher, symbol, price_ref)
@@ -170,21 +178,24 @@ class TradingBot:
             try:
                 logging.info("⏳ Loop principal iniciado")
 
+                # Assumimos que todas as velas fecharam neste timestamp
+                now = datetime.now(pytz.utc)
+
+
+                # Converter para hora de Lisboa (Europa/Lisbon)
+                lisbon_tz = pytz.timezone('Europe/Lisbon')
+                now_lisbon = now.astimezone(lisbon_tz)
+
+                rounded_now = self._get_last_closed_candle_time_global(now_lisbon)
+
                 for pair in self.pairs:
-                    candle_closed_time = await self.get_last_closed_candle_time(
-                        pair.symbol
-                    )
-                    if candle_closed_time != self.last_candle_times[pair.symbol]:
-                        logging.info(
-                            f"\n🕒 Nova vela detectada para {pair.symbol} ({candle_closed_time}). Executando bot..."
-                        )
-                   
-                        self.last_candle_times[pair.symbol] = candle_closed_time
+                    if self.last_candle_times[pair.symbol] != rounded_now:
+                        logging.info(f"\n🕒 Nova vela detectada para {pair.symbol} ({rounded_now}). Executando bot...")
+                        self.last_candle_times[pair.symbol] = rounded_now
                         await self.run_pair(pair)
                     else:
-                        logging.info(
-                            f"⌛ Aguardando nova vela para {pair.symbol}... Última executada: {self.last_candle_times[pair.symbol]}"
-                        )
+                        logging.info(f"⌛ Aguardando nova vela para {pair.symbol}... Última executada: {self.last_candle_times[pair.symbol]}")
+
 
                 sleep_time = self._calculate_sleep_time()
                 logging.info(
@@ -227,3 +238,16 @@ class TradingBot:
         except Exception:
             logging.exception(f"❌ Erro ao obter última vela fechada para {symbol}")
             return None
+        
+    def _get_last_closed_candle_time_global(self, now: datetime) -> datetime:
+        unit = self.timeframe[-1]
+        amount = int(self.timeframe[:-1])
+
+        if unit == "m":
+            minute = (now.minute // amount) * amount
+            return now.replace(minute=minute, second=0, microsecond=0)
+        elif unit == "h":
+            hour = (now.hour // amount) * amount
+            return now.replace(hour=hour, minute=0, second=0, microsecond=0)
+        else:
+            raise ValueError("Unsupported timeframe")

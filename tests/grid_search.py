@@ -11,8 +11,8 @@ from commons.enums.strategy_enum import StrategyEnum
 from commons.enums.timeframe_enum import TimeframeEnum
 from commons.models.strategy_params import StrategyParams
 from commons.utils.config_loader import PairConfig
+from old.grid_search_param import GridSearchParams
 from tests.backtest_runner import BacktestRunner
-from tests.grid_search_param import GridSearchParams
 
 
 class GridSearch:

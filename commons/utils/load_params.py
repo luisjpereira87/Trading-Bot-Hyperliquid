@@ -9,7 +9,18 @@ class LoadParams:
 
     @staticmethod
     def dict_to_strategy_params(params_dict: dict) -> StrategyParams:
-        weights_keys = ['weights_trend', 'weights_rsi', 'weights_stochastic', 'weights_price_action', 'weights_proximity_to_bands', 'weights_exhaustion']
+        """
+        weights_keys = ['weights_trend', 'weights_rsi', 'weights_stochastic', 'weights_price_action', 'weights_proximity_to_bands', 'weights_exhaustion',  'weights_penalty_factor', 'weights_macd', 'weights_cci',
+                    'weights_confirmation_candle_penalty', 'weights_divergence']
+        """
+        
+        weights_keys = [
+            "weights_trend",         # EMA
+            "weights_momentum",
+            "weights_oscillators",
+            "weights_price_action", # candle, setup 123, breakout, bandas
+            "weights_price_levels",
+        ]
         weights_values = []
         i = 0
         while f"w_{i}" in params_dict:

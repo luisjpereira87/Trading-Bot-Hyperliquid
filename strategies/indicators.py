@@ -199,3 +199,65 @@ class Indicators:
                 high=self.df['high'], low=self.df['low'], close=self.df['close'], window=period
             ).adx()
             return adx_series.tolist()
+        
+    def macd(self, fast_period=12, slow_period=26, signal_period=9):
+        if self.mode == 'custom':
+            ema_fast = self.ema(fast_period)
+            ema_slow = self.ema(slow_period)
+            macd_line = [f - s for f, s in zip(ema_fast, ema_slow)]
+
+            # Calcula EMA da linha MACD para sinal
+            signal_line = []
+            k = 2 / (signal_period + 1)
+            for i in range(len(macd_line)):
+                if i == 0:
+                    signal_line.append(macd_line[0])
+                else:
+                    val = macd_line[i] * k + signal_line[-1] * (1 - k)
+                    signal_line.append(val)
+            return macd_line, signal_line
+        else:
+            from ta.trend import MACD
+            macd_indicator = MACD(close=self.df['close'], window_slow=slow_period, window_fast=fast_period, window_sign=signal_period)
+            macd_line = macd_indicator.macd().tolist()
+            signal_line = macd_indicator.macd_signal().tolist()
+            return macd_line, signal_line
+        
+    def cci(self, period=20):
+        if self.mode == 'custom':
+            typical_prices = [(h + l + c) / 3 for h, l, c in zip(self.highs, self.lows, self.closes)]
+
+            # SMA dos Typical Prices
+            sma = []
+            for i in range(len(typical_prices)):
+                if i < period - 1:
+                    sma.append(0)
+                else:
+                    sma.append(np.mean(typical_prices[i - period + 1:i + 1]))
+
+            # Mean Deviation
+            mean_dev = []
+            for i in range(len(typical_prices)):
+                if i < period - 1:
+                    mean_dev.append(0)
+                else:
+                    window = typical_prices[i - period + 1:i + 1]
+                    mean = sma[i]
+                    md = np.mean([abs(tp - mean) for tp in window])
+                    mean_dev.append(md)
+
+            # CCI Calculation
+            cci = []
+            constant = 0.015
+            for i in range(len(typical_prices)):
+                if mean_dev[i] == 0:
+                    cci.append(0)
+                else:
+                    val = (typical_prices[i] - sma[i]) / (constant * mean_dev[i])
+                    cci.append(val)
+            return cci
+        else:
+            from ta.trend import CCIIndicator
+            cci_indicator = CCIIndicator(high=self.df['high'], low=self.df['low'], close=self.df['close'], window=period)
+            cci_series = cci_indicator.cci()
+        return cci_series.tolist()

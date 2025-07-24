@@ -1,4 +1,7 @@
 import logging
+from typing import List, Tuple
+
+import numpy as np
 
 from commons.enums.mode_enum import ModeEnum
 from commons.enums.signal_enum import Signal
@@ -174,11 +177,15 @@ class StrategyUtils:
         return lateral_market
     
     @staticmethod
-    def trend_signal_with_adx(ohlcv: OhlcvWrapper, symbol: (str | None), adx_threshold: float, ema_now, ema_prev):
+    def trend_signal_with_adx(ohlcv: OhlcvWrapper, symbol: (str | None), adx_threshold: float):
+        indicators = Indicators(ohlcv)
+        ema = indicators.ema()[-1]
+        prev_ema = indicators.ema()[-2]
+
         if StrategyUtils.detect_lateral_market(ohlcv, symbol, adx_threshold):
-            if ema_now > ema_prev:
+            if ema > prev_ema:
                 return 1  # buy
-            elif ema_now < ema_prev:
+            elif ema < prev_ema:
                 return -1  # sell
         return 0  # sem sinal
     
@@ -352,6 +359,139 @@ class StrategyUtils:
         elif k_now < d_now and k_prev >= d_prev:
             return Signal.SELL
         return Signal.HOLD
+    
+    @staticmethod
+    def momentum_signal_macd_cci(ohlcv: OhlcvWrapper, cci_period: int = 20, macd_fast: int = 12, macd_slow: int = 26, macd_signal: int = 9) -> Signal:
+        """
+        Calcula sinal combinado de momentum baseado em MACD e CCI.
+
+        Retorna:
+        - Signal.BUY se MACD cruza sinal para cima e CCI > 100
+        - Signal.SELL se MACD cruza sinal para baixo e CCI < -100
+        - Signal.HOLD caso contrário
+        """
+        indicators = Indicators(ohlcv)
+
+        macd_line, signal_line = indicators.macd(macd_fast, macd_slow, macd_signal)
+        cci = indicators.cci(cci_period)
+
+        if len(macd_line) < 2 or len(signal_line) < 2 or len(cci) < 1:
+            return Signal.HOLD
+
+        macd_curr, macd_prev = macd_line[-1], macd_line[-2]
+        signal_curr, signal_prev = signal_line[-1], signal_line[-2]
+        cci_curr = cci[-1]
+
+        # Cruzamento de MACD para cima (bullish)
+        macd_bull_cross = macd_prev <= signal_prev and macd_curr > signal_curr
+        # Cruzamento de MACD para baixo (bearish)
+        macd_bear_cross = macd_prev >= signal_prev and macd_curr < signal_curr
+
+        if macd_bull_cross and cci_curr > 100:
+            return Signal.BUY
+        elif macd_bear_cross and cci_curr < -100:
+            return Signal.SELL
+        else:
+            return Signal.HOLD
+        
+    @staticmethod
+    def is_weak_confirmation_candle(candle: Ohlcv, min_body_ratio: float = 0.3) -> bool:
+        """
+        Verifica se o candle é fraco como confirmação (corpo pequeno em relação ao range total).
+        
+        Um corpo pequeno (ex: <30% do range total) sugere indecisão, fraqueza ou falta de convicção.
+
+        Args:
+            candle (Ohlcv): O candle a ser analisado.
+            min_body_ratio (float): Valor mínimo aceitável para o corpo/range (ex: 0.3 = 30%).
+
+        Returns:
+            bool: True se o candle for considerado fraco (corpo pequeno), False caso contrário.
+        """
+        high = candle.high
+        low = candle.low
+        open_ = candle.open
+        close = candle.close
+
+        range_total = high - low
+        body_size = abs(close - open_)
+
+        if range_total == 0:
+            return True  # evitar divisão por zero, assume candle fraco
+
+        body_ratio = body_size / range_total
+        return body_ratio < min_body_ratio
+
+    @staticmethod
+    def find_pivots(ohlcv: OhlcvWrapper, left: int = 3, right: int = 3) -> Tuple[List[int], List[int]]:
+        """
+        Detecta pivôs locais de alta (topos) e baixa (fundos) no gráfico.
+        Retorna dois arrays de índices: (pivots_high, pivots_low)
+        """
+        highs = ohlcv.highs
+        lows = ohlcv.lows
+        length = len(highs)
+        pivots_high = []
+        pivots_low = []
+
+        for i in range(left, length - right):
+            high_candidate = highs[i]
+            is_pivot_high = all(high_candidate > highs[j] for j in range(i - left, i)) and \
+                            all(high_candidate > highs[j] for j in range(i + 1, i + right + 1))
+            if is_pivot_high:
+                pivots_high.append(i)
+
+            low_candidate = lows[i]
+            is_pivot_low = all(low_candidate < lows[j] for j in range(i - left, i)) and \
+                           all(low_candidate < lows[j] for j in range(i + 1, i + right + 1))
+            if is_pivot_low:
+                pivots_low.append(i)
+
+        return pivots_high, pivots_low
+
+    @staticmethod
+    def detect_divergence(
+        ohlcv: OhlcvWrapper
+    ) -> Tuple[List[int], List[int]]:
+        """
+        Detecta divergências entre preço (pivôs) e RSI.
+        Retorna listas de índices onde existem divergências de alta e baixa.
+        """
+        bullish_divergences = []
+        bearish_divergences = []
+
+        indicators = Indicators(ohlcv)
+        rsi = list(indicators.rsi(14))
+
+        pivots_high, pivots_low = StrategyUtils.find_pivots(ohlcv)
+
+        # Divergência de alta: preços fazem pivôs baixos mais baixos, RSI faz pivôs baixos mais altos
+        for i in range(1, len(pivots_low)):
+            idx1 = pivots_low[i - 1]
+            idx2 = pivots_low[i]
+            price_low1 = ohlcv.lows[idx1]
+            price_low2 = ohlcv.lows[idx2]
+            rsi_low1 = rsi[idx1]
+            rsi_low2 = rsi[idx2]
+
+            if price_low2 < price_low1 and rsi_low2 > rsi_low1:
+                bullish_divergences.append(idx2)
+
+        # Divergência de baixa: preços fazem pivôs altos mais altos, RSI faz pivôs altos mais baixos
+        for i in range(1, len(pivots_high)):
+            idx1 = pivots_high[i - 1]
+            idx2 = pivots_high[i]
+            price_high1 = ohlcv.highs[idx1]
+            price_high2 = ohlcv.highs[idx2]
+            rsi_high1 = rsi[idx1]
+            rsi_high2 = rsi[idx2]
+
+            if price_high2 > price_high1 and rsi_high2 < rsi_high1:
+                bearish_divergences.append(idx2)
+
+        return bullish_divergences, bearish_divergences
+        
+        
 
         
         

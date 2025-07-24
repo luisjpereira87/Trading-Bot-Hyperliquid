@@ -405,7 +405,7 @@ class BacktestRunner:
         # Configura sua exchange Hyperliquid
         exchange =  hyperliquid({
                 "enableRateLimit": True,
-                "testnet": True,
+                "testnet": False,
             })
 
         try:
