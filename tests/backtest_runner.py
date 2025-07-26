@@ -41,6 +41,7 @@ class ExchangeClientMock(ExchangeClient):
         self.current_candle = []
         self.pair = pair
         self.trades = []
+        self.id = 0
 
     def update_candles(self, symbol, current_candle, index):
         self.current_candle = current_candle
@@ -50,7 +51,7 @@ class ExchangeClientMock(ExchangeClient):
     def __get_window(self, full_candles, current_index, window_size):
         end = current_index
         start = max(0, current_index - window_size)
-        return full_candles[start:end]
+        return full_candles[start:end +1]
 
     async def fetch_ohlcv(self, symbol, timeframe:TimeframeEnum =TimeframeEnum.M15, limit=100, is_higher: bool = False)->OhlcvFormat:
         idx = self.current_index[symbol]
@@ -59,7 +60,9 @@ class ExchangeClientMock(ExchangeClient):
         window_higher = self.__get_window(self.candles_higher[symbol], idx, limit)
 
         self.current_price = OhlcvWrapper(window).get_last_closed_candle().close
+
         print(f"CURRENT_PRICE {self.current_price}")
+        print(f"CURRENT_PRICE 2 {OhlcvWrapper(window).get_current_candle().open}")
         print(f"[DEBUG fetch_ohlcv] idx usado={self.current_index[symbol]} | último close retornado={self.candles[symbol][self.current_index[symbol]][4]}")
         return OhlcvFormat(OhlcvWrapper(window), OhlcvWrapper(window_higher))
     
@@ -114,8 +117,13 @@ class ExchangeClientMock(ExchangeClient):
             return 0.0
     
     async def open_new_position(self, symbol, leverage, signal, capital_amount, pair, sl, tp):
-        price = self.current_price  # simula get_reference_price
+        self.id += 1
+        #price = self.current_candle[4]  # simula get_reference_price
 
+        idx = self.current_index[symbol]
+
+        price = self.candles[symbol][idx + 1][1]
+        print(f"CURRENT PRICE OPEN {price}")
         entry_amount = await self.calculate_entry_amount(price, capital_amount)
 
         min_order_value = 10
@@ -124,8 +132,6 @@ class ExchangeClientMock(ExchangeClient):
             return
 
         size = entry_amount #usa o entry_amount para o tamanho
-
-        idx = self.current_index[symbol]
 
         self.positions[symbol] = {
             "pair": pair,
@@ -147,7 +153,7 @@ class ExchangeClientMock(ExchangeClient):
         })
 
         logging.info(f"OPEN {signal.value} {symbol} entry_amount={entry_amount} idx={idx} size={size:.4f} price={price:.2f}, sl={sl} tp={tp}")
-
+        return {'id': self.id}
 
     async def close_position(self, pair, size, side):
         pos = self.positions.get(pair)
@@ -372,9 +378,9 @@ class BacktestRunner:
 
         for i in range(strategy.MIN_REQUIRED_CANDLES, len(self.ohlcv)):
             #candles_slice = self.ohlcv[:i]  # candles até i-1 fechados
-            current_candle = self.ohlcv[i-1]  # vela em que vais abrir posição no início
+            current_candle = self.ohlcv[i]  # vela em que vais abrir posição no início
 
-            exchange_client.update_candles(self.pair.symbol, current_candle, i-1)
+            exchange_client.update_candles(self.pair.symbol, current_candle, i)
 
             t = await exchange_client.simulate_tp_sl(current_candle, self.pair.symbol)
 
@@ -382,7 +388,7 @@ class BacktestRunner:
             #print(f"[VALIDAÇÃO] i={i} | current_index={exchange_client.current_index[self.pair.symbol]} | candle[i][4]={self.ohlcv[i][4]}")
             signal = await bot.run_pair(self.pair)
 
-            signals.append({'signal': signal, 'index': i-1})
+            signals.append({'signal': signal, 'index': i})
     
         if is_plot:
             #indexes = [s['index'] for s in signals]
@@ -405,7 +411,7 @@ class BacktestRunner:
         # Configura sua exchange Hyperliquid
         exchange =  hyperliquid({
                 "enableRateLimit": True,
-                "testnet": False,
+                "testnet": True,
             })
 
         try:

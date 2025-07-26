@@ -267,4 +267,47 @@ class ExchangeClient:
         except Exception as e:
             logging.error(f"❌ Erro ao fechar posição: {e}")
             raise
+    
+    async def fetch_closed_orders(self, symbol=None, limit=50):
+        try:
+            # O símbolo pode ser None para pegar todas
+            params = {}
+            if symbol:
+                params['symbol'] = symbol
+
+            closed_orders = await self.exchange.fetch_closed_orders(symbol=symbol, limit=limit, params=params)
+            return closed_orders
+        except Exception as e:
+            logging.error(f"❌ Erro ao obter ordens fechadas: {e}")
+            raise
+
+    async def find_exit_orders_by_entry_id(self, symbol, entry_order_id):
+        """
+        Filtra as ordens fechadas que são relacionadas à ordem de entrada pelo ID.
+
+        Args:
+            closed_orders: lista de ordens fechadas (dicts)
+            entry_order_id: id da ordem de entrada (string)
+
+        Returns:
+            lista de ordens fechadas relacionadas à entrada (normalmente reduceOnly=True)
+        """
+
+        closed_orders = await self.fetch_closed_orders(symbol, 2)
+
+        #print(f"ORDERSSSSSSSSSS {closed_orders}")
+
+        related = []
+        for order in closed_orders:
+            # Pode ser que o campo esteja em info['order']['oid'] ou order['id']
+            order_info = order.get('info', {}).get('order', {})
+            parent_id = order_info.get('parentOid')  # só se houver essa relação na exchange
+            oid = order_info.get('oid') or order.get('id')
+
+            #print(f"ORDERSSSSSSSSSS {order_info} {parent_id} {oid} {entry_order_id}")
+
+            # Confirma se a ordem fechada está ligada à ordem original
+            if oid == entry_order_id or parent_id == entry_order_id:
+                related.append(order)
+        return related
 

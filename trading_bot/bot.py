@@ -21,6 +21,7 @@ from strategies.indicators import Indicators
 from strategies.strategy_manager import StrategyManager  # Para cálculo ATR
 from trading_bot.exchange_client import ExchangeClient
 from trading_bot.exit_logic import ExitLogic
+from trading_bot.trade_features_memory import TradeFeaturesMemory
 from trading_bot.trading_helpers import TradingHelpers
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -38,6 +39,7 @@ class TradingBot:
         self.strategy = strategy
         self.params_loader = BestParamsLoader()
         self.exit_logic = ExitLogic(self.helpers, self.exchange_client)
+        self.trade_features_memory = TradeFeaturesMemory()
 
     async def run_pair(self, pair: PairConfig) -> SignalResult:
         symbol = pair.symbol
@@ -82,6 +84,10 @@ class TradingBot:
             await self.exchange_client.print_open_orders(symbol)
 
             current_position = await self.exchange_client.get_open_position(symbol)
+
+            #orders = await self.exchange_client.find_exit_orders_by_entry_id(symbol, '36447581515')
+
+            #print(f"ORDERS {orders}")
  
             # 1) Verifica saída via ExitLogic, se posição aberta e tamanho > 0
             
@@ -120,9 +126,12 @@ class TradingBot:
                 logging.info(f"[DEBUG] Cancelling all orders before opening new position for {symbol}")
                 await self.exchange_client.cancel_all_orders(symbol)
                 logging.info(f"[DEBUG] Opening new position for {symbol} with size {capital_amount}")
-                await self.exchange_client.open_new_position(
+                order = await self.exchange_client.open_new_position(
                     symbol, leverage, signal.signal, capital_amount, pair, signal.sl, signal.tp
                 )
+                print(f"ORDER {order}")
+                if signal.trade_snapshot and order != None and order.get('id'):
+                    self.trade_features_memory.add_trade_snapshot(order.get('id'), signal.trade_snapshot)
 
             logging.info(f"✅ Processing for {symbol} completed successfully")
             return signal

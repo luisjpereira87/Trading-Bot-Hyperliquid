@@ -490,6 +490,42 @@ class StrategyUtils:
                 bearish_divergences.append(idx2)
 
         return bullish_divergences, bearish_divergences
+    
+    @staticmethod
+    def get_candle_type(candle: Ohlcv) -> str:
+        close_price = candle.close
+        open_price = candle.open
+        high_price = candle.high
+        low_price = candle.low
+
+        body = abs(close_price - open_price)
+        candle_range = high_price - low_price
+        upper_wick = high_price - max(open_price, close_price)
+        lower_wick = min(open_price, close_price) - low_price
+
+        # Evitar divisão por zero
+        if candle_range == 0:
+            return "doji"
+
+        body_ratio = body / candle_range
+        upper_ratio = upper_wick / candle_range
+        lower_ratio = lower_wick / candle_range
+
+        # Classificações básicas
+        if body_ratio < 0.1:
+            return "doji"
+        if upper_ratio < 0.1 and lower_ratio > 0.6:
+            return "hammer"
+        if lower_ratio < 0.1 and upper_ratio > 0.6:
+            return "shooting_star"
+        if body_ratio > 0.6 and close_price > open_price:
+            return "bullish"
+        if body_ratio > 0.6 and close_price < open_price:
+            return "bearish"
+        if body_ratio > 0.5 and upper_ratio > 0.2 and lower_ratio > 0.2:
+            return "marubozu"
+
+        return "neutral"
         
         
 
