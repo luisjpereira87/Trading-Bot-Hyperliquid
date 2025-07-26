@@ -1,8 +1,8 @@
 import logging
 
 from commons.enums.signal_enum import Signal
-from commons.models.open_position import OpenPosition
-from commons.models.signal_result import SignalResult
+from commons.models.open_position_dclass import OpenPosition
+from commons.models.signal_result_dclass import SignalResult
 from commons.utils.config_loader import PairConfig
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from strategies.indicators import Indicators

@@ -1,9 +1,11 @@
 import logging
 
+from commons.enums.exit_type_enum import ExitTypeEnum
 from commons.enums.signal_enum import Signal
 from commons.enums.timeframe_enum import TimeframeEnum
-from commons.models.ohlcv_format import OhlcvFormat
-from commons.models.open_position import OpenPosition
+from commons.models.ohlcv_format_dclass import OhlcvFormat
+from commons.models.open_position_dclass import OpenPosition
+from commons.models.trade_closure_dclass import TradeClosureInfo
 from commons.utils.config_loader import PairConfig
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 
@@ -92,8 +94,9 @@ class ExchangeClient:
                 if pos["symbol"] == symbol and float(pos.get('contracts', 0)) > 0:
                     size = float(pos['contracts'])
                     entry_price = pos.get('entryPrice') or pos.get('entry_price') or pos.get('averagePrice') or 0.0
+                    id = pos.get('id') or pos.get('info', {}).get('order', {}).get('oid')
                     
-                    return OpenPosition(self.helpers.position_side_to_signal_side(pos['side']), size, entry_price, size * entry_price, None, None)
+                    return OpenPosition(self.helpers.position_side_to_signal_side(pos['side']), size, entry_price, id, size * entry_price, None, None)
 
         except Exception as e:
             logging.error(f"Erro ao obter posições abertas: {e}")
@@ -295,8 +298,6 @@ class ExchangeClient:
 
         closed_orders = await self.fetch_closed_orders(symbol, 2)
 
-        #print(f"ORDERSSSSSSSSSS {closed_orders}")
-
         related = []
         for order in closed_orders:
             # Pode ser que o campo esteja em info['order']['oid'] ou order['id']
@@ -304,10 +305,103 @@ class ExchangeClient:
             parent_id = order_info.get('parentOid')  # só se houver essa relação na exchange
             oid = order_info.get('oid') or order.get('id')
 
-            #print(f"ORDERSSSSSSSSSS {order_info} {parent_id} {oid} {entry_order_id}")
-
             # Confirma se a ordem fechada está ligada à ordem original
             if oid == entry_order_id or parent_id == entry_order_id:
                 related.append(order)
         return related
+    
+    def extract_order_id(self, order: dict) -> str:
+        return order.get('id') or order.get('info', {}).get('order', {}).get('oid')
+    
+    def calculate_pnl_and_exit_type(self, signal: Signal, size: float, entry_price: float, tp: float, sl: float, exit_order):
+        #side = entry_order['side']
+        #entry_price = float(entry_order['price'])
+        #sl = float(entry_order.get('sl', 0))
+        #tp = float(entry_order.get('tp', 0))
+        #size = float(entry_order.get('size', 1))  # default 1 se não tiver size
 
+        exit_price = float(exit_order.get('price') or exit_order.get('avgPrice') or 0)
+
+        if signal == Signal.BUY:
+            pnl = (exit_price - entry_price) * size
+            if exit_price >= tp and tp > 0:
+                exit_type = ExitTypeEnum.TP
+            elif exit_price <= sl and sl > 0:
+                exit_type = ExitTypeEnum.SL
+            else:
+                exit_type = ExitTypeEnum.MANUAL
+        else:  # SELL
+            pnl = (entry_price - exit_price) * size
+            if exit_price <= tp and tp > 0:
+                exit_type = ExitTypeEnum.TP
+            elif exit_price >= sl and sl > 0:
+                exit_type = ExitTypeEnum.SL
+            else:
+                exit_type = ExitTypeEnum.MANUAL
+
+        return pnl, exit_type
+    
+    """
+    async def get_trade_closure_info(self, symbol, entry_order):
+
+        print(entry_order)
+        entry_order_id = entry_order.get('id') or entry_order.get('info', {}).get('order', {}).get('oid')
+
+        exit_orders = await self.find_exit_orders_by_entry_id(symbol, entry_order_id)
+
+        if not exit_orders:
+            return None
+
+        # Pega só o primeiro fechamento
+        exit_order = exit_orders[0]
+        pnl, exit_type = self.calculate_pnl_and_exit_type(entry_order, exit_order)
+
+        return TradeClosureInfo(exit_order, pnl, exit_type)
+    """
+    async def modify_stop_loss_order(self, symbol: str, position, new_stop_loss_price: float):
+        # Buscar ordens abertas do símbolo
+        open_orders = await self.exchange.fetch_open_orders(symbol)
+        
+        # Filtrar ordens do tipo stop loss relacionadas à posição
+        stop_loss_orders = [
+            order for order in open_orders
+            if order.get('type') == 'stop' and order.get('side') != position.side  # lado oposto da posição
+        ]
+
+        if not stop_loss_orders:
+            # Se não existir ordem SL, cria uma nova
+            print(f"Não existe ordem stop loss para modificar no {symbol}. Criando nova...")
+            await self.create_stop_loss_order(symbol, position, new_stop_loss_price)
+            return
+
+        # Cancelar a ordem stop loss antiga
+        sl_order = stop_loss_orders[0]
+        await self.exchange.cancel_order(sl_order['id'], symbol)
+        print(f"Ordem stop loss antiga cancelada: {sl_order['id']}")
+
+        # Criar nova ordem stop loss
+        await self.create_stop_loss_order(symbol, position, new_stop_loss_price)
+        print(f"Nova ordem stop loss criada no preço {new_stop_loss_price:.4f}")
+
+    async def create_stop_loss_order(self, symbol: str, position, stop_loss_price: float):
+        side = position.side.lower()
+        amount = abs(float(position.size))  # quantidade absoluta
+
+        if side == 'buy':
+            order_side = 'sell'  # para fechar long, stop sell
+        else:
+            order_side = 'buy'   # para fechar short, stop buy
+
+        params = {
+            'stopPrice': stop_loss_price,
+            'type': 'stop',   # tipo de ordem stop em Hyperliquid
+            'reduceOnly': True  # só fecha a posição
+        }
+
+        try:
+            order = await self.exchange.create_order(symbol, 'stop', order_side, amount, None, params)
+            print(f"Ordem stop loss criada: {order}")
+            return order
+        except Exception as e:
+            print(f"Erro ao criar ordem stop loss: {e}")
+            raise

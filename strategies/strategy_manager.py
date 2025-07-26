@@ -2,9 +2,9 @@ import logging
 from typing import List
 
 from commons.enums.strategy_enum import StrategyEnum
-from commons.models.signal_result import SignalResult
-from commons.models.strategy_base import StrategyBase
-from commons.models.strategy_params import StrategyParams
+from commons.models.signal_result_dclass import SignalResult
+from commons.models.strategy_base_dclass import StrategyBase
+from commons.models.strategy_params_dclass import StrategyParams
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from strategies.ai_supertrend import AISuperTrend
 from strategies.combined import CombinedStrategy

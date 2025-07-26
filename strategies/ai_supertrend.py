@@ -6,10 +6,10 @@ import numpy as np
 
 from commons.enums.mode_enum import ModeEnum
 from commons.enums.signal_enum import Signal
-from commons.models.signal_result import SignalResult
-from commons.models.strategy_base import StrategyBase
-from commons.models.strategy_params import StrategyParams
-from commons.models.trade_snapashot import TradeSnapshot
+from commons.models.signal_result_dclass import SignalResult
+from commons.models.strategy_base_dclass import StrategyBase
+from commons.models.strategy_params_dclass import StrategyParams
+from commons.models.trade_snapashot_dclass import TradeSnapshot
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from strategies.strategy_utils import StrategyUtils
 from trading_bot.exchange_client import ExchangeClient
@@ -28,7 +28,6 @@ class AISuperTrend(StrategyBase):
         self.mode = ModeEnum.CONSERVATIVE
         self.multiplier = 0.9
         self.adx_threshold = 15
-        #self.rsi:float
         self.rsi_buy_threshold = 40
         self.rsi_sell_threshold = 60
         self.price_ref: float = 0.0
@@ -106,18 +105,11 @@ class AISuperTrend(StrategyBase):
         if not self.has_enough_candles():
             logging.info(f"{self.symbol} - Dados insuficientes para cálculo.")
             return SignalResult(Signal.HOLD, None, None)
-    
-
-       
-        #self.indicators = Indicators(self.ohlcv)
-        #self.extract_data()
-        StrategyUtils.detect_lateral_market(self.ohlcv, self.symbol, self.adx_threshold)
 
         last_closed = self.ohlcv.get_last_closed_candle()
 
         print(f"Last closed candle - ts: {last_closed.timestamp}, open: {last_closed.open}, high: {last_closed.high}, low: {last_closed.low}, close: {last_closed.close}, volume: {last_closed.volume}")
 
- 
         is_bearish_reversal, is_bullish_reversal = StrategyUtils.detect_reversal_pattern(self.ohlcv)
 
         if is_bearish_reversal:
@@ -127,39 +119,10 @@ class AISuperTrend(StrategyBase):
         if is_bullish_reversal:
             logging.info(f"{self.symbol} - Reversão de fundo detetada: HOLD")
             return SignalResult(Signal.HOLD, None, None)
-  
-        """
-        if StrategyUtils.is_flat_candle(self.ohlcv):
-            logging.info(f"{self.symbol} - Candle sem corpo")
-            return SignalResult(Signal.HOLD, None, None)
-        """
-        
- 
-        if not StrategyUtils.passes_volume_volatility_filter(self.ohlcv, self.symbol, self.volume_threshold_ratio, self.atr_threshold_ratio):
-            logging.info(f"{self.symbol} - Filtro de volume/volatilidade não passou: HOLD")
-            return SignalResult(Signal.HOLD, None, None)
-     
-        
+
         if not StrategyUtils.calculate_higher_tf_trend(self.ohlcv_higher, self.adx_threshold):
             logging.info(f"{self.symbol} - Sinal rejeitado por tendência contrária no timeframe maior.: HOLD")
             return SignalResult(Signal.HOLD, None, None)
-        
-        """
-        # ⛔️ Bloqueio por lateralização com ADX
-        if self.block_lateral_market:
-            adx_threshold = self.adx_threshold
-            if StrategyUtils.detect_lateral_market(self.ohlcv, self.symbol, adx_threshold):
-                return SignalResult(Signal.HOLD, None, None)  # mercado lateral, ignora sinal
-        """
-    
-        
-        """
-        is_top, is_bottom = self.is_exhaustion_candle(self.ohlcv)
-
-        if is_top or is_bottom:
-            logging.info(f"{self.symbol} - Sinal rejeitado por mercado estar no topo ou resistencia.: HOLD")
-            return SignalResult(Signal.HOLD, None, None)
-        """
 
         logging.info(f"{self.symbol} - Modo selecionado: {self.mode}")
         score = self.calculate_score()
@@ -206,9 +169,9 @@ class AISuperTrend(StrategyBase):
             logging.warning(f"{self.symbol} - Erro ao calcular SL/TP: {e}")
             return SignalResult(Signal.HOLD, None, None, None, 0)
 
-        return SignalResult(signal, sl, tp, hold_score, max(buy_score, sell_score), self.get_trade_snapshot(sl, tp))
+        return SignalResult(signal, sl, tp, hold_score, max(buy_score, sell_score), self.get_trade_snapshot(signal, sl, tp))
     
-    def get_trade_snapshot(self, sl: float, tp: float) -> Optional[TradeSnapshot]:
+    def get_trade_snapshot(self, signal: Signal, sl: float, tp: float) -> Optional[TradeSnapshot]:
         if self.symbol == None:
             return None
 
@@ -236,7 +199,9 @@ class AISuperTrend(StrategyBase):
             entry_price=self.price_ref,
             sl=sl,
             tp=tp,
-             candle_type=candle_type,
+            signal=signal,
+            size=0.0,
+            candle_type=candle_type,
             rsi=rsi,
             stochastic=stoch_k[-1],  # ou uma média k+d
             adx=adx,
@@ -280,12 +245,12 @@ class AISuperTrend(StrategyBase):
         score["buy"] += self._score_divergence() * self.weights.get("divergence", 0)
         score["sell"] += self._score_divergence(sell=True) * self.weights.get("divergence", 0)
 
-        """
+
         # 🔽 NOVO: aplicar penalização por volume
         buy_penalty, sell_penalty = self._calculate_volume_penalty()
         score["buy"] *= buy_penalty
         score["sell"] *= sell_penalty
-        """
+
 
         # Normalização final
         max_score = sum(self.weights.values())

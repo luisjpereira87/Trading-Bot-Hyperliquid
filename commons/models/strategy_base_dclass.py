@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, List
 
-from commons.models.strategy_params import StrategyParams
+from commons.models.strategy_params_dclass import StrategyParams
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 
 

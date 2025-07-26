@@ -13,8 +13,8 @@ from ccxt.async_support import hyperliquid
 
 from commons.enums.strategy_enum import StrategyEnum
 from commons.enums.timeframe_enum import TimeframeEnum
-from commons.models.ohlcv_format import OhlcvFormat
-from commons.models.open_position import OpenPosition
+from commons.models.ohlcv_format_dclass import OhlcvFormat
+from commons.models.open_position_dclass import OpenPosition
 from commons.utils.config_loader import (PairConfig, get_pair_by_symbol,
                                          load_pair_configs)
 from commons.utils.load_params import LoadParams
@@ -42,10 +42,10 @@ class ExchangeClientMock(ExchangeClient):
         self.pair = pair
         self.trades = []
         self.id = 0
+        self.stop_loss_orders = {}
 
     def update_candles(self, symbol, current_candle, index):
         self.current_candle = current_candle
-        #self.symbol_data[symbol] = sliced
         self.current_index[symbol] = index
 
     def __get_window(self, full_candles, current_index, window_size):
@@ -61,8 +61,6 @@ class ExchangeClientMock(ExchangeClient):
 
         self.current_price = OhlcvWrapper(window).get_last_closed_candle().close
 
-        print(f"CURRENT_PRICE {self.current_price}")
-        print(f"CURRENT_PRICE 2 {OhlcvWrapper(window).get_current_candle().open}")
         print(f"[DEBUG fetch_ohlcv] idx usado={self.current_index[symbol]} | último close retornado={self.candles[symbol][self.current_index[symbol]][4]}")
         return OhlcvFormat(OhlcvWrapper(window), OhlcvWrapper(window_higher))
     
@@ -117,13 +115,10 @@ class ExchangeClientMock(ExchangeClient):
             return 0.0
     
     async def open_new_position(self, symbol, leverage, signal, capital_amount, pair, sl, tp):
-        self.id += 1
-        #price = self.current_candle[4]  # simula get_reference_price
-
         idx = self.current_index[symbol]
-
         price = self.candles[symbol][idx + 1][1]
         print(f"CURRENT PRICE OPEN {price}")
+
         entry_amount = await self.calculate_entry_amount(price, capital_amount)
 
         min_order_value = 10
@@ -167,8 +162,6 @@ class ExchangeClientMock(ExchangeClient):
         entry_price = pos['entryPrice']
         position_side = pos['side']
 
-        #leverage = pos['pair'].leverage if 'pair' in pos and hasattr(pos['pair'], 'leverage') else 1
-
         if position_side == 'buy':
             pnl = (close_price - entry_price) * pos['size']
         elif position_side == 'sell':
@@ -205,8 +198,21 @@ class ExchangeClientMock(ExchangeClient):
         # Simula uma posição aberta se existir para o símbolo
         pos = self.positions.get(symbol)
         if pos:
-            return OpenPosition(pos['side'], pos['size'], pos['entryPrice'], pos['size'] * pos['entryPrice'], pos['sl'], pos['tp'])
+            return OpenPosition(pos['side'], pos['size'], pos['entryPrice'], '', pos['size'] * pos['entryPrice'], pos['sl'], pos['tp'])
         return None
+
+    def modify_stop_loss_order(self, symbol: str, entry_id: str, new_stop_price: float):
+        """
+        Modifica o SL associado a uma posição existente.
+        """  
+        if self.trades:
+            last_trade = self.trades[-1]
+            if last_trade["type"] == "entry":
+                last_trade["sl"] = new_stop_price
+
+            print(f"SL atualizado em {symbol} com entry_id {entry_id}")
+        else:        
+            print(f"⚠️ Nenhuma SL encontrada para modificar em {symbol} com entry_id {entry_id}")
     
     async def simulate_tp_sl(self, candle, symbol):
 
@@ -355,8 +361,7 @@ class BacktestRunner:
         # Guardar operações para plot
         self.trades = []  # lista de dicts: {"type": "entry"|"exit", "side": "buy"|"sell", "index": int, "price": float}
         self.ohlcv = []
-        self.st_tp = []
-        # Define o espaço de busca dos parâmetros
+
 
     async def run(self, params=None, is_plot = False):
         logging.info(f"🔁 Starting backtest for {self.pair.symbol}")
@@ -371,7 +376,6 @@ class BacktestRunner:
 
         bot = TradingBot(exchange_client, strategy, helpers, load_pair_configs(), self.timeframe)
         signals = []
-        #window_size = 21
 
         if params is not None:
             strategy.set_params(params)
@@ -382,25 +386,18 @@ class BacktestRunner:
 
             exchange_client.update_candles(self.pair.symbol, current_candle, i)
 
-            t = await exchange_client.simulate_tp_sl(current_candle, self.pair.symbol)
+            await exchange_client.simulate_tp_sl(current_candle, self.pair.symbol)
 
-            self.st_tp.append(t)
             #print(f"[VALIDAÇÃO] i={i} | current_index={exchange_client.current_index[self.pair.symbol]} | candle[i][4]={self.ohlcv[i][4]}")
             signal = await bot.run_pair(self.pair)
 
             signals.append({'signal': signal, 'index': i})
     
         if is_plot:
-            #indexes = [s['index'] for s in signals]
-            #indexes2 = [s['index'] for s in exchange_client.trades]
-            #print(len(exchange_client.trades))
-            #print(indexes2)
-            #exchange_client.print_summary()
             PlotTrades.plot_trades(self.pair.symbol, self.ohlcv, signals, exchange_client.trades)
 
         exchange_client.generate_detailed_report(exchange_client.trades)
         summary = exchange_client.get_performance_summary()
-        #print(self.st_tp)
         return summary
     
     # Função para obter candles históricos (ajuste para o seu projeto)

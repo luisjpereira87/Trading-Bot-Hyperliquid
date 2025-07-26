@@ -1,7 +1,7 @@
 from collections import defaultdict
 from typing import Dict, List
 
-from commons.models.trade_snapashot import TradeSnapshot
+from commons.models.trade_snapashot_dclass import TradeSnapshot
 
 
 class TradeFeaturesMemory:
@@ -56,6 +56,11 @@ class TradeFeaturesMemory:
             volume_ratio=avg_values['volume_ratio'],
             atr_ratio=avg_values['atr_ratio'],
             timestamp=snapshots[-1].timestamp,
+            signal=snapshots[-1].signal,
+            entry_price=avg_values['entry_price'],
+            sl=avg_values['sl'],
+            tp=avg_values['tp'],
+            size=avg_values['size'],
         )
 
     def get_profitable_snapshots(self) -> List[TradeSnapshot]:
@@ -80,3 +85,12 @@ class TradeFeaturesMemory:
 
         averages = {field: sums[field] / count for field in numeric_fields}
         return averages
+    
+    def get_last_temp_snapshot(self, trade_id: str) -> TradeSnapshot | None:
+        snapshots = self._temp_snapshots.get(trade_id)
+        if snapshots:
+            return snapshots[-1]
+        return None
+    
+    def remove_temp_snapshot(self, trade_id: str):
+        self._temp_snapshots.pop(trade_id, None)

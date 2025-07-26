@@ -19,7 +19,7 @@ from ta.momentum import RSIIndicator, StochasticOscillator
 from ta.volatility import AverageTrueRange
 
 from commons.enums.mode_enum import ModeEnum
-from commons.models.strategy_params import StrategyParams
+from commons.models.strategy_params_dclass import StrategyParams
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from trading_bot.exchange_client import ExchangeClient
 
@@ -30,8 +30,8 @@ from xgboost import XGBClassifier
 
 from commons.enums.ml_model_enum import MLModelType
 from commons.enums.signal_enum import Signal
-from commons.models.signal_result import SignalResult
-from commons.models.strategy_base import StrategyBase
+from commons.models.signal_result_dclass import SignalResult
+from commons.models.strategy_base_dclass import StrategyBase
 from machine_learning.ml_train_pipeline import MLTrainer
 
 

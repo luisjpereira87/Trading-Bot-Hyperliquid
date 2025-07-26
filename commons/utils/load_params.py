@@ -2,7 +2,7 @@ import json
 import os
 
 from commons.enums.mode_enum import ModeEnum
-from commons.models.strategy_params import StrategyParams
+from commons.models.strategy_params_dclass import StrategyParams
 
 
 class LoadParams:

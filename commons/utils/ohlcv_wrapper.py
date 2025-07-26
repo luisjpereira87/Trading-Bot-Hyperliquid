@@ -1,6 +1,6 @@
 import numpy as np
 
-from commons.models.ohlcv_type import Ohlcv
+from commons.models.ohlcv_type_dclass import Ohlcv
 
 
 class OhlcvWrapper:

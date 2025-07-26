@@ -5,7 +5,7 @@ import numpy as np
 
 from commons.enums.mode_enum import ModeEnum
 from commons.enums.signal_enum import Signal
-from commons.models.ohlcv_type import Ohlcv
+from commons.models.ohlcv_type_dclass import Ohlcv
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from strategies.indicators import Indicators
 

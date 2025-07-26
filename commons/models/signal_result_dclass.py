@@ -4,7 +4,7 @@ from typing import Optional, Union
 import numpy as np
 
 from commons.enums.signal_enum import Signal
-from commons.models.trade_snapashot import TradeSnapshot
+from commons.models.trade_snapashot_dclass import TradeSnapshot
 
 
 @dataclass

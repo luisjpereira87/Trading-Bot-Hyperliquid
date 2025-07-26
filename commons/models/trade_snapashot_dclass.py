@@ -1,13 +1,17 @@
 
 from dataclasses import dataclass
 
+from commons.enums.signal_enum import Signal
+
 
 @dataclass
 class TradeSnapshot:
     symbol: str
     entry_price: float
+    size: float
     sl: float
     tp: float
+    signal: Signal
     candle_type: str  # ex: 'bullish engulfing', 'doji', etc.
     rsi: float
     stochastic: float
