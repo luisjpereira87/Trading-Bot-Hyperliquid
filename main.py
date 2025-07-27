@@ -53,7 +53,7 @@ async def run_bot():
     )
     helpers = TradingHelpers()
     exchange_client = ExchangeClient(exchange, wallet_address)
-    strategy = StrategyManager(exchange_client, StrategyEnum.ML_RANDOM_FOREST)
+    strategy = StrategyManager(exchange_client, StrategyEnum.AI_SUPERTREND)
     bot = TradingBot(exchange_client, strategy, helpers, pairs, timeframe)
 
     await bot.start() 
