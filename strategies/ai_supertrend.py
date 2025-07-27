@@ -169,7 +169,7 @@ class AISuperTrend(StrategyBase):
             logging.warning(f"{self.symbol} - Erro ao calcular SL/TP: {e}")
             return SignalResult(Signal.HOLD, None, None, None, 0)
 
-        return SignalResult(signal, sl, tp, hold_score, max(buy_score, sell_score), self.get_trade_snapshot(signal, sl, tp))
+        return SignalResult(signal, sl, tp, hold_score, max(buy_score, sell_score), buy_score, sell_score, hold_score,  self.get_trade_snapshot(signal, sl, tp))
     
     def get_trade_snapshot(self, signal: Signal, sl: float, tp: float) -> Optional[TradeSnapshot]:
         if self.symbol == None:
@@ -442,6 +442,7 @@ class AISuperTrend(StrategyBase):
         sell_penalty = max(0.3, min(sell_penalty, 1.0))
 
         return buy_penalty, sell_penalty
+        
 
 
 

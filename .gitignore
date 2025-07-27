@@ -2,8 +2,8 @@ __pycache__/
 *.pyc
 .env
 *.log
-.DS_Store
-trading_bot/.DS_Store
+*.DS_Store
+trading_bot/*.DS_Store
 img
 mypy.ini
 machine_learning/data/*

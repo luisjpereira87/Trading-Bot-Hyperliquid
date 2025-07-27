@@ -11,6 +11,7 @@ import logging
 import nest_asyncio
 from ccxt.async_support import hyperliquid
 
+from commons.enums.signal_enum import Signal
 from commons.enums.strategy_enum import StrategyEnum
 from commons.enums.timeframe_enum import TimeframeEnum
 from commons.helpers.trading_helpers import TradingHelpers
@@ -141,7 +142,8 @@ class ExchangeClientMock(ExchangeClient):
         entries_count = sum(1 for t in self.trades if t['type'] == 'entry')
         exits_count = sum(1 for t in self.trades if t['type'] == 'exit')
         if  entries_count > exits_count:
-            await self.close_position(pair, size, signal.value)
+            await self.close_position(pair, size, signal)
+
 
         self.trades.append({
             "type": "entry",
@@ -156,7 +158,7 @@ class ExchangeClientMock(ExchangeClient):
         logging.info(f"OPEN {signal.value} {symbol} entry_amount={entry_amount} idx={idx} size={size:.4f} price={price:.2f}, sl={sl} tp={tp}")
         return {'id': self.id}
 
-    async def close_position(self, pair, size, side):
+    async def close_position(self, pair, size, side: Signal):
         pos = self.positions.get(pair)
         if not pos:
             logging.warning(f"Tentou fechar posição que não existe: {pair}")
@@ -168,12 +170,22 @@ class ExchangeClientMock(ExchangeClient):
         entry_price = pos['entryPrice']
         position_side = pos['side']
 
+        fee_rate = 0.00035  # 0.035% por operação (taker fee)
+
         if position_side == 'buy':
-            pnl = (close_price - entry_price) * pos['size']
+            gross_pnl = (close_price - entry_price) * pos['size']
         elif position_side == 'sell':
-            pnl = (entry_price - close_price) * pos['size']
+            gross_pnl = (entry_price - close_price) * pos['size']
         else:
-            pnl = 0
+            gross_pnl = 0
+
+        # Calcular taxas
+        entry_fee = entry_price * pos['size'] * fee_rate
+        exit_fee = close_price * pos['size'] * fee_rate
+        total_fees = entry_fee + exit_fee
+
+        # Calcular PnL líquido
+        pnl = gross_pnl - total_fees
 
         self.trades.append({
             "type": "exit",
@@ -194,7 +206,8 @@ class ExchangeClientMock(ExchangeClient):
 
         del self.positions[pair]
 
-        logging.info(f"CLOSE {side} {pair} size={size:.4f} idx={idx} entry={entry_price:.2f} close={close_price:.2f} PnL={pnl:.2f}")
+        logging.info(f"CLOSE {side} {pair} size={size:.4f} idx={idx} entry={entry_price:.2f} close={close_price:.2f} "
+                 f"PnL={pnl:.2f} (gross: {gross_pnl:.2f}, fees: {total_fees:.4f})")
         return pnl
     
     async def get_total_balance(self):
@@ -207,7 +220,7 @@ class ExchangeClientMock(ExchangeClient):
             return OpenPosition(pos['side'], pos['size'], pos['entryPrice'], '', pos['size'] * pos['entryPrice'], pos['sl'], pos['tp'])
         return None
 
-    def modify_stop_loss_order(self, symbol: str, entry_id: str, new_stop_price: float):
+    async def modify_stop_loss_order(self, symbol: str, entry_id: str, new_stop_price: float):
         """
         Modifica o SL associado a uma posição existente.
         """  
@@ -242,13 +255,13 @@ class ExchangeClientMock(ExchangeClient):
                 if hit_tp and hit_sl:
                     # Decide prioridade (ex: assume SL primeiro)
                     print(f"Candle ambíguo BUY: SL e TP atingidos. Prioridade ao SL.")
-                    await self.close_position(pair, size, side)
+                    await self.close_position(pair, size, Signal.BUY)
                 elif hit_sl:
                     print(f"close buy SL {low} {sl}")
-                    await self.close_position(pair, size, side)
+                    await self.close_position(pair, size, Signal.BUY)
                 elif hit_tp:
                     print(f"close buy TP {high} {tp}")
-                    await self.close_position(pair, size, side)
+                    await self.close_position(pair, size, Signal.BUY)
 
                 return candle
 
@@ -258,13 +271,13 @@ class ExchangeClientMock(ExchangeClient):
 
                 if hit_tp and hit_sl:
                     print(f"Candle ambíguo SELL: SL e TP atingidos. Prioridade ao SL.")
-                    await self.close_position(pair, size, side)
+                    await self.close_position(pair, size, Signal.SELL)
                 elif hit_sl:
                     print(f"close sell SL {high} {sl}")
-                    await self.close_position(pair, size, side)
+                    await self.close_position(pair, size, Signal.SELL)
                 elif hit_tp:
                     print(f"close sell TP {low} {tp}")
-                    await self.close_position(pair, size, side)
+                    await self.close_position(pair, size, Signal.SELL)
                 return candle
         
 
@@ -386,7 +399,7 @@ class BacktestRunner:
         if params is not None:
             strategy.set_params(params)
 
-        for i in range(strategy.MIN_REQUIRED_CANDLES, len(self.ohlcv)):
+        for i in range(strategy.MIN_REQUIRED_CANDLES, len(self.ohlcv) - 1):
             #candles_slice = self.ohlcv[:i]  # candles até i-1 fechados
             current_candle = self.ohlcv[i]  # vela em que vais abrir posição no início
 
@@ -430,11 +443,11 @@ class BacktestRunner:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("SOL/USDC:USDC")
+    pair = get_pair_by_symbol("ETH/USDC:USDC")
 
     if pair != None:
 
-        runner = BacktestRunner(StrategyEnum.ML_RANDOM_FOREST, TimeframeEnum.M15, pair, 250, 300)
+        runner = BacktestRunner(StrategyEnum.AI_SUPERTREND, TimeframeEnum.M15, pair, 250, 1000)
         
         await runner.run(LoadParams.load_best_params_with_weights(pair.symbol), True)
     #print(LoadParams.load_best_params_with_weights())

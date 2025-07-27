@@ -43,8 +43,8 @@ class StrategyManager(StrategyBase):
         
 
     async def get_signal(self)-> SignalResult:
-        if self.name == StrategyEnum.AI_SUPERTREND:
-            self.mode = await self._detect_mode()
+        #if self.name == StrategyEnum.AI_SUPERTREND:
+        #self.mode = await self._detect_mode()
 
         return await self.strategy.get_signal()
 

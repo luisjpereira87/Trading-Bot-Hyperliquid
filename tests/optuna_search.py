@@ -73,7 +73,7 @@ class OptunaSearch:
             params_obj = StrategyParams(**params)
             summary = await runner.run(params_obj)
 
-            neg_wins = -summary["wins"]
+            neg_wins = -summary["total_pnl"]
 
             #score = -(summary['total_pnl'] * (summary['wins'] / summary['trades']))  
             # Regista o log numa string, não imprime direto

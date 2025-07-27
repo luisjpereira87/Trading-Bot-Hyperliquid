@@ -49,6 +49,7 @@ class ExitLogicRiskBased:
         # Se o preço avançou 1.5R, movemos SL para o ponto de entrada (break even)
         if r_multiple >= 1.5 and stop_loss != entry_price:
             new_sl = entry_price
+            
             await self.exchange_client.modify_stop_loss_order(pair.symbol, current_position, new_sl)
             print(f"SL movido para break even em {new_sl}")
 

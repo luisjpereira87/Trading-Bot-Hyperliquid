@@ -5,6 +5,13 @@ from commons.models.trade_snapashot_dclass import TradeSnapshot
 
 
 class TradeFeaturesMemory:
+    NUMERIC_FIELDS = [
+        'rsi', 'stochastic', 'adx', 'macd', 'cci',
+        'proximity_to_bands', 'price_action', 'exhaustion_score',
+        'divergence_score', 'volume_ratio', 'atr_ratio'
+    ]
+
+
     def __init__(self):
         # Agora uma lista de snapshots temporários por trade_id
         self._temp_snapshots: Dict[str, List[TradeSnapshot]] = defaultdict(list)
@@ -28,14 +35,8 @@ class TradeFeaturesMemory:
         if count == 0:
             raise ValueError("No snapshots to average")
 
-        numeric_fields = [
-            'rsi', 'stochastic', 'adx', 'macd', 'cci',
-            'proximity_to_bands', 'price_action', 'exhaustion_score',
-            'divergence_score', 'volume_ratio', 'atr_ratio'
-        ]
-
         avg_values = {}
-        for field in numeric_fields:
+        for field in self.NUMERIC_FIELDS:
             avg_values[field] = sum(getattr(snap, field) for snap in snapshots) / count
 
         # Para campos não numéricos, como symbol, candle_type e timestamp, podes escolher o primeiro, último ou algum padrão
@@ -57,10 +58,10 @@ class TradeFeaturesMemory:
             atr_ratio=avg_values['atr_ratio'],
             timestamp=snapshots[-1].timestamp,
             signal=snapshots[-1].signal,
-            entry_price=avg_values['entry_price'],
-            sl=avg_values['sl'],
-            tp=avg_values['tp'],
-            size=avg_values['size'],
+            entry_price=snapshots[-1].entry_price,
+            sl=snapshots[-1].sl,
+            tp=snapshots[-1].tp,
+            size=snapshots[-1].size,
         )
 
     def get_profitable_snapshots(self) -> List[TradeSnapshot]:
@@ -70,20 +71,14 @@ class TradeFeaturesMemory:
         if not self._profitable_snapshots:
             return {}
 
-        numeric_fields = [
-            'rsi', 'stochastic', 'adx', 'macd', 'cci',
-            'proximity_to_bands', 'price_action', 'exhaustion_score',
-            'divergence_score', 'volume_ratio', 'atr_ratio'
-        ]
-
-        sums = {field: 0.0 for field in numeric_fields}
+        sums = {field: 0.0 for field in self.NUMERIC_FIELDS}
         count = len(self._profitable_snapshots)
 
         for snap in self._profitable_snapshots:
-            for field in numeric_fields:
+            for field in self.NUMERIC_FIELDS:
                 sums[field] += getattr(snap, field)
 
-        averages = {field: sums[field] / count for field in numeric_fields}
+        averages = {field: sums[field] / count for field in self.NUMERIC_FIELDS}
         return averages
     
     def get_last_temp_snapshot(self, trade_id: str) -> TradeSnapshot | None:
