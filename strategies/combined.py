@@ -8,8 +8,8 @@ class CombinedStrategy:
         self.exchange = exchange
         self.symbol = symbol
         self.timeframe = timeframe
-        self.ml_strategy = MLStrategy(exchange, symbol, timeframe)
-        self.other_strategy = AISuperTrend(exchange, symbol, timeframe)
+        self.ml_strategy = MLStrategy(exchange)
+        self.other_strategy = AISuperTrend(exchange)
 
     async def get_signal(self):
         ml_signal = await self.ml_strategy.get_signal()

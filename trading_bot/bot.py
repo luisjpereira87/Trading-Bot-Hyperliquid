@@ -9,22 +9,18 @@ import ccxt.async_support as ccxt  # type: ignore
 import pytz  # type: ignore
 
 from commons.enums.signal_enum import Signal
-from commons.enums.strategy_enum import StrategyEnum
 from commons.enums.timeframe_enum import TimeframeEnum
+from commons.helpers.trading_helpers import TradingHelpers
 from commons.models.ohlcv_format_dclass import OhlcvFormat
 from commons.models.signal_result_dclass import SignalResult
 from commons.models.trade_snapashot_dclass import TradeSnapshot
 from commons.utils.best_params_loader import BestParamsLoader
 from commons.utils.config_loader import PairConfig
-from commons.utils.load_params import LoadParams
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
-from strategies.indicators import Indicators
 from strategies.strategy_manager import StrategyManager  # Para cálculo ATR
 from trading_bot.exchange_client import ExchangeClient
-from trading_bot.exit_logic import ExitLogic
 from trading_bot.exit_logic_risk_based import ExitLogicRiskBased
 from trading_bot.trade_features_memory import TradeFeaturesMemory
-from trading_bot.trading_helpers import TradingHelpers
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 warnings.filterwarnings("ignore", category=UserWarning)

@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 from commons.enums.strategy_enum import StrategyEnum
 from commons.enums.timeframe_enum import TimeframeEnum
+from commons.helpers.trading_helpers import TradingHelpers
 from commons.utils.config_loader import load_pair_configs
 from machine_learning.ml_train_pipeline import MLTrainer
 from strategies.ml_strategy import MLModelType
@@ -16,7 +17,6 @@ from strategies.strategy_manager import StrategyManager
 from tests.test_custom import TestCustom
 from trading_bot.bot import TradingBot
 from trading_bot.exchange_client import ExchangeClient
-from trading_bot.trading_helpers import TradingHelpers
 
 load_dotenv()
 
@@ -53,14 +53,14 @@ async def run_bot():
     )
     helpers = TradingHelpers()
     exchange_client = ExchangeClient(exchange, wallet_address)
-    strategy = StrategyManager(exchange_client, StrategyEnum.AI_SUPERTREND)
+    strategy = StrategyManager(exchange_client, StrategyEnum.ML_RANDOM_FOREST)
     bot = TradingBot(exchange_client, strategy, helpers, pairs, timeframe)
 
     await bot.start() 
 
 async def run_train():
     print("🤖 A treinar o modelo ML...")
-    mlTrainer = MLTrainer(MLModelType.MLP)
+    mlTrainer = MLTrainer(MLModelType.RANDOM_FOREST)
     await mlTrainer.run() 
 
     #mlTrainer = MLTrainer(MLModelType.XGBOOST)

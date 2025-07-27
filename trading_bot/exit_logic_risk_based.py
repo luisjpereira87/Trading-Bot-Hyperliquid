@@ -1,9 +1,10 @@
 from commons.enums.signal_enum import Signal
+from commons.helpers.trading_helpers import TradingHelpers
+from commons.models.open_position_dclass import OpenPosition
 from commons.models.signal_result_dclass import SignalResult
 from commons.utils.config_loader import PairConfig
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from trading_bot.exchange_client import ExchangeClient
-from trading_bot.trading_helpers import TradingHelpers
 
 
 class ExitLogicRiskBased:
@@ -11,7 +12,7 @@ class ExitLogicRiskBased:
         self.helpers = helpers
         self.exchange_client = exchange_client
 
-    async def should_exit(self, ohlcv: OhlcvWrapper, pair: PairConfig, signal: SignalResult, current_position):
+    async def should_exit(self, ohlcv: OhlcvWrapper, pair: PairConfig, signal: SignalResult, current_position: OpenPosition):
         # Exemplo: fechar se perda maior que 1R ou lucro maior que 3R
         entry_price = float(current_position.entry_price)
         current_price = await self.exchange_client.get_entry_price(pair.symbol)
@@ -48,7 +49,7 @@ class ExitLogicRiskBased:
         # Se o preço avançou 1.5R, movemos SL para o ponto de entrada (break even)
         if r_multiple >= 1.5 and stop_loss != entry_price:
             new_sl = entry_price
-            await self.exchange_client.modify_stop_loss_order(pair.symbol, current_position.id, new_sl)
+            await self.exchange_client.modify_stop_loss_order(pair.symbol, current_position, new_sl)
             print(f"SL movido para break even em {new_sl}")
 
         # Pode adicionar outras condições aqui (candles reversão, volume, etc)

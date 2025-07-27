@@ -3,13 +3,12 @@ import logging
 from commons.enums.exit_type_enum import ExitTypeEnum
 from commons.enums.signal_enum import Signal
 from commons.enums.timeframe_enum import TimeframeEnum
+from commons.helpers.trading_helpers import TradingHelpers
 from commons.models.ohlcv_format_dclass import OhlcvFormat
 from commons.models.open_position_dclass import OpenPosition
 from commons.models.trade_closure_dclass import TradeClosureInfo
 from commons.utils.config_loader import PairConfig
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
-
-from .trading_helpers import TradingHelpers
 
 
 class ExchangeClient:
@@ -92,6 +91,7 @@ class ExchangeClient:
             positions = await self.exchange.fetch_positions(params={'user': self.wallet_address})
             for pos in positions:
                 if pos["symbol"] == symbol and float(pos.get('contracts', 0)) > 0:
+
                     size = float(pos['contracts'])
                     entry_price = pos.get('entryPrice') or pos.get('entry_price') or pos.get('averagePrice') or 0.0
                     id = pos.get('id') or pos.get('info', {}).get('order', {}).get('oid')
@@ -358,7 +358,7 @@ class ExchangeClient:
 
         return TradeClosureInfo(exit_order, pnl, exit_type)
     """
-    async def modify_stop_loss_order(self, symbol: str, position, new_stop_loss_price: float):
+    async def modify_stop_loss_order(self, symbol: str, position: OpenPosition, new_stop_loss_price: float):
         # Buscar ordens abertas do símbolo
         open_orders = await self.exchange.fetch_open_orders(symbol)
         

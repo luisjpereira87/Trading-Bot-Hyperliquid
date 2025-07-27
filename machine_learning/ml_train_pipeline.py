@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 import os
@@ -24,10 +23,11 @@ from ta.volatility import AverageTrueRange
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # ou '3'
 import tensorflow as tf
-from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
-from tensorflow.keras.layers import LSTM, Dense, Dropout, Input
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.callbacks import EarlyStopping  # type: ignore
+from tensorflow.keras.callbacks import ModelCheckpoint  # type: ignore
+from tensorflow.keras.layers import LSTM, Dense, Dropout, Input  # type: ignore
+from tensorflow.keras.models import Sequential  # type: ignore
+from tensorflow.keras.utils import to_categorical  # type: ignore
 from xgboost import XGBClassifier
 
 from commons.enums.ml_model_enum import MLModelType
@@ -144,9 +144,9 @@ class MLTrainer:
         labels = df["label"]
 
         print(df[['close', 'rsi', 'macd', 'ema9', 'ema21', 'stoch_k', 'stoch_d']].tail(15))
-
+        
         smote = SMOTE(random_state=42)
-        features_res, labels_res = smote.fit_resample(features, labels)
+        features_res, labels_res = smote.fit_resample(features, labels) # type: ignore
 
         if self.save_csv:
             os.makedirs(self.DATA_DIR, exist_ok=True)
@@ -183,7 +183,7 @@ class MLTrainer:
         model_path_keras = self.MODEL_PATH.replace(".pkl", ".h5")
         if not os.path.exists(model_path_keras):
             raise FileNotFoundError(f"Modelo LSTM não encontrado em {model_path_keras}")
-        model = tf.keras.models.load_model(model_path_keras)
+        model = tf.keras.models.load_model(model_path_keras) # type: ignore
         logging.info(f"💾 Modelo LSTM carregado de: {model_path_keras}")
         return model
 
@@ -331,21 +331,23 @@ class MLTrainer:
         model = self._init_model()
         param_grid = self._get_param_grid()
 
-        if self.use_gridsearch and param_grid:
-            logging.info(f"🔎 Iniciando GridSearchCV para {self.model_type.value}...")
-            grid = GridSearchCV(model, param_grid, cv=3, n_jobs=-1, verbose=1, scoring='accuracy')
-            grid.fit(X_train, y_train)
-            model = grid.best_estimator_
-            logging.info(f"✅ Melhor modelo: {grid.best_params_}")
-        else:
-            model.fit(X_train, y_train)
+        if model is not None:
 
-        # Avaliação
-        y_val_pred = model.predict(X_val)
-        acc = accuracy_score(y_val, y_val_pred)
-        logging.info(f"Accuracy na validação: {acc:.4f}")
-        logging.info("Classification Report:")
-        logging.info("\n" + classification_report(y_val, y_val_pred))
+            if self.use_gridsearch and param_grid:
+                logging.info(f"🔎 Iniciando GridSearchCV para {self.model_type.value}...")
+                grid = GridSearchCV(model, param_grid, cv=3, n_jobs=-1, verbose=1, scoring='accuracy')
+                grid.fit(X_train, y_train)
+                model = grid.best_estimator_
+                logging.info(f"✅ Melhor modelo: {grid.best_params_}")
+            else:
+                model.fit(X_train, y_train)
+
+            # Avaliação
+            y_val_pred = model.predict(X_val)
+            acc = accuracy_score(y_val, y_val_pred)
+            logging.info(f"Accuracy na validação: {acc:.4f}")
+            logging.info("Classification Report:")
+            logging.info(f"\n {classification_report(y_val, y_val_pred)}")
 
         # Salvar modelo
         joblib.dump(model, self.MODEL_PATH)

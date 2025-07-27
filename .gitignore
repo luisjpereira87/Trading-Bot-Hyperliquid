@@ -8,6 +8,4 @@ img
 mypy.ini
 machine_learning/data/*
 machine_learning/img/*
-machine_learning/models/modelo_mlp.pkl
-machine_learning/models/modelo_rf.pkl
-machine_learning/models/modelo_xgboost.pkl
+machine_learning/models/*

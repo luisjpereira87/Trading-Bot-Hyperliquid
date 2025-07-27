@@ -79,7 +79,7 @@ class MLStrategy(StrategyBase):
     def get_sl_tp(self):
         pass
             
-    async def initialize(self, model_type):
+    async def initialize(self, model_type: MLModelType):
         if self.model_loaded == True:
             return
 
@@ -107,7 +107,7 @@ class MLStrategy(StrategyBase):
                 await mlTrainer.run()
                 logging.warning(f"✅ Modelo {self.model_type.value} com treino finalizado")
 
-    def create_lstm_sequences(self, df, window_size=10):
+    def create_lstm_sequences(self, df: pd.DataFrame, window_size: int = 10) -> tuple[np.ndarray, np.ndarray]:
         """
         Converte o DataFrame em janelas sequenciais para LSTM.
         Retorna X (3D numpy array) e y (1D array).
@@ -135,14 +135,13 @@ class MLStrategy(StrategyBase):
         y = np.array(y)
         return X, y
 
-    def fetch_ohlcv(self, data):
-        #data = await self.exchange.fetch_ohlcv(self.symbol, timeframe=self.timeframe, limit=limit)
-        df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+    def fetch_ohlcv(self, data: OhlcvWrapper) -> pd.DataFrame:
+        df = pd.DataFrame(data.ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
         return df
 
     
-    def calculate_features(self, df):
+    def calculate_features(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
         df['ema9'] = df['close'].ewm(span=9, adjust=False).mean()
         df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
@@ -155,7 +154,7 @@ class MLStrategy(StrategyBase):
         df['pct_change'] = df['close'].pct_change()
         return df
 
-    def compute_sl_tp(self, price, atr, confidence, direction):
+    def compute_sl_tp(self, price: float, atr: float, confidence: float, direction: Signal)-> tuple[float | None, float | None]:
         risk_factor = 1 + (confidence - 0.5) * 2
         sl_distance = atr * 1.5 * risk_factor
         tp_distance = atr * 2.5 * risk_factor
@@ -171,7 +170,7 @@ class MLStrategy(StrategyBase):
 
         return round(sl, 4), round(tp, 4)
 
-    def predict_signal(self, df) -> SignalResult:
+    def predict_signal(self, df: pd.DataFrame) -> SignalResult:
         if self.model is None:
             logging.warning("⚠️ Modelo ainda não treinado.")
             return SignalResult(Signal.HOLD, None, None, None)
@@ -193,10 +192,6 @@ class MLStrategy(StrategyBase):
             X_input_scaled = self.scaler.transform(X_input_raw)  # assume scaler foi treinado com essas features na mesma ordem
 
             X_input = np.expand_dims(X_input_scaled, axis=0)  # shape (1, window_size, n_features)
-
-
-            #X_input = features[-window_size:]
-            #X_input = np.expand_dims(X_input, axis=0)  # shape (1, window_size, n_features)
 
             proba = self.model.predict(X_input)[0]  # output shape (3,) p[baixa, neutro, alta]
             logging.info(f"ML LSTM prob baixa: {proba[0]:.2f}, neutro: {proba[1]:.2f}, alta: {proba[2]:.2f}")
@@ -249,19 +244,19 @@ class MLStrategy(StrategyBase):
             if self.aggressive_mode:
                 if idx == 2:
                     sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.BUY)
-                    return SignalResult(Signal.BUY, sl, tp, confidence)
+                    return SignalResult(Signal.BUY, sl, tp, confidence, proba[2])
                 elif idx == 0:
                     sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.SELL)
-                    return SignalResult(Signal.SELL, sl, tp, confidence)
+                    return SignalResult(Signal.SELL, sl, tp, confidence, proba[0])
             else:
                 if idx == 2 and proba[2] > self.confidence_threshold:
                     sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.BUY)
-                    return SignalResult(Signal.BUY, sl, tp, confidence)
+                    return SignalResult(Signal.BUY, sl, tp, confidence, proba[2])
                 elif idx == 0 and proba[0] > self.confidence_threshold:
                     sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.SELL)
-                    return SignalResult(Signal.SELL, sl, tp, confidence)
+                    return SignalResult(Signal.SELL, sl, tp, confidence, proba[0])
 
-            return SignalResult(Signal.HOLD, None, None, confidence)
+            return SignalResult(Signal.HOLD, None, None, confidence, proba[1])
 
     async def get_signal(self) -> SignalResult:
         if self.ohlcv is None and self.symbol is None:
@@ -269,7 +264,6 @@ class MLStrategy(StrategyBase):
 
         await self.initialize(self.model_type)
         df = self.fetch_ohlcv(self.ohlcv)
-        #await self.train_if_due(df)
         result = self.predict_signal(df)
         logging.info(f"🚦 Sinal ML para {self.symbol}: {result}")
         return result

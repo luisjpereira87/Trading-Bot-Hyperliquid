@@ -13,6 +13,12 @@ class PlotTrades:
         # Plotar entradas e saídas
         
         for trade in trades:
+
+            index = trade.get("index")
+            if index is None or index >= len(dates):
+                print(f"[WARNING] Trade com índice inválido: {index}, max index = {len(dates)-1}")
+                continue
+
             dt = dates[trade["index"]]
             price = trade["price"]
 

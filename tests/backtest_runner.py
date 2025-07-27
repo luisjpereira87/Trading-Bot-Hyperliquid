@@ -13,6 +13,7 @@ from ccxt.async_support import hyperliquid
 
 from commons.enums.strategy_enum import StrategyEnum
 from commons.enums.timeframe_enum import TimeframeEnum
+from commons.helpers.trading_helpers import TradingHelpers
 from commons.models.ohlcv_format_dclass import OhlcvFormat
 from commons.models.open_position_dclass import OpenPosition
 from commons.utils.config_loader import (PairConfig, get_pair_by_symbol,
@@ -23,16 +24,15 @@ from strategies.strategy_manager import StrategyManager
 from tests.plot_trades import PlotTrades
 from trading_bot.bot import TradingBot
 from trading_bot.exchange_client import ExchangeClient
-from trading_bot.trading_helpers import TradingHelpers
 
 nest_asyncio.apply()
 
 class ExchangeClientMock(ExchangeClient):
-    def __init__(self, candles, candles_higher, pair: PairConfig):
+    def __init__(self, candles, candles_higher, pair: PairConfig, balance: float = 1000):
         self.candles = candles
         self.candles_higher = candles_higher
         self.position = None
-        self.balance = 1000
+        self.balance = balance
         self.positions = {} 
         self.current_index = {symbol: 0 for symbol in candles.keys()}
         self.total_pnl = 0.0  # USDC
@@ -137,6 +137,12 @@ class ExchangeClientMock(ExchangeClient):
             "tp": tp,
         }
 
+        # Verifica se existe mais entries que exits, posição não fechada mas sim reversão
+        entries_count = sum(1 for t in self.trades if t['type'] == 'entry')
+        exits_count = sum(1 for t in self.trades if t['type'] == 'exit')
+        if  entries_count > exits_count:
+            await self.close_position(pair, size, signal.value)
+
         self.trades.append({
             "type": "entry",
             "side": signal.value,
@@ -188,7 +194,7 @@ class ExchangeClientMock(ExchangeClient):
 
         del self.positions[pair]
 
-        logging.info(f"CLOSE {side} {pair} size={size:.4f} entry={entry_price:.2f} close={close_price:.2f} PnL={pnl:.2f}")
+        logging.info(f"CLOSE {side} {pair} size={size:.4f} idx={idx} entry={entry_price:.2f} close={close_price:.2f} PnL={pnl:.2f}")
         return pnl
     
     async def get_total_balance(self):
@@ -298,7 +304,7 @@ class ExchangeClientMock(ExchangeClient):
         entries = []
         exits = []
         detailed_trades = []
-
+       
         # Separar entradas e saídas
         for t in trades:
             if t['type'] == 'entry':
@@ -353,11 +359,12 @@ class ExchangeClientMock(ExchangeClient):
 
 # Runner principal do backtest
 class BacktestRunner:
-    def __init__(self, strategy_name: StrategyEnum, timeframe: TimeframeEnum, pair: PairConfig, limit: int = 5):
+    def __init__(self, strategy_name: StrategyEnum, timeframe: TimeframeEnum, pair: PairConfig, limit: int = 5, balance: float = 1000):
         self.strategy_name = strategy_name
         self.timeframe = timeframe
         self.pair = pair
         self.limit = limit
+        self.balance = balance
         # Guardar operações para plot
         self.trades = []  # lista de dicts: {"type": "entry"|"exit", "side": "buy"|"sell", "index": int, "price": float}
         self.ohlcv = []
@@ -369,8 +376,7 @@ class BacktestRunner:
         self.ohlcv = await self.get_historical_ohlcv(self.timeframe, self.limit)
         self.ohlcv_higher = await self.get_historical_ohlcv(self.timeframe.get_higher(), self.limit)
 
-        #exchange = MockExchange({self.pair.symbol: self.ohlcv})
-        exchange_client = ExchangeClientMock({self.pair.symbol: self.ohlcv}, {self.pair.symbol: self.ohlcv_higher}, self.pair)
+        exchange_client = ExchangeClientMock({self.pair.symbol: self.ohlcv}, {self.pair.symbol: self.ohlcv_higher}, self.pair, self.balance)
         helpers = TradingHelpers()
         strategy = StrategyManager(exchange_client, self.strategy_name)
 
@@ -394,6 +400,7 @@ class BacktestRunner:
             signals.append({'signal': signal, 'index': i})
     
         if is_plot:
+            #print(exchange_client.trades)
             PlotTrades.plot_trades(self.pair.symbol, self.ohlcv, signals, exchange_client.trades)
 
         exchange_client.generate_detailed_report(exchange_client.trades)
@@ -427,7 +434,7 @@ async def main():
 
     if pair != None:
 
-        runner = BacktestRunner(StrategyEnum.AI_SUPERTREND, TimeframeEnum.M15, pair, 250)
+        runner = BacktestRunner(StrategyEnum.ML_RANDOM_FOREST, TimeframeEnum.M15, pair, 250, 300)
         
         await runner.run(LoadParams.load_best_params_with_weights(pair.symbol), True)
     #print(LoadParams.load_best_params_with_weights())

@@ -1,7 +1,7 @@
 
 
 from commons.enums.signal_enum import Signal
-from trading_bot.trading_helpers import TradingHelpers
+from commons.helpers.trading_helpers import TradingHelpers
 
 
 class TestCustom:
