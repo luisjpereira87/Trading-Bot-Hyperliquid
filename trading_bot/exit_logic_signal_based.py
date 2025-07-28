@@ -21,13 +21,13 @@ class ExitLogicSignalBased:
 
         side = Signal.from_str(current_position.side)
 
-        if side == Signal.BUY and signal.sell_score > signal.buy_score and signal.sell_score > signal.hold_score:
-            print("🔁 Reversão: SELL > BUY e HOLD → fechar BUY")
+        if side == Signal.BUY and signal.sell_score > signal.buy_score:
+            print("🔁 Reversão: SELL > BUY → fechar BUY")
             await self._exit(pair.symbol, current_position.size, current_position.side)
             return True
 
-        if side == Signal.SELL and signal.buy_score > signal.sell_score and signal.buy_score > signal.hold_score:
-            print("🔁 Reversão: BUY > SELL e HOLD → fechar SELL")
+        if side == Signal.SELL and signal.buy_score > signal.sell_score:
+            print("🔁 Reversão: BUY > SELL → fechar SELL")
             await self._exit(pair.symbol, current_position.size, current_position.side)
             return True
 
