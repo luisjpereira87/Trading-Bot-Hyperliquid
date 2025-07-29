@@ -15,7 +15,8 @@ class ExitLogicSignalBased:
         self.exchange_client = exchange_client
 
     async def should_exit(self, ohlcv: OhlcvWrapper, pair: PairConfig, signal: SignalResult, current_position: OpenPosition):
-        
+
+        print(f"[DEBUG ExitLogicSignalBased] position: {current_position} signal: {signal} pair: {pair}")
         if not current_position or not signal.buy_score or not signal.sell_score or not signal.hold_score or not current_position.side:
             return False
 
