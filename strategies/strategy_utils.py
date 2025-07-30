@@ -526,6 +526,51 @@ class StrategyUtils:
             return "marubozu"
 
         return "neutral"
+    
+    @staticmethod
+    def is_abnormal_volume(candles: OhlcvWrapper, lookback: int = 20, threshold: float = 2.0) -> bool:
+        if len(candles) < lookback + 1:
+            return False
+
+        recent = candles.get_recent_closed(lookback)
+        volumes = [c.volume for c in recent]
+
+        avg_volume = sum(volumes) / len(volumes)
+        current_volume = candles.get_current_candle().volume
+
+        return current_volume > (avg_volume * threshold)
+
+    @staticmethod
+    def has_large_wick(candle, ratio: float = 2.0) -> bool:
+        body = abs(candle.close - candle.open)
+        upper_wick = candle.high - max(candle.close, candle.open)
+        lower_wick = min(candle.close, candle.open) - candle.low
+        return upper_wick > body * ratio or lower_wick > body * ratio
+
+    @staticmethod
+    def is_single_candle_pump(candles: OhlcvWrapper, threshold: float = 0.03) -> bool:
+        current = candles.get_current_candle()
+        move = abs(current.close - current.open) / current.open
+        return move > threshold
+
+    @staticmethod
+    def has_price_gap(candles: OhlcvWrapper, threshold: float = 0.02) -> bool:
+        if len(candles) < 2:
+            return False
+        prev = candles.get_previous_candle()
+        current = candles.get_current_candle()
+        gap = abs(current.open - prev.close) / prev.close
+        return gap > threshold
+
+    @staticmethod
+    def is_market_manipulation(candles: OhlcvWrapper) -> bool:
+        current = candles.get_current_candle()
+        return (
+            StrategyUtils.has_large_wick(current)
+            or StrategyUtils.is_single_candle_pump(candles)
+            or StrategyUtils.has_price_gap(candles)
+        )
+        
         
         
 

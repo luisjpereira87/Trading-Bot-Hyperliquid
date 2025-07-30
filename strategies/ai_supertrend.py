@@ -123,6 +123,9 @@ class AISuperTrend(StrategyBase):
         if not StrategyUtils.calculate_higher_tf_trend(self.ohlcv_higher, self.adx_threshold):
             logging.info(f"{self.symbol} - Sinal rejeitado por tendência contrária no timeframe maior.: HOLD")
             return SignalResult(Signal.HOLD, None, None)
+        
+        if StrategyUtils.is_market_manipulation(self.ohlcv):
+            return SignalResult(Signal.HOLD, None, None)
 
         logging.info(f"{self.symbol} - Modo selecionado: {self.mode}")
         score = self.calculate_score()
@@ -288,9 +291,20 @@ class AISuperTrend(StrategyBase):
             buy_points += 1
         elif stochastic_signal == Signal.SELL:
             sell_points += 1
+    
 
         buy_points /= 2
         sell_points /= 2
+
+    
+        # ⚠️ Penalização por volume anormal
+        if StrategyUtils.is_abnormal_volume(self.ohlcv):
+            penalty = self.weights.get("abnormal_volume_penalty", 0.5)  # Configurável no JSON
+            if sell:
+                sell_points *= penalty
+            else:
+                buy_points *= penalty
+
 
         return sell_points if sell else buy_points
 
@@ -442,6 +456,34 @@ class AISuperTrend(StrategyBase):
         sell_penalty = max(0.3, min(sell_penalty, 1.0))
 
         return buy_penalty, sell_penalty
+    
+    def _is_exhaustion_candle(self, idx: int) -> bool:
+        open_ = self.ohlcv.opens[idx]
+        close = self.ohlcv.closes[idx]
+        high = self.ohlcv.highs[idx]
+        low = self.ohlcv.lows[idx]
+
+        body = abs(close - open_)
+        candle_range = high - low
+        upper_wick = high - max(open_, close)
+        lower_wick = min(open_, close) - low
+
+        # Corpo pequeno, sombra longa: pinbar / shooting star / hammer
+        if candle_range == 0:
+            return False  # evitar divisão por zero
+
+        return (
+            body / candle_range < 0.3 and
+            (upper_wick > 2 * body or lower_wick > 2 * body)
+        )
+    def _is_abnormal_volume(self, idx: int) -> bool:
+        if idx < 20:
+            return False
+
+        volume = self.ohlcv.volumes
+        avg_volume = np.mean(volume[idx - 20:idx])
+
+        return volume[idx] > 1.5 * avg_volume
         
 
 
