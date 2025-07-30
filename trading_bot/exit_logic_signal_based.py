@@ -15,19 +15,20 @@ class ExitLogicSignalBased:
         self.exchange_client = exchange_client
 
     async def should_exit(self, ohlcv: OhlcvWrapper, pair: PairConfig, signal: SignalResult, current_position: OpenPosition):
-        
+
+        logging.info(f"[DEBUG ExitLogicSignalBased] position: {current_position} signal: {signal} pair: {pair}")
         if not current_position or not signal.buy_score or not signal.sell_score or not signal.hold_score or not current_position.side:
             return False
 
         side = Signal.from_str(current_position.side)
 
-        if side == Signal.BUY and signal.sell_score > signal.buy_score and signal.sell_score > signal.hold_score:
-            print("🔁 Reversão: SELL > BUY e HOLD → fechar BUY")
+        if side == Signal.BUY and signal.sell_score > signal.buy_score:
+            logging.info("🔁 Reversão: SELL > BUY → fechar BUY")
             await self._exit(pair.symbol, current_position.size, current_position.side)
             return True
 
-        if side == Signal.SELL and signal.buy_score > signal.sell_score and signal.buy_score > signal.hold_score:
-            print("🔁 Reversão: BUY > SELL e HOLD → fechar SELL")
+        if side == Signal.SELL and signal.buy_score > signal.sell_score:
+            logging.info("🔁 Reversão: BUY > SELL → fechar SELL")
             await self._exit(pair.symbol, current_position.size, current_position.side)
             return True
 
