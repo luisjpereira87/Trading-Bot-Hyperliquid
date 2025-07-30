@@ -152,7 +152,7 @@ class AISuperTrend(StrategyBase):
         elif sell_score > buy_score and sell_score >= threshold_sell:
             signal = Signal.SELL
         else:
-            return SignalResult(Signal.HOLD, None, None, hold_score, max(buy_score, sell_score))
+            return SignalResult(Signal.HOLD, None, None, hold_score, max(buy_score, sell_score), buy_score, sell_score, hold_score,  self.get_trade_snapshot(signal, sl, tp))
 
         try:
             sl, tp = StrategyUtils.calculate_sl_tp(
