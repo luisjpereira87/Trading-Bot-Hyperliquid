@@ -78,7 +78,7 @@ class StrategyUtils:
         candles: OhlcvWrapper,
         lookback: int = 50,
         tolerance_pct: float = 0.005
-    ) -> tuple[float | None, float | None]:
+    ) -> tuple[float, float]:
         """
         Detecta níveis de suporte e resistência baseados em máximos/mínimos locais.
 
@@ -86,8 +86,8 @@ class StrategyUtils:
         - resistência (float) se houver
         - suporte (float) se houver
         """
-        if len(candles) < lookback:
-            return None, None
+        #if len(candles) < lookback:
+        #    return None, None
 
         highs = [c.high for c in candles.get_recent_closed(lookback)]
         lows = [c.low for c in candles.get_recent_closed(lookback)]
@@ -113,42 +113,6 @@ class StrategyUtils:
 
         return dist_to_res, dist_to_sup
     
-    @staticmethod
-    def is_exhaustion_candle(candles: OhlcvWrapper, lookback: int = 20, threshold: float = 0.95) -> tuple[bool, bool]:
-        """
-        Verifica se o candle atual está em zona de exaustão:
-        - Topo (para penalizar BUY)
-        - Fundo (para penalizar SELL)
-
-        Parâmetros:
-        - candles: OhlcvWrapper com dados OHLCV
-        - lookback: Número de candles anteriores a considerar (excluindo o atual)
-        - threshold: Percentil acima/abaixo do qual se considera exaustão
-        """
-        if len(candles) < lookback + 1:
-            return False, False
-
-        # Últimos N candles fechados
-        recent_candles = candles.get_recent_closed(lookback=lookback)
-
-        highs = [c.high for c in recent_candles]
-        lows = [c.low for c in recent_candles]
-
-        range_high = max(highs)
-        range_low = min(lows)
-
-        current_close = candles.get_current_candle().close
-
-        # Evita divisão por zero se todos os candles forem flat
-        if range_high == range_low:
-            return False, False
-
-        relative_position = (current_close - range_low) / (range_high - range_low)
-
-        is_top_exhaustion = relative_position >= threshold
-        is_bottom_exhaustion = relative_position <= (1 - threshold)
-
-        return is_top_exhaustion, is_bottom_exhaustion
     
     @staticmethod
     def is_flat_candle(ohlcv: OhlcvWrapper):
@@ -526,19 +490,7 @@ class StrategyUtils:
             return "marubozu"
 
         return "neutral"
-    
-    @staticmethod
-    def is_abnormal_volume(candles: OhlcvWrapper, lookback: int = 20, threshold: float = 2.0) -> bool:
-        if len(candles) < lookback + 1:
-            return False
 
-        recent = candles.get_recent_closed(lookback)
-        volumes = [c.volume for c in recent]
-
-        avg_volume = sum(volumes) / len(volumes)
-        current_volume = candles.get_current_candle().volume
-
-        return current_volume > (avg_volume * threshold)
 
     @staticmethod
     def has_large_wick(candle, ratio: float = 2.0) -> bool:
@@ -570,6 +522,184 @@ class StrategyUtils:
             or StrategyUtils.is_single_candle_pump(candles)
             or StrategyUtils.has_price_gap(candles)
         )
+    
+    @staticmethod
+    def get_market_manipulation_score(
+        candles: OhlcvWrapper,
+        lookback: int = 20,
+        price_spike_threshold: float = 2.0,
+        wick_ratio_threshold: float = 2.5,
+        volume_spike_ratio: float = 2.0
+    ) -> float:
+        """
+        Retorna um score de manipulação de mercado entre 0.0 e 1.0 com base em:
+        - Tamanho anormal do candle (spike)
+        - Pavio longo (sombra superior/inferior muito maior que o corpo)
+        - Volume muito acima da média
+        - Reversão após candle extremo
+
+        Parâmetros:
+        - candles: OhlcvWrapper
+        - lookback: Nº de candles para calcular médias
+        - thresholds: valores para deteção de anomalias
+
+        Returns:
+        - manip_score: float (0.0 a 1.0)
+        """
+        if len(candles) < lookback + 3:
+            return 0.0
+
+        recent_candles = candles.get_recent_closed(lookback)
+        last_candle = candles.get_last_closed_candle()
+
+        # Preço médio de corpos
+        avg_body_size = sum(abs(c.open - c.close) for c in recent_candles) / lookback
+        body = abs(last_candle.open - last_candle.close)
+
+        # Comprimento do candle
+        full_range = last_candle.high - last_candle.low
+        upper_wick = last_candle.high - max(last_candle.open, last_candle.close)
+        lower_wick = min(last_candle.open, last_candle.close) - last_candle.low
+
+        # Volume
+        avg_volume = sum(c.volume for c in recent_candles) / lookback
+        volume_score = 1.0 if last_candle.volume > avg_volume * volume_spike_ratio else 0.0
+
+        # Corpo anormal
+        body_score = min(1.0, body / (avg_body_size * price_spike_threshold))
+
+        # Wick ratio
+        wick_ratio = max(upper_wick, lower_wick) / body if body > 0 else 0
+        wick_score = 1.0 if wick_ratio > wick_ratio_threshold else 0.0
+
+        # Reversão após candle forte
+        candle_1 = candles.get_recent_closed(1)[-1]
+        candle_2 = candles.get_recent_closed(2)[-2]
+
+        reversal_score = 0.0
+        if body_score > 0.8:
+            if last_candle.close < candle_1.low < candle_2.low:
+                # Engolfo de baixa após candle forte de alta
+                reversal_score = 1.0
+            elif last_candle.close > candle_1.high > candle_2.high:
+                # Engolfo de alta após candle forte de queda
+                reversal_score = 1.0
+
+        # Média ponderada simples
+        score = (
+            0.4 * body_score +
+            0.3 * wick_score +
+            0.2 * volume_score +
+            0.1 * reversal_score
+        )
+
+        return round(min(score, 1.0), 2)
+    
+    @staticmethod
+    def calculate_volume_ratio(candles: OhlcvWrapper, window: int = 20) -> float:
+        volumes = candles.volumes
+        if len(volumes) < window + 1:
+            return 1.0  # neutro
+
+        avg_volume = np.mean(volumes[-window - 1:-1])
+        current_volume = volumes[-1]
+
+        ratio = current_volume / avg_volume if avg_volume > 0 else 1.0
+        return ratio
+    
+    @staticmethod
+    def calculate_atr_ratio(candles: OhlcvWrapper):
+        indicators = Indicators(candles)
+        atr = indicators.atr()[-1]
+        high = candles.highs[-1]
+        low = candles.lows[-1]
+        range_candle = high - low
+        return range_candle / atr if atr != 0 else 0
+    
+    @staticmethod
+    def calculate_volume_penalty(candles: OhlcvWrapper) -> Tuple[float, float]:
+        volumes = candles.volumes
+        recent_volume = volumes[-1]
+        avg_volume = np.mean(volumes[-20:]) if len(volumes) >= 20 else np.mean(volumes)
+
+        if avg_volume == 0:
+            return 1.0, 1.0  # evitar divisão por zero
+
+        volume_ratio = recent_volume / avg_volume
+        volume_score = min(volume_ratio, 1.5) / 1.5  # normaliza para [0, 1]
+
+        # penalizar abaixo de 0.7 (ajustável)
+        if volume_score < 0.7:
+            buy_penalty = 1 - (0.7 - volume_score)
+            sell_penalty = 1 - (0.7 - volume_score)
+        else:
+            buy_penalty = 1.0
+            sell_penalty = 1.0
+
+        # opcional: ajustar pelo tipo de candle
+        closes = candles.closes
+        opens = candles.opens
+        if closes[-1] > opens[-1]:  # candle bullish
+            sell_penalty *= 0.95
+        elif closes[-1] < opens[-1]:  # candle bearish
+            buy_penalty *= 0.95
+
+        # limitar entre [0.3, 1.0] por segurança
+        buy_penalty = max(0.3, min(buy_penalty, 1.0))
+        sell_penalty = max(0.3, min(sell_penalty, 1.0))
+
+        return buy_penalty, sell_penalty
+    
+    
+    @staticmethod
+    def is_exhaustion_candle(candles: OhlcvWrapper, lookback: int = 20, threshold: float = 0.95) -> tuple[bool, bool]:
+        """
+        Verifica se o candle atual está em zona de exaustão:
+        - Topo (para penalizar BUY)
+        - Fundo (para penalizar SELL)
+
+        Parâmetros:
+        - candles: OhlcvWrapper com dados OHLCV
+        - lookback: Número de candles anteriores a considerar (excluindo o atual)
+        - threshold: Percentil acima/abaixo do qual se considera exaustão
+        """
+        if len(candles) < lookback + 1:
+            return False, False
+
+        # Últimos N candles fechados
+        recent_candles = candles.get_recent_closed(lookback=lookback)
+
+        highs = [c.high for c in recent_candles]
+        lows = [c.low for c in recent_candles]
+
+        range_high = max(highs)
+        range_low = min(lows)
+
+        current_close = candles.get_current_candle().close
+
+        # Evita divisão por zero se todos os candles forem flat
+        if range_high == range_low:
+            return False, False
+
+        relative_position = (current_close - range_low) / (range_high - range_low)
+
+        is_top_exhaustion = relative_position >= threshold
+        is_bottom_exhaustion = relative_position <= (1 - threshold)
+
+        return is_top_exhaustion, is_bottom_exhaustion
+    
+    @staticmethod
+    def is_abnormal_volume(candles: OhlcvWrapper, lookback: int = 20, threshold: float = 2.0) -> bool:
+        if len(candles) < lookback + 1:
+            return False
+
+        recent = candles.get_recent_closed(lookback)
+        volumes = [c.volume for c in recent]
+
+        avg_volume = sum(volumes) / len(volumes)
+        current_volume = candles.get_current_candle().volume
+
+        return current_volume > (avg_volume * threshold)
         
         
         

@@ -66,11 +66,15 @@ class TradingBot:
             logging.info(f"[DEBUG] Available balance: {available_balance}")
             logging.info(f"[DEBUG] Capital to deploy (after leverage): {capital_amount}")
 
+            #closed_orders = await self.exchange_client.fetch_closed_orders(symbol)
+            #logging.info(f"closed_order {closed_orders}")
+
             last_closed = ohlcv.get_last_closed_candle()
             ts = datetime.fromtimestamp(last_closed.timestamp / 1000).astimezone(pytz.timezone('Europe/Lisbon'))
             logging.info(f"✅ Último candle fechado usado para {symbol}: {ts.strftime('%Y-%m-%d %H:%M:%S')}")
 
             price_ref = await self.exchange_client.get_entry_price(symbol)
+            logging.info(f"[DEBUG] Current price: {price_ref}")
 
             self.strategy.required_init(ohlcv, ohlcv_higher, symbol, price_ref)
 
@@ -81,19 +85,20 @@ class TradingBot:
 
             current_position = await self.exchange_client.get_open_position(symbol)
 
-  
+            #await self._check_closed_trades_and_finalize(symbol)
+
+            """
             # 1) Verifica saída via ExitLogic, se posição aberta e tamanho > 0
             if current_position:
-                #side = Signal.from_str(current_position.side)
                 position_size = float(current_position.size)
                 logging.info(f"[DEBUG] Current position size: {position_size}")
 
                 if position_size > 0:
-                    should_exit = await self.exit_logic.should_exit(ohlcv, pair, signal, current_position)
+                    should_exit = await self.exit_logic.should_exit(ohlcv, pair, signal, current_position, price_ref)
                     if should_exit:
                         current_position = None  # atualiza para evitar fechar de novo
                         #return
-
+            """
 
             # 2) Se não há sinal válido, skip
             if signal.signal not in [Signal.BUY, Signal.SELL]:
@@ -121,9 +126,9 @@ class TradingBot:
                 order = await self.exchange_client.open_new_position(
                     symbol, leverage, signal.signal, capital_amount, pair, signal.sl, signal.tp
                 )
-                if signal.trade_snapshot and order != None and order.get('id'):
-                    #trade_closure_info = await self.exchange_client.get_trade_closure_info(symbol, order)
-                    self.trade_features_memory.add_trade_snapshot(order.get('id'), signal.trade_snapshot)
+                
+                #if signal.trade_snapshot and order != None and order.id:
+                #    self._register_trade_snapshot(order.id, signal.trade_snapshot)
 
             logging.info(f"✅ Processing for {symbol} completed successfully")
             return signal
@@ -245,41 +250,51 @@ class TradingBot:
         else:
             raise ValueError("Unsupported timeframe")
         
+    def get_average_features(self):
+        return self.trade_features_memory.average_features()
+        
+    def get_register_trade_snapshot(self):
+        return self.trade_features_memory.get_profitable_snapshots()
+        
     def _register_trade_snapshot(self, trade_id: str, snapshot: TradeSnapshot):
         self.trade_features_memory.add_trade_snapshot(trade_id, snapshot)
 
 
     async def _check_closed_trades_and_finalize(self, symbol):
         # Pega todas as ordens fechadas da exchange para o par atual
+        
         closed_orders = await self.exchange_client.fetch_closed_orders(symbol)
+        
         
         if not closed_orders:
             return  # Nada para processar
         
+        temp_snapshot = None
         for closed_order in closed_orders:
             try:
-                entry_id = self.exchange_client.extract_order_id(closed_order)
-
-                temp_snapshot = self.trade_features_memory.get_last_temp_snapshot(entry_id)
-
+                temp_snapshot = self.trade_features_memory.get_last_temp_snapshot(str(closed_order.id))
+                print(f"AQUIIII 1 {temp_snapshot} {closed_order.id} {self.get_register_trade_snapshot()}")
                 if temp_snapshot is not None:
+                    
                     signal = temp_snapshot.signal
-                    size = temp_snapshot.size
+                    size = closed_order.amount or 0.0
                     entry_price = temp_snapshot.entry_price
+                    exit_price = closed_order.price
                     sl = temp_snapshot.sl
                     tp = temp_snapshot.tp
 
                     # Verifica se o trade foi lucrativo
-                    profitable, _ = self.exchange_client.calculate_pnl_and_exit_type(signal, size, entry_price, sl, tp, closed_order)
+                    profitable, _ = self.exchange_client.calculate_pnl_and_exit_type(signal, size, entry_price, exit_price, sl, tp)
 
                     # Finaliza e persiste os snapshots do trade
-                    self.trade_features_memory.finalize_trade(entry_id, profitable > 0)
+                    self.trade_features_memory.finalize_trade(str(closed_order.id), profitable > 0)
                     
                     # Opcional: remover snapshot temporário para evitar reprocessament
-                    self.trade_features_memory.remove_temp_snapshot(entry_id)
+                    self.trade_features_memory.remove_temp_snapshot(str(closed_order.id))
 
-                    print(f"[INFO] Trade finalizado: {entry_id}, lucro: {profitable}")
-            
+                    print(f"[INFO] Trade finalizado: {closed_order.id}, lucro: {profitable}")
             except Exception as e:
                 print(f"[ERROR] Erro ao processar ordem fechada {closed_order}: {e}")
+            
+            
   

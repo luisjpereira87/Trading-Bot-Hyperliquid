@@ -1,11 +1,14 @@
 import logging
+from typing import List
 
 from commons.enums.exit_type_enum import ExitTypeEnum
 from commons.enums.signal_enum import Signal
 from commons.enums.timeframe_enum import TimeframeEnum
 from commons.helpers.trading_helpers import TradingHelpers
+from commons.models.closed_order_dclass import ClosedOrder
 from commons.models.ohlcv_format_dclass import OhlcvFormat
 from commons.models.open_position_dclass import OpenPosition
+from commons.models.opened_order_dclass import OpenedOrder
 from commons.models.trade_closure_dclass import TradeClosureInfo
 from commons.utils.config_loader import PairConfig
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
@@ -151,7 +154,7 @@ class ExchangeClient:
             logging.error(f"Erro ao calcular quantidade de entrada: {e}")
             return 0.0
 
-    async def place_entry_order(self, symbol: str, leverage: float, entry_amount: float, price_ref: float, side: Signal, sl_price: (float|None) = None, tp_price: (float|None) = None):
+    async def place_entry_order(self, symbol: str, leverage: float, entry_amount: float, price_ref: float, side: Signal, sl_price: (float|None) = None, tp_price: (float|None) = None) -> OpenedOrder:
 
         logging.info(f"🧾 Params finais para create_order: symbol={symbol}, type=market, side={side}, amount={entry_amount}, price={price_ref}")
         try:
@@ -190,12 +193,12 @@ class ExchangeClient:
             )
     
             logging.info(f"✅ Ordem criada: id={order.get('id')}, side={order.get('side')}, amount={order.get('amount')}, price={order.get('price')}")
-            return order
+            
+            return OpenedOrder(order.get('id'), None, None, None, symbol, None, order.get('side'), order.get('price'), order.get('amount'), False, None)
     
         except Exception as e:
             logging.error(f"Erro ao criar ordem de entrada: {e}")
-    
-        return None
+            raise
 
     async def get_entry_price(self, symbol: str) -> float:
         try:
@@ -214,7 +217,7 @@ class ExchangeClient:
             logging.error(f"Erro ao obter saldo total: {e}")
             return 0
     
-    async def open_new_position(self, symbol: str, leverage: float, signal: Signal, capital_amount: float, pair: PairConfig, sl: (float|None), tp: (float|None)):
+    async def open_new_position(self, symbol: str, leverage: float, signal: Signal, capital_amount: float, pair: PairConfig, sl: (float|None), tp: (float|None)) -> (OpenedOrder | None):
         price_ref = await self.get_reference_price(symbol)
         if not price_ref or price_ref <= 0:
             raise ValueError("❌ Invalid reference price (None or <= 0)")
@@ -271,7 +274,7 @@ class ExchangeClient:
             logging.error(f"❌ Erro ao fechar posição: {e}")
             raise
     
-    async def fetch_closed_orders(self, symbol=None, limit=50):
+    async def fetch_closed_orders(self, symbol=None, limit=50) -> List[ClosedOrder]:
         try:
             # O símbolo pode ser None para pegar todas
             params = {}
@@ -279,12 +282,30 @@ class ExchangeClient:
                 params['symbol'] = symbol
 
             closed_orders = await self.exchange.fetch_closed_orders(symbol=symbol, limit=limit, params=params)
-            return closed_orders
+
+            closed_orders_list: List[ClosedOrder] = []
+            for closed_order in closed_orders:
+                order_info = closed_order.get('info', {}).get('order', {})
+                id = order_info.get('id') or closed_order.get('id')
+                clientOrderId = order_info.get('clientOrderId') or closed_order.get('clientOrderId')
+                timestamp = order_info.get('timestamp') or closed_order.get('timestamp')
+                datetime = order_info.get('datetime') or closed_order.get('datetime')
+                symbol1 = order_info.get('symbol') or closed_order.get('symbol')
+                type = order_info.get('type') or closed_order.get('type')
+                side = order_info.get('side') or closed_order.get('side')
+                price = order_info.get('price') or closed_order.get('price')
+                amount = order_info.get('amount') or closed_order.get('amount')
+                reduceOnly = order_info.get('reduceOnly') or closed_order.get('reduceOnly')
+                orderType = order_info.get('orderType') or closed_order.get('orderType')
+
+                closed_orders_list.append(ClosedOrder(id, clientOrderId, timestamp, datetime, symbol1, type, side, price, amount, reduceOnly, orderType))
+
+            return closed_orders_list
         except Exception as e:
             logging.error(f"❌ Erro ao obter ordens fechadas: {e}")
             raise
 
-    async def find_exit_orders_by_entry_id(self, symbol, entry_order_id):
+    async def find_exit_orders_by_entry_id(self, symbol, entry_order_id) -> (ClosedOrder | None):
         """
         Filtra as ordens fechadas que são relacionadas à ordem de entrada pelo ID.
 
@@ -296,31 +317,11 @@ class ExchangeClient:
             lista de ordens fechadas relacionadas à entrada (normalmente reduceOnly=True)
         """
 
-        closed_orders = await self.fetch_closed_orders(symbol, 2)
+        closed_orders: List[ClosedOrder] = await self.fetch_closed_orders(symbol, 2)
 
-        related = []
-        for order in closed_orders:
-            # Pode ser que o campo esteja em info['order']['oid'] ou order['id']
-            order_info = order.get('info', {}).get('order', {})
-            parent_id = order_info.get('parentOid')  # só se houver essa relação na exchange
-            oid = order_info.get('oid') or order.get('id')
-
-            # Confirma se a ordem fechada está ligada à ordem original
-            if oid == entry_order_id or parent_id == entry_order_id:
-                related.append(order)
-        return related
+        return next((o for o in closed_orders if o.id == entry_order_id), None)
     
-    def extract_order_id(self, order: dict) -> str:
-        return order.get('id') or order.get('info', {}).get('order', {}).get('oid')
-    
-    def calculate_pnl_and_exit_type(self, signal: Signal, size: float, entry_price: float, tp: float, sl: float, exit_order):
-        #side = entry_order['side']
-        #entry_price = float(entry_order['price'])
-        #sl = float(entry_order.get('sl', 0))
-        #tp = float(entry_order.get('tp', 0))
-        #size = float(entry_order.get('size', 1))  # default 1 se não tiver size
-
-        exit_price = float(exit_order.get('price') or exit_order.get('avgPrice') or 0)
+    def calculate_pnl_and_exit_type(self, signal: Signal, size: float, entry_price: float, exit_price: float, tp: float, sl: float):
 
         if signal == Signal.BUY:
             pnl = (exit_price - entry_price) * size

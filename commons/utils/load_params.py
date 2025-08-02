@@ -20,6 +20,10 @@ class LoadParams:
             "weights_oscillators",
             "weights_price_action", # candle, setup 123, breakout, bandas
             "weights_price_levels",
+            "weights_exhaustion",
+            "weights_penalty_factor",
+            "weights_manipulation_penalty",
+            "weights_confirmation_candle_penalty"
         ]
         weights_values = []
         i = 0

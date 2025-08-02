@@ -7,7 +7,7 @@ from commons.models.trade_snapashot_dclass import TradeSnapshot
 class TradeFeaturesMemory:
     NUMERIC_FIELDS = [
         'rsi', 'stochastic', 'adx', 'macd', 'cci',
-        'proximity_to_bands', 'price_action', 'exhaustion_score',
+        'price_action', 'exhaustion_score',
         'divergence_score', 'volume_ratio', 'atr_ratio'
     ]
 
@@ -63,6 +63,9 @@ class TradeFeaturesMemory:
             tp=snapshots[-1].tp,
             size=snapshots[-1].size,
         )
+    
+    def get_temp_snapshots(self) -> Dict[str, List[TradeSnapshot]]:
+        return self._temp_snapshots
 
     def get_profitable_snapshots(self) -> List[TradeSnapshot]:
         return self._profitable_snapshots
@@ -86,6 +89,7 @@ class TradeFeaturesMemory:
         if snapshots:
             return snapshots[-1]
         return None
+
     
     def remove_temp_snapshot(self, trade_id: str):
         self._temp_snapshots.pop(trade_id, None)

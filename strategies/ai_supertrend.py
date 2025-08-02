@@ -43,6 +43,11 @@ class AISuperTrend(StrategyBase):
 
         self.block_lateral_market = True
 
+        self.penalty_exhaustion = 0
+        self.penalty_factor = 0
+        self.penalty_manipulation = 0.5
+        self.penalty_confirmation_candle = 0.5
+
         self.weights = {
             "trend": 1.0,         # EMA
             "momentum": 0.8,
@@ -81,6 +86,11 @@ class AISuperTrend(StrategyBase):
         self.atr_threshold_ratio = params.atr_threshold_ratio
 
         self.block_lateral_market = params.block_lateral_market
+
+        self.penalty_exhaustion = params.penalty_exhaustion
+        self.penalty_factor = params.penalty_factor
+        self.penalty_manipulation = params.penalty_manipulation
+        self.penalty_confirmation_candle = params.penalty_confirmation_candle
 
         self.weights = {
             "trend": params.weights_trend, 
@@ -123,9 +133,11 @@ class AISuperTrend(StrategyBase):
         if not StrategyUtils.calculate_higher_tf_trend(self.ohlcv_higher, self.adx_threshold):
             logging.info(f"{self.symbol} - Sinal rejeitado por tendência contrária no timeframe maior.: HOLD")
             return SignalResult(Signal.HOLD, None, None)
-        
-        if StrategyUtils.is_market_manipulation(self.ohlcv):
+        """
+        if self.mode == ModeEnum.CONSERVATIVE and StrategyUtils.is_market_manipulation(self.ohlcv):
+            logging.info(f"{self.symbol} - Sinal rejeitado por deteção de manipulação de mercado: HOLD")
             return SignalResult(Signal.HOLD, None, None)
+        """
 
         logging.info(f"{self.symbol} - Modo selecionado: {self.mode}")
         score = self.calculate_score()
@@ -194,8 +206,8 @@ class AISuperTrend(StrategyBase):
         price_levels = self._score_price_levels()
         candle_type = StrategyUtils.get_candle_type(self.ohlcv.get_last_closed_candle())
         timestamp = self.ohlcv.get_last_closed_candle().timestamp
-        volume_ratio = self._calculate_volume_ratio()
-        atr_ratio = self._calculate_atr_ratio()
+        volume_ratio = StrategyUtils.calculate_volume_ratio(self.ohlcv)
+        atr_ratio = StrategyUtils.calculate_atr_ratio(self.ohlcv)
 
         return TradeSnapshot(
             symbol=self.symbol,
@@ -250,9 +262,14 @@ class AISuperTrend(StrategyBase):
 
 
         # 🔽 NOVO: aplicar penalização por volume
-        buy_penalty, sell_penalty = self._calculate_volume_penalty()
+        buy_penalty, sell_penalty = StrategyUtils.calculate_volume_penalty(self.ohlcv)
         score["buy"] *= buy_penalty
         score["sell"] *= sell_penalty
+
+        # Penalização por candle em formação fraco
+        candle_buy_penalty, candle_sell_penalty = self._penalty_incomplete_candle()
+        score["buy"] *= candle_buy_penalty
+        score["sell"] *= candle_sell_penalty
 
 
         # Normalização final
@@ -342,11 +359,17 @@ class AISuperTrend(StrategyBase):
         # Penaliza sinais fracos
         candle = self.ohlcv.get_last_closed_candle()
         if StrategyUtils.is_weak_confirmation_candle(candle):
-            penalty = self.weights.get("confirmation_candle_penalty", 0.5)
+            penalty = self.penalty_confirmation_candle
             if not sell:
                 buy_points *= penalty
             else:
                 sell_points *= penalty
+
+        # Penaliza manipulação de mercado
+        manip_score = StrategyUtils.get_market_manipulation_score(self.ohlcv)
+        penalty = self.penalty_manipulation
+        buy_points *= (1 - manip_score * penalty)
+        sell_points *= (1 - manip_score * penalty)
 
         return sell_points if sell else buy_points
 
@@ -365,20 +388,20 @@ class AISuperTrend(StrategyBase):
             if dist_to_upper / band_range < 0.1:
                 proximity_sell += 1
 
-        support, resistance = StrategyUtils.detect_support_resistance(self.ohlcv)
+        #support, resistance = StrategyUtils.detect_support_resistance(self.ohlcv)
         dist_to_res, dist_to_sup = StrategyUtils.get_distance_to_levels(self.ohlcv, price, lookback=50)
         penalty_buy = min(1.0, max(0.0, 1 - (dist_to_res / (price * 0.01))))
         penalty_sell = min(1.0, max(0.0, 1 - (dist_to_sup / (price * 0.01))))
 
-        proximity_buy *= (1 - penalty_buy * self.weights.get("penalty_factor", 0))
-        proximity_sell *= (1 - penalty_sell * self.weights.get("penalty_factor", 0))
+        proximity_buy *= (1 - penalty_buy * self.penalty_factor)
+        proximity_sell *= (1 - penalty_sell * self.penalty_factor)
 
         # Exaustão
         is_top, is_bottom = StrategyUtils.is_exhaustion_candle(self.ohlcv)
         if is_top:
-            proximity_buy -= self.weights.get("exhaustion", 0)
+            proximity_buy -= self.penalty_exhaustion
         if is_bottom:
-            proximity_sell -= self.weights.get("exhaustion", 0)
+            proximity_sell -= self.penalty_exhaustion
 
         return proximity_sell if sell else proximity_buy
 
@@ -405,85 +428,41 @@ class AISuperTrend(StrategyBase):
         else:
             return 1 if divergence_signal == 1 else 0
     
-    def _calculate_volume_ratio(self, window: int = 20) -> float:
-        volumes = self.ohlcv.volumes
-        if len(volumes) < window + 1:
-            return 1.0  # neutro
-
-        avg_volume = np.mean(volumes[-window - 1:-1])
-        current_volume = volumes[-1]
-
-        ratio = current_volume / avg_volume if avg_volume > 0 else 1.0
-        return ratio
     
-    def _calculate_atr_ratio(self):
-        indicators = Indicators(self.ohlcv)
-        atr = indicators.atr()[-1]
-        high = self.ohlcv.highs[-1]
-        low = self.ohlcv.lows[-1]
-        range_candle = high - low
-        return range_candle / atr if atr != 0 else 0
-    
-    def _calculate_volume_penalty(self) -> Tuple[float, float]:
-        volumes = self.ohlcv.volumes
-        recent_volume = volumes[-1]
-        avg_volume = np.mean(volumes[-20:]) if len(volumes) >= 20 else np.mean(volumes)
+    def _penalty_incomplete_candle(self) -> tuple[float, float]:
+        """Aplica penalização ao score de BUY e SELL com base no candle em formação."""
+        candle = self.ohlcv.get_current_candle()  # candle em formação
+        open = candle.open
+        high = candle.high
+        low = candle.low
+        close = candle.close
+        #_, open_, high, low, close, volume = candle
+        body = abs(close - open)
+        total_range = high - low
+        wick_top = high - max(open, close)
+        wick_bottom = min(open, close) - low
 
-        if avg_volume == 0:
-            return 1.0, 1.0  # evitar divisão por zero
+        # Evitar divisão por zero
+        if total_range == 0:
+            return 1.0, 1.0
 
-        volume_ratio = recent_volume / avg_volume
-        volume_score = min(volume_ratio, 1.5) / 1.5  # normaliza para [0, 1]
+        # Parâmetros ajustáveis (podem ser otimizados com Optuna)
+        wick_ratio_threshold = 0.6
+        body_ratio_threshold = 0.3
+        penalty_value = 0.8  # Penalização moderada (multiplica por 0.8)
 
-        # penalizar abaixo de 0.7 (ajustável)
-        if volume_score < 0.7:
-            buy_penalty = 1 - (0.7 - volume_score)
-            sell_penalty = 1 - (0.7 - volume_score)
-        else:
-            buy_penalty = 1.0
-            sell_penalty = 1.0
+        buy_penalty = 1.0
+        sell_penalty = 1.0
 
-        # opcional: ajustar pelo tipo de candle
-        closes = self.ohlcv.closes
-        opens = self.ohlcv.opens
-        if closes[-1] > opens[-1]:  # candle bullish
-            sell_penalty *= 0.95
-        elif closes[-1] < opens[-1]:  # candle bearish
-            buy_penalty *= 0.95
+        # BUY: wick superior longo e corpo pequeno => fraqueza
+        if wick_top / total_range > wick_ratio_threshold and body / total_range < body_ratio_threshold:
+            buy_penalty = penalty_value
 
-        # limitar entre [0.3, 1.0] por segurança
-        buy_penalty = max(0.3, min(buy_penalty, 1.0))
-        sell_penalty = max(0.3, min(sell_penalty, 1.0))
+        # SELL: wick inferior longo e corpo pequeno => fraqueza na venda
+        if wick_bottom / total_range > wick_ratio_threshold and body / total_range < body_ratio_threshold:
+            sell_penalty = penalty_value
 
         return buy_penalty, sell_penalty
-    
-    def _is_exhaustion_candle(self, idx: int) -> bool:
-        open_ = self.ohlcv.opens[idx]
-        close = self.ohlcv.closes[idx]
-        high = self.ohlcv.highs[idx]
-        low = self.ohlcv.lows[idx]
-
-        body = abs(close - open_)
-        candle_range = high - low
-        upper_wick = high - max(open_, close)
-        lower_wick = min(open_, close) - low
-
-        # Corpo pequeno, sombra longa: pinbar / shooting star / hammer
-        if candle_range == 0:
-            return False  # evitar divisão por zero
-
-        return (
-            body / candle_range < 0.3 and
-            (upper_wick > 2 * body or lower_wick > 2 * body)
-        )
-    def _is_abnormal_volume(self, idx: int) -> bool:
-        if idx < 20:
-            return False
-
-        volume = self.ohlcv.volumes
-        avg_volume = np.mean(volume[idx - 20:idx])
-
-        return volume[idx] > 1.5 * avg_volume
         
 
 

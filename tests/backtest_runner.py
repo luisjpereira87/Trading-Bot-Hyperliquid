@@ -1,5 +1,6 @@
 import os
 import sys
+from typing import List
 
 ROOT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if ROOT_PATH not in sys.path:
@@ -15,8 +16,10 @@ from commons.enums.signal_enum import Signal
 from commons.enums.strategy_enum import StrategyEnum
 from commons.enums.timeframe_enum import TimeframeEnum
 from commons.helpers.trading_helpers import TradingHelpers
+from commons.models.closed_order_dclass import ClosedOrder
 from commons.models.ohlcv_format_dclass import OhlcvFormat
 from commons.models.open_position_dclass import OpenPosition
+from commons.models.opened_order_dclass import OpenedOrder
 from commons.utils.config_loader import (PairConfig, get_pair_by_symbol,
                                          load_pair_configs)
 from commons.utils.load_params import LoadParams
@@ -44,6 +47,7 @@ class ExchangeClientMock(ExchangeClient):
         self.trades = []
         self.id = 0
         self.stop_loss_orders = {}
+        self.closed_orders:List[ClosedOrder] = []
 
     def update_candles(self, symbol, current_candle, index):
         self.current_candle = current_candle
@@ -66,7 +70,9 @@ class ExchangeClientMock(ExchangeClient):
         return OhlcvFormat(OhlcvWrapper(window), OhlcvWrapper(window_higher))
     
     async def get_entry_price(self, symbol: str) -> float:
-        return self.current_price
+        idx = self.current_index[symbol]
+        return self.candles[symbol][idx + 1][4]
+        #return self.current_price
 
     async def fetch_positions(self, params=None, **kwargs):
         return []
@@ -115,9 +121,9 @@ class ExchangeClientMock(ExchangeClient):
             logging.error(f"Erro ao calcular quantidade de entrada (mock): {e}")
             return 0.0
     
-    async def open_new_position(self, symbol, leverage, signal, capital_amount, pair, sl, tp):
+    async def open_new_position(self, symbol, leverage, signal, capital_amount, pair, sl, tp) -> (OpenedOrder | None) :
         idx = self.current_index[symbol]
-        price = self.candles[symbol][idx + 1][1]
+        price = self.candles[symbol][idx + 1][4]
         print(f"CURRENT PRICE OPEN {price}")
 
         entry_amount = await self.calculate_entry_amount(price, capital_amount)
@@ -131,6 +137,7 @@ class ExchangeClientMock(ExchangeClient):
 
         self.positions[symbol] = {
             "pair": pair,
+            "id": idx,
             "side": signal.value,
             "size": size,
             "entryPrice": price,
@@ -156,7 +163,8 @@ class ExchangeClientMock(ExchangeClient):
         })
 
         logging.info(f"OPEN {signal.value} {symbol} entry_amount={entry_amount} idx={idx} size={size:.4f} price={price:.2f}, sl={sl} tp={tp}")
-        return {'id': self.id}
+        
+        return OpenedOrder(str(idx), None, None, None, symbol, "entry", signal.value, price, size, False, None)
 
     async def close_position(self, pair, size, side: Signal):
         pos = self.positions.get(pair)
@@ -165,7 +173,7 @@ class ExchangeClientMock(ExchangeClient):
             return 0
 
         idx = self.current_index[pair]
-        close_price = self.candles[pair][idx][4]
+        close_price = self.candles[pair][idx + 1][4]
 
         entry_price = pos['entryPrice']
         position_side = pos['side']
@@ -204,11 +212,16 @@ class ExchangeClientMock(ExchangeClient):
         elif pnl < 0:
             self.num_losses += 1
 
+        self.closed_orders.append(ClosedOrder(pos['id'], None, None, None, pair, None, pos['side'], close_price, pos['size'], False, None))
+
         del self.positions[pair]
 
         logging.info(f"CLOSE {side} {pair} size={size:.4f} idx={idx} entry={entry_price:.2f} close={close_price:.2f} "
                  f"PnL={pnl:.2f} (gross: {gross_pnl:.2f}, fees: {total_fees:.4f})")
         return pnl
+    
+    async def fetch_closed_orders(self, symbol=None, limit=50) -> List[ClosedOrder]:
+        return self.closed_orders
     
     async def get_total_balance(self):
         return float(self.balance)
@@ -407,15 +420,14 @@ class BacktestRunner:
 
             await exchange_client.simulate_tp_sl(current_candle, self.pair.symbol)
 
-            #print(f"[VALIDAÇÃO] i={i} | current_index={exchange_client.current_index[self.pair.symbol]} | candle[i][4]={self.ohlcv[i][4]}")
             signal = await bot.run_pair(self.pair)
 
             signals.append({'signal': signal, 'index': i})
     
         if is_plot:
-            #print(exchange_client.trades)
             PlotTrades.plot_trades(self.pair.symbol, self.ohlcv, signals, exchange_client.trades)
 
+        #print(f"[TRADE_SNAPSHOT] {bot.get_average_features()}")
         exchange_client.generate_detailed_report(exchange_client.trades)
         summary = exchange_client.get_performance_summary()
         return summary
@@ -443,7 +455,7 @@ class BacktestRunner:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("ETH/USDC:USDC")
+    pair = get_pair_by_symbol("SOL/USDC:USDC")
 
     if pair != None:
 

@@ -31,25 +31,18 @@ class StrategyParams:
     atr_threshold_ratio : float = 0.0
 
     block_lateral_market: bool = True
-
-    """
-    weights_trend: float = 0.0
-    weights_rsi : float = 0.0
-    weights_stochastic: float = 0.0
-    weights_price_action: float = 0.0
-    weights_proximity_to_bands: float = 0.0
-    weights_exhaustion: float = 0.0
-    weights_penalty_factor: float = 0.0
-    weights_macd: float = 0.0
-    weights_cci: float = 0.0
-    weights_confirmation_candle_penalty: float = 0.0
-    weights_divergence: float = 0.0
-    """
+    
     weights_trend: float = 0.0
     weights_momentum: float = 0.0
     weights_oscillators: float = 0.0
     weights_price_action: float = 0.0
     weights_price_levels: float = 0.0
+
+    penalty_exhaustion: float = 0.0
+    penalty_factor: float = 0.0
+    penalty_manipulation: float = 0.0
+    penalty_confirmation_candle: float = 0.0
+
 
     def __post_init__(self):
         for field_name in self.__dataclass_fields__:
