@@ -700,6 +700,23 @@ class StrategyUtils:
         current_volume = candles.get_current_candle().volume
 
         return current_volume > (avg_volume * threshold)
+    
+    @staticmethod
+    def linear_slope(values: List[float]) -> float:
+        """
+        Calcula a inclinação da reta (slope) que melhor ajusta os pontos fornecidos.
+        Usa regressão linear simples.
+        
+        :param values: lista de valores (ex: preços ou bandas)
+        :return: coeficiente angular da regressão linear (slope)
+        """
+        if len(values) < 2:
+            return 0.0
+        x = np.arange(len(values))
+        y = np.array(values)
+        A = np.vstack([x, np.ones(len(x))]).T
+        slope, _ = np.linalg.lstsq(A, y, rcond=None)[0] # type: ignore
+        return slope
         
         
         

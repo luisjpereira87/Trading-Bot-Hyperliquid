@@ -53,7 +53,8 @@ class AISuperTrend(StrategyBase):
             "momentum": 0.8,
             "oscillators": 1.2,
             "price_action": 0.5,  # candle, setup 123, breakout, bandas
-            "price_levels" :0.5
+            "price_levels": 0.5,
+            "divergence": 0.5
         }
 
         self.score_history_buy = deque(maxlen=100)   # buffer circular para últimos 100 scores BUY
@@ -98,6 +99,8 @@ class AISuperTrend(StrategyBase):
             "oscillators": params.weights_oscillators,
             "price_action": params.weights_price_action,  
             "price_levels" : params.weights_price_levels,
+            "divergence": params.weights_divergence,
+            "channel_position": params.weights_channel_position,
         }
 
     def set_candles(self, ohlcv):
@@ -204,6 +207,7 @@ class AISuperTrend(StrategyBase):
         oscillators = self._score_oscillators()
         price_action = self._score_price_action()
         price_levels = self._score_price_levels()
+        channel_position = self._score_channel_position()
         candle_type = StrategyUtils.get_candle_type(self.ohlcv.get_last_closed_candle())
         timestamp = self.ohlcv.get_last_closed_candle().timestamp
         volume_ratio = StrategyUtils.calculate_volume_ratio(self.ohlcv)
@@ -222,12 +226,17 @@ class AISuperTrend(StrategyBase):
             adx=adx,
             macd=macd,
             cci=cci,
-            trend=trend,
-            momentum=momentum,
-            divergence=divergence,
-            oscillators=oscillators,
-            price_action=price_action,
-            price_levels=price_levels,
+            weights_trend=trend,
+            weights_momentum=momentum,
+            weights_divergence=divergence,
+            weights_oscillators=oscillators,
+            weights_price_action=price_action,
+            weights_price_levels=price_levels,
+            weights_channel_position=channel_position, 
+            penalty_exhaustion=self.penalty_exhaustion,
+            penalty_factor=self.penalty_factor,
+            penalty_manipulation=self.penalty_manipulation,
+            penalty_confirmation_candle=self.penalty_confirmation_candle,
             volume_ratio=volume_ratio,
             atr_ratio=atr_ratio,
             timestamp=timestamp
@@ -266,11 +275,16 @@ class AISuperTrend(StrategyBase):
         score["buy"] *= buy_penalty
         score["sell"] *= sell_penalty
 
+        """
         # Penalização por candle em formação fraco
         candle_buy_penalty, candle_sell_penalty = self._penalty_incomplete_candle()
         score["buy"] *= candle_buy_penalty
         score["sell"] *= candle_sell_penalty
+        """
 
+        # Canal de tendencia
+        score["buy"] += self._score_channel_position(sell=False) * self.weights.get("channel_position", 0)
+        score["sell"] += self._score_channel_position(sell=True) * self.weights.get("channel_position", 0)
 
         # Normalização final
         max_score = sum(self.weights.values())
@@ -463,6 +477,42 @@ class AISuperTrend(StrategyBase):
             sell_penalty = penalty_value
 
         return buy_penalty, sell_penalty
+    
+    def _score_channel_position(self, sell=False) -> float:
+        upper_band, lower_band = StrategyUtils.calculate_bands(self.ohlcv, multiplier=self.multiplier)
+        close = self.ohlcv.get_last_closed_candle().close
+
+        # Validar que as bandas estão corretamente calculadas
+        if not upper_band or not lower_band or len(upper_band) < 1:
+            return 0.0
+
+        top = upper_band[-1]
+        bottom = lower_band[-1]
+        band_range = top - bottom
+
+        if band_range == 0:
+            return 0.0
+
+        # Distância relativa ao canal
+        dist_from_bottom = (close - bottom) / band_range
+        score = 1 - 2 * dist_from_bottom  # vai de +1 (na base) até -1 (no topo)
+
+        # Inverter se for SELL
+        if sell:
+            score *= -1
+
+        # Reforçar score se canal está inclinado na direção do sinal
+        recent_top_slope = StrategyUtils.linear_slope(upper_band[-5:])
+        recent_bottom_slope = StrategyUtils.linear_slope(lower_band[-5:])
+        avg_slope = (recent_top_slope + recent_bottom_slope) / 2
+
+        # Ajustar score com base na inclinação
+        if not sell and avg_slope > 0:
+            score += 0.2  # reforça BUY
+        elif sell and avg_slope < 0:
+            score += 0.2  # reforça SELL
+
+        return max(min(score, 1), -1)  # limitar entre -1 e +1
         
 
 

@@ -37,6 +37,8 @@ class StrategyParams:
     weights_oscillators: float = 0.0
     weights_price_action: float = 0.0
     weights_price_levels: float = 0.0
+    weights_divergence: float = 0.0
+    weights_channel_position: float = 0.0
 
     penalty_exhaustion: float = 0.0
     penalty_factor: float = 0.0

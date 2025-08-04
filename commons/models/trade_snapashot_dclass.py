@@ -18,12 +18,17 @@ class TradeSnapshot:
     adx: float
     macd: float
     cci: float
-    trend: float
-    momentum: float
-    divergence: float
-    oscillators: float 
-    price_action: float
-    price_levels: float
+    weights_trend: float
+    weights_momentum: float
+    weights_oscillators: float 
+    weights_price_action: float
+    weights_price_levels: float
+    weights_divergence: float
+    weights_channel_position: float
+    penalty_exhaustion: float
+    penalty_factor: float
+    penalty_manipulation: float
+    penalty_confirmation_candle: float
     volume_ratio: float
     atr_ratio: float
     timestamp: int  # ou datetime

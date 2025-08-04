@@ -427,7 +427,7 @@ class BacktestRunner:
         if is_plot:
             PlotTrades.plot_trades(self.pair.symbol, self.ohlcv, signals, exchange_client.trades)
 
-        #print(f"[TRADE_SNAPSHOT] {bot.get_average_features()}")
+        print(f"[TRADE_SNAPSHOT] {bot.get_average_features()}")
         exchange_client.generate_detailed_report(exchange_client.trades)
         summary = exchange_client.get_performance_summary()
         return summary

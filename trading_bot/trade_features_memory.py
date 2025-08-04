@@ -7,8 +7,10 @@ from commons.models.trade_snapashot_dclass import TradeSnapshot
 class TradeFeaturesMemory:
     NUMERIC_FIELDS = [
         'rsi', 'stochastic', 'adx', 'macd', 'cci',
-        'price_action', 'exhaustion_score',
-        'divergence_score', 'volume_ratio', 'atr_ratio'
+        'weights_trend', 'weights_momentum', 'weights_divergence', 'weights_oscillators', 
+        'weights_price_action', 'weights_price_levels', 'volume_ratio', 'atr_ratio',
+        'penalty_exhaustion', 'penalty_factor', 'penalty_manipulation', 'penalty_confirmation_candle',
+        'weights_channel_position'
     ]
 
 
@@ -48,12 +50,17 @@ class TradeFeaturesMemory:
             adx=avg_values['adx'],
             macd=avg_values['macd'],
             cci=avg_values['cci'],
-            trend=avg_values['trend'],
-            momentum=avg_values['momentum'],
-            divergence=avg_values['divergence'],
-            oscillators=avg_values['oscillators'],
-            price_action=avg_values['price_action'],
-            price_levels=avg_values['price_levels'],
+            weights_trend=avg_values['weights_trend'],
+            weights_momentum=avg_values['weights_momentum'],
+            weights_divergence=avg_values['weights_divergence'],
+            weights_oscillators=avg_values['weights_oscillators'],
+            weights_price_action=avg_values['weights_price_action'],
+            weights_price_levels=avg_values['weights_price_levels'],
+            weights_channel_position=avg_values['weights_channel_position'], 
+            penalty_exhaustion=avg_values['penalty_exhaustion'],
+            penalty_factor=avg_values['penalty_factor'],
+            penalty_manipulation=avg_values['penalty_manipulation'],
+            penalty_confirmation_candle=avg_values['penalty_confirmation_candle'],
             volume_ratio=avg_values['volume_ratio'],
             atr_ratio=avg_values['atr_ratio'],
             timestamp=snapshots[-1].timestamp,
