@@ -85,7 +85,7 @@ class TradingBot:
 
             current_position = await self.exchange_client.get_open_position(symbol)
 
-            await self._check_closed_trades_and_finalize(symbol)
+            #await self._check_closed_trades_and_finalize(symbol)
 
             """
             # 1) Verifica saída via ExitLogic, se posição aberta e tamanho > 0
@@ -127,8 +127,8 @@ class TradingBot:
                     symbol, leverage, signal.signal, capital_amount, pair, signal.sl, signal.tp
                 )
                 
-                if signal.trade_snapshot and order != None and order.id:
-                   self._register_trade_snapshot(order.id, signal.trade_snapshot)
+                #if signal.trade_snapshot and order != None and order.id:
+                #   self._register_trade_snapshot(order.id, signal.trade_snapshot)
 
             logging.info(f"✅ Processing for {symbol} completed successfully")
             return signal
