@@ -1,8 +1,7 @@
 import logging
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 import numpy as np
-from scipy.signal import argrelextrema, find_peaks
 
 from commons.enums.mode_enum import ModeEnum
 from commons.enums.signal_enum import Signal
