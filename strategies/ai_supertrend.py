@@ -1,6 +1,6 @@
 import logging
 from collections import deque
-from typing import Optional, Tuple
+from typing import Optional
 
 import numpy as np
 
@@ -13,7 +13,6 @@ from commons.models.trade_snapashot_dclass import TradeSnapshot
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from strategies.signal_strategy import SignalStrategy
 from strategies.strategy_utils import StrategyUtils
-from strategies.weights_utils import WeightsUtils
 from trading_bot.exchange_client import ExchangeClient
 
 from .indicators import Indicators
