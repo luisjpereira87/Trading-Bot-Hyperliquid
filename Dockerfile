@@ -3,7 +3,8 @@ FROM python:3.10-slim
 # Instala dependências do sistema
 RUN apt-get update && apt-get install -y \
     build-essential \
-    libatlas-base-dev \
+    libopenblas-dev \
+    liblapack-dev \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
