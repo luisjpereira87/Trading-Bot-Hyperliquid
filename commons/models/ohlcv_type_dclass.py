@@ -10,3 +10,4 @@ class Ohlcv:
     low: float
     close: float
     volume: float
+    idx: int

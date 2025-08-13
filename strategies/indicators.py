@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 
@@ -19,25 +20,26 @@ class Indicators:
         self.volumes = ohlcv.volumes
 
         if self.mode == 'ta':
-            import pandas as pd
             from ta.momentum import RSIIndicator, StochasticOscillator
-            from ta.trend import ADXIndicator, EMAIndicator
+            from ta.trend import ADXIndicator, EMAIndicator, PSARIndicator
             from ta.volatility import AverageTrueRange
 
-            self.pd = pd
+            
             self.EMAIndicator = EMAIndicator
             self.ADXIndicator = ADXIndicator
             self.RSIIndicator = RSIIndicator
             self.StochasticOscillator = StochasticOscillator
             self.AverageTrueRange = AverageTrueRange
+            self.PSARIndicator = PSARIndicator
 
-            self.df = pd.DataFrame({
-                'open': self.opens,
-                'high': self.highs,
-                'low': self.lows,
-                'close': self.closes,
-                'volume': self.volumes if self.volumes else [0]*len(self.closes),
-            })
+        self.pd = pd
+        self.df = pd.DataFrame({
+            'open': self.opens,
+            'high': self.highs,
+            'low': self.lows,
+            'close': self.closes,
+            'volume': self.volumes if self.volumes else [0]*len(self.closes),
+        })
 
     def ema(self, period=21):
         if self.mode == 'custom':
@@ -261,3 +263,61 @@ class Indicators:
             cci_indicator = CCIIndicator(high=self.df['high'], low=self.df['low'], close=self.df['close'], window=period)
             cci_series = cci_indicator.cci()
         return cci_series.tolist()
+    
+    def psar(self, step=0.02, max_step=0.2):
+        """
+        Calcula o Parabolic SAR.
+        step: incremento do fator de aceleração (AF)
+        max_step: valor máximo do AF
+        """
+        if self.mode == 'custom':
+            highs = self.df['high'].values
+            lows = self.df['low'].values
+
+            length = len(highs)
+            psar = [0.0] * length
+            bull = True
+            af = step
+            ep = lows[0]
+
+            psar[0] = lows[0]
+
+            for i in range(1, length):
+                prev_psar = psar[i-1]
+                psar[i] = prev_psar + af * (ep - prev_psar)
+
+                if bull:
+                    psar[i] = min(psar[i], lows[i-1], lows[i-2] if i >= 2 else lows[i-1])
+
+                    if highs[i] > ep:
+                        ep = highs[i]
+                        af = min(af + step, max_step)
+
+                    if lows[i] < psar[i]:
+                        bull = False
+                        psar[i] = ep
+                        ep = lows[i]
+                        af = step
+                else:
+                    psar[i] = max(psar[i], highs[i-1], highs[i-2] if i >= 2 else highs[i-1])
+
+                    if lows[i] < ep:
+                        ep = lows[i]
+                        af = min(af + step, max_step)
+
+                    if highs[i] > psar[i]:
+                        bull = True
+                        psar[i] = ep
+                        ep = highs[i]
+                        af = step
+
+            return psar
+        else:
+            psar_series = self.PSARIndicator(
+                high=self.df['high'],
+                low=self.df['low'],
+                close=self.df['close'],  # obrigatório mas ignorado pela lib
+                step=step,
+                max_step=max_step
+            ).psar()
+            return psar_series.tolist()

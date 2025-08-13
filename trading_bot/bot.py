@@ -19,6 +19,7 @@ from commons.utils.config_loader import PairConfig
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from strategies.strategy_manager import StrategyManager  # Para cálculo ATR
 from trading_bot.exchange_client import ExchangeClient
+from trading_bot.exit_logic_psar_based import ExitLogicPSARBased
 from trading_bot.exit_logic_risk_based import ExitLogicRiskBased
 from trading_bot.exit_logic_signal_based import ExitLogicSignalBased
 from trading_bot.trade_features_memory import TradeFeaturesMemory
@@ -38,7 +39,7 @@ class TradingBot:
         self.strategy = strategy
         self.params_loader = BestParamsLoader()
         #self.exit_logic = ExitLogic(self.helpers, self.exchange_client)
-        self.exit_logic = ExitLogicSignalBased(self.helpers, self.exchange_client)
+        self.exit_logic = ExitLogicPSARBased(self.helpers, self.exchange_client)
         self.trade_features_memory = TradeFeaturesMemory()
 
     async def run_pair(self, pair: PairConfig) -> SignalResult:
@@ -87,18 +88,18 @@ class TradingBot:
 
             #await self._check_closed_trades_and_finalize(symbol)
 
-            """
+         
             # 1) Verifica saída via ExitLogic, se posição aberta e tamanho > 0
             if current_position:
                 position_size = float(current_position.size)
                 logging.info(f"[DEBUG] Current position size: {position_size}")
 
                 if position_size > 0:
-                    should_exit = await self.exit_logic.should_exit(ohlcv, pair, signal, current_position, price_ref)
+                    should_exit = await self.exit_logic.should_exit(ohlcv, pair, signal, current_position)
                     if should_exit:
                         current_position = None  # atualiza para evitar fechar de novo
                         #return
-            """
+       
 
             # 2) Se não há sinal válido, skip
             if signal.signal not in [Signal.BUY, Signal.SELL]:

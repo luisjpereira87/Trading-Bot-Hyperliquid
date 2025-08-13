@@ -1,7 +1,8 @@
 import logging
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
+from scipy.signal import argrelextrema, find_peaks
 
 from commons.enums.mode_enum import ModeEnum
 from commons.enums.signal_enum import Signal
@@ -72,23 +73,21 @@ class StrategyUtils:
             curr.open > prev.close and  # Abertura acima do fechamento anterior
             curr.close < prev.open      # Fechamento abaixo da abertura anterior
         )
+    @staticmethod
+    def is_bullish_engulfing(prev: Ohlcv, curr: Ohlcv) -> bool:
+        return (
+            prev.close < prev.open and  # Candle anterior é de baixa
+            curr.close > curr.open and  # Candle atual é de alta
+            curr.open < prev.close and  # Abertura abaixo do fechamento anterior
+            curr.close > prev.open      # Fechamento acima da abertura anterior
+        )
 
     @staticmethod
     def detect_support_resistance(
         candles: OhlcvWrapper,
         lookback: int = 50,
-        tolerance_pct: float = 0.005
+        tolerance_pct: float = 0.01  # 1%
     ) -> tuple[float, float]:
-        """
-        Detecta níveis de suporte e resistência baseados em máximos/mínimos locais.
-
-        Retorna:
-        - resistência (float) se houver
-        - suporte (float) se houver
-        """
-        #if len(candles) < lookback:
-        #    return None, None
-
         highs = [c.high for c in candles.get_recent_closed(lookback)]
         lows = [c.low for c in candles.get_recent_closed(lookback)]
 
@@ -96,6 +95,39 @@ class StrategyUtils:
         support = min(lows)
 
         return resistance, support
+    
+    @staticmethod
+    def detect_multiple_support_resistance(
+        candles: OhlcvWrapper,
+        lookback: int = 50,
+        tolerance_pct: float = 0.005
+    ) -> tuple[list[float], list[float]]:
+        """
+        Detecta múltiplos níveis de suporte e resistência com base em extremos locais.
+        Os níveis próximos são agrupados com base em `tolerance_pct`.
+
+        :return: (lista de resistências, lista de suportes)
+        """
+        highs = [c.high for c in candles.get_recent_closed(lookback)]
+        lows = [c.low for c in candles.get_recent_closed(lookback)]
+
+        resistances = []
+        supports = []
+
+        for i in range(2, len(highs) - 2):
+            # Máximo local
+            if highs[i] > highs[i - 1] and highs[i] > highs[i + 1]:
+                price = highs[i]
+                if not any(abs(price - r) / price < tolerance_pct for r in resistances):
+                    resistances.append(price)
+
+            # Mínimo local
+            if lows[i] < lows[i - 1] and lows[i] < lows[i + 1]:
+                price = lows[i]
+                if not any(abs(price - s) / price < tolerance_pct for s in supports):
+                    supports.append(price)
+
+        return sorted(resistances, reverse=True), sorted(supports)
 
     @staticmethod
     def get_distance_to_levels(ohlcv: OhlcvWrapper, price_ref: float, lookback: int = 50) -> tuple[float, float]:
@@ -132,21 +164,20 @@ class StrategyUtils:
         return upper_band, lower_band
 
     @staticmethod
-    def detect_lateral_market(ohlcv: OhlcvWrapper, symbol,  adx_threshold):
+    def detect_lateral_market(ohlcv: OhlcvWrapper, adx_threshold) -> bool:
         indicators = Indicators(ohlcv)
         adx = indicators.adx()
         adx_now = adx[-1]
         lateral_market = adx_now < adx_threshold
-        logging.info(f"{symbol} - ADX: {adx_now:.2f} → Lateral: {lateral_market}")
         return lateral_market
     
     @staticmethod
-    def trend_signal_with_adx(ohlcv: OhlcvWrapper, symbol: (str | None), adx_threshold: float):
+    def trend_signal_with_adx(ohlcv: OhlcvWrapper, adx_threshold: float):
         indicators = Indicators(ohlcv)
         ema = indicators.ema()[-1]
         prev_ema = indicators.ema()[-2]
 
-        if StrategyUtils.detect_lateral_market(ohlcv, symbol, adx_threshold):
+        if StrategyUtils.detect_lateral_market(ohlcv, adx_threshold):
             if ema > prev_ema:
                 return 1  # buy
             elif ema < prev_ema:
@@ -200,7 +231,7 @@ class StrategyUtils:
         return current_body > multiplier * avg_body
     
     @staticmethod
-    def check_price_action_signals(ohlcv: OhlcvWrapper):
+    def check_price_action_signals(ohlcv: OhlcvWrapper) -> Signal:
         closes = ohlcv.closes
         opens = ohlcv.opens
         open_now = opens[-1]
@@ -209,23 +240,23 @@ class StrategyUtils:
 
        # Prioridade 1: Breakout candle (mais forte)
         if StrategyUtils.is_breakout_candle(ohlcv, -1):
-            return "buy"  # ou True, se quiseres só booleano
+            return Signal.BUY  # ou True, se quiseres só booleano
 
         # Prioridade 2: Setup 123
         buy_123, sell_123 = StrategyUtils.detect_setup_123(ohlcv)
         if buy_123:
-            return "buy"
+            return Signal.BUY
         if sell_123:
-            return "sell"
+            return Signal.SELL
 
         # Prioridade 3: Cor da vela atual
         if close_now > open_now:
-            return "buy"
+            return Signal.BUY
         elif close_now < open_now:
-            return "sell"
+            return Signal.SELL
 
         # Se nenhuma condição for satisfeita
-        return None
+        return Signal.HOLD
     
     @staticmethod
     def calculate_sl_tp(ohlcv: OhlcvWrapper, price_ref: float, side: Signal, mode: ModeEnum, sl_multiplier_aggressive: float, tp_multiplier_aggressive: float, sl_multiplier_conservative: float, tp_multiplier_conservative: float):
@@ -252,6 +283,228 @@ class StrategyUtils:
         #print(f"entry_price: {price_ref} SL: {sl} TP:{tp}")
         return sl, tp
     
+   
+    @staticmethod
+    def get_dynamic_sl_tp(
+        ohlcv: OhlcvWrapper,
+        entry_price: float,
+        signal: Signal,
+        buy_score: float,
+        sell_score: float,
+        base_rr_target: float = 2.0,
+        fib_levels=[0.382, 0.618, 0.786],
+        support_lookback: int = 3,
+        swing_lookback: int = 20,
+        sl_buffer_pct: float = 0.003,
+        max_sl_pct: float = 0.01,
+        atr_lookback: int = 14,
+        min_rr_target: float = 1.2,
+        max_tp_pct: float = 0.01,    # Limite máximo TP 1% acima/abaixo da entrada
+        max_tp_atr_mult: float = 3   # Limite máximo TP a 3 vezes o ATR da entrada
+    ) -> tuple[float, float]:
+        """
+        Calcula SL e TP dinâmicos com base em suporte, risco, níveis Fibonacci,
+        limitando o SL máximo e ajustando o RR alvo baseado na volatilidade (ATR),
+        e limitando o TP máximo tanto em % como por múltiplos do ATR.
+        """
+
+        indicators = Indicators(ohlcv)
+        atr = indicators.atr()[-1]  # assumir que é array e pegar último valor
+
+        atr_pct = atr / entry_price
+
+        # Ajustar RR alvo conforme ATR
+        if atr_pct > 0.01:  # se volatilidade > 1%
+            rr_target = max(min_rr_target, base_rr_target * 0.5)
+        elif atr_pct > 0.005:
+            rr_target = max(min_rr_target, base_rr_target * 0.75)
+        else:
+            rr_target = base_rr_target
+
+        print("AQUIIIIII TP", rr_target)
+
+        if signal == Signal.BUY:
+            rr_target = rr_target * buy_score
+
+            lows = ohlcv.lows[-support_lookback:]
+            base_sl = min(lows)
+            sl_price = base_sl * (1 - sl_buffer_pct)
+
+            # Limitar SL para no máximo max_sl_pct abaixo da entrada
+            sl_price_min = entry_price * (1 - max_sl_pct)
+            if sl_price < sl_price_min:
+                sl_price = sl_price_min
+
+            # Garantir SL abaixo da entrada e do candle de entrada
+            sl_price = min(sl_price, entry_price * (1 - 0.001))
+
+            risco = entry_price - sl_price
+            tp_init = entry_price + rr_target * risco
+
+            swing_high = max(ohlcv.highs[-swing_lookback:])
+            fib_prices = [swing_high - (swing_high - entry_price) * level for level in fib_levels]
+
+            tp_price = tp_init
+            closest_diff = float('inf')
+            for fib_price in fib_prices:
+                if fib_price > entry_price:
+                    diff = abs(fib_price - tp_init)
+                    if diff < closest_diff:
+                        closest_diff = diff
+                        tp_price = fib_price
+
+            # Limites máximos para o TP
+            max_tp_price_pct = entry_price * (1 + max_tp_pct)
+            max_tp_price_atr = entry_price + atr * max_tp_atr_mult
+
+            tp_price = max(tp_price, tp_init)
+            tp_price = min(tp_price, max_tp_price_pct, max_tp_price_atr)
+
+            print(f"[BUY] ATR: {atr:.4f}, ATR%: {atr_pct:.4f}, RR alvo ajustado: {rr_target:.2f}")
+            print(f"[BUY] SL: {sl_price:.4f}, Risco: {risco:.4f}, TP inicial: {tp_init:.4f}")
+            print(f"[BUY] Swing high: {swing_high:.4f}, Fibonacci levels: {[round(p,4) for p in fib_prices]}")
+            print(f"[BUY] TP máximo %: {max_tp_price_pct:.4f}, TP máximo ATR: {max_tp_price_atr:.4f}")
+            print(f"[BUY] TP final: {tp_price:.4f}")
+
+            return round(sl_price, 4), round(tp_price, 4)
+
+        elif signal == Signal.SELL:
+            rr_target = rr_target * sell_score
+
+            highs = ohlcv.highs[-support_lookback:]
+            base_sl = max(highs)
+            sl_price = base_sl * (1 + sl_buffer_pct)
+
+            # Limitar SL para no máximo max_sl_pct acima da entrada
+            sl_price_max = entry_price * (1 + max_sl_pct)
+            if sl_price > sl_price_max:
+                sl_price = sl_price_max
+
+            # Garantir SL acima da entrada e do candle de entrada
+            sl_price = max(sl_price, entry_price * (1 + 0.001))
+
+            risco = sl_price - entry_price
+            tp_init = entry_price - rr_target * risco
+
+            swing_low = min(ohlcv.lows[-swing_lookback:])
+            fib_prices = [swing_low + (entry_price - swing_low) * level for level in fib_levels]
+
+            tp_price = tp_init
+            closest_diff = float('inf')
+            for fib_price in fib_prices:
+                if fib_price < entry_price:
+                    diff = abs(fib_price - tp_init)
+                    if diff < closest_diff:
+                        closest_diff = diff
+                        tp_price = fib_price
+
+            # Limites máximos para o TP
+            max_tp_price_pct = entry_price * (1 - max_tp_pct)
+            max_tp_price_atr = entry_price - atr * max_tp_atr_mult
+
+            tp_price = min(tp_price, tp_init)
+            tp_price = max(tp_price, max_tp_price_pct, max_tp_price_atr)
+
+            print(f"[SELL] ATR: {atr:.4f}, ATR%: {atr_pct:.4f}, RR alvo ajustado: {rr_target:.2f}")
+            print(f"[SELL] SL: {sl_price:.4f}, Risco: {risco:.4f}, TP inicial: {tp_init:.4f}")
+            print(f"[SELL] Swing low: {swing_low:.4f}, Fibonacci levels: {[round(p,4) for p in fib_prices]}")
+            print(f"[SELL] TP máximo %: {max_tp_price_pct:.4f}, TP máximo ATR: {max_tp_price_atr:.4f}")
+            print(f"[SELL] TP final: {tp_price:.4f}")
+
+            return round(sl_price, 4), round(tp_price, 4)
+
+        else:
+            raise ValueError("Signal inválido. Use Signal.BUY ou Signal.SELL.")
+
+    
+    @staticmethod   
+    def calculate_hybrid_sl_tp(
+        ohlcv: OhlcvWrapper, 
+        signal: Signal, 
+        score: float = 1.0,  # score entre 0 e 1
+        atr_period=14, 
+        psar_acceleration=0.02, 
+        psar_maximum=0.2, 
+        tp_multiplier=1.5,
+        tolerance_pct=0.01,
+        max_tp_atr_multiplier=2.0,
+        max_support_resistance_dist_pct=0.02,
+        max_sl_atr_multiplier=1.0,  # máximo distância SL = 1x ATR do preço
+        max_sl_dist_pct=0.015       # máximo distância SL 1.5% do preço
+    ):
+        closes = ohlcv.closes
+        highs = ohlcv.highs
+        lows = ohlcv.lows
+
+        psar_values = Indicators(ohlcv).psar(psar_acceleration, psar_maximum)
+        last_psar = psar_values[-1]
+
+        score = max(0.3, score)
+
+        tr_values = []
+        for i in range(1, len(highs)):
+            tr = max(highs[i], closes[i-1]) - min(lows[i], closes[i-1])
+            tr_values.append(tr)
+        atr = np.mean(tr_values[-atr_period:]) if len(tr_values) >= atr_period else np.mean(tr_values)
+
+        y = closes[-atr_period:]
+        x = np.arange(len(y))
+        coeffs = np.polyfit(x, y, 1)
+        slope = coeffs[0]
+        slope_factor = max(0.5, 1 + slope * 10)
+
+        last_close = closes[-1]
+
+        # TP base
+        if signal == Signal.BUY:
+            tp_price = last_close + tp_multiplier * atr * slope_factor
+        elif signal == Signal.SELL:
+            tp_price = last_close - tp_multiplier * atr * slope_factor
+        else:
+            raise ValueError("signal deve ser Signal.BUY ou Signal.SELL")
+
+        resistances, supports = StrategyUtils.detect_multiple_support_resistance(ohlcv, lookback=50, tolerance_pct=tolerance_pct)
+
+        # Ajuste do TP como antes
+        if signal == Signal.BUY:
+            possible_rts = [r for r in resistances if last_close < r < tp_price and (r - last_close)/last_close <= max_support_resistance_dist_pct]
+            if possible_rts:
+                nearest_rt = min(possible_rts)
+                tp_price = min(tp_price, nearest_rt)
+            max_tp = last_close + max_tp_atr_multiplier * atr
+            tp_price = min(tp_price, max_tp)
+        elif signal == Signal.SELL:
+            possible_sps = [s for s in supports if tp_price < s < last_close and (last_close - s)/last_close <= max_support_resistance_dist_pct]
+            if possible_sps:
+                nearest_sp = max(possible_sps)
+                tp_price = max(tp_price, nearest_sp)
+            max_tp = last_close - max_tp_atr_multiplier * atr
+            tp_price = max(tp_price, max_tp)
+
+        # Ajuste do SL
+        if signal == Signal.BUY:
+            # SL inicial pelo PSAR
+            sl_price = min(last_psar, last_close * (1 - max_sl_dist_pct))
+            # SL não pode ficar abaixo do suporte próximo muito longe
+            #possible_sps = [s for s in supports if s < last_close and (last_close - s)/last_close <= max_sl_dist_pct]
+            #if possible_sps:
+            #    nearest_sp = max(possible_sps)
+            #    sl_price = max(sl_price, nearest_sp)
+            # Garantir que SL não ultrapasse 1x ATR do preço
+            #sl_price = max(sl_price, last_close - max_sl_atr_multiplier * atr)
+        else:  # SELL
+            sl_price = max(last_psar, last_close * (1 + max_sl_dist_pct))
+            #possible_rts = [r for r in resistances if r > last_close and (r - last_close)/last_close <= max_sl_dist_pct]
+            #if possible_rts:
+            #    nearest_rt = min(possible_rts)
+            #    sl_price = min(sl_price, nearest_rt)
+            #sl_price = min(sl_price, last_close + max_sl_atr_multiplier * atr)
+
+        tp_price = last_close + (tp_price - last_close) * score
+        sl_price = last_close + (sl_price - last_close) * (2 - score) / 2  # Exemplo: SL mais apertado se score baixo
+        return sl_price , tp_price 
+
+
     @staticmethod
     def passes_volume_volatility_filter(ohlcv: OhlcvWrapper, symbol: (str | None), volume_threshold_ratio: float, atr_threshold_ratio: float):
         indicators = Indicators(ohlcv)
@@ -385,6 +638,99 @@ class StrategyUtils:
 
         body_ratio = body_size / range_total
         return body_ratio < min_body_ratio
+        
+    @staticmethod
+    def find_local_extrema_swings_psar(ohlcv: OhlcvWrapper, sequential: bool = True):
+        closes = ohlcv.closes
+        timestamps = ohlcv.timestamps
+        psar = Indicators(ohlcv).psar()
+
+        high_pivots = []
+        low_pivots = []
+        pivots_high_index = []
+        pivots_low_index = []
+
+        last_pivot_type = None  # "high" ou "low"
+
+        for i in range(1, len(psar)):
+            # PSAR acima -> abaixo do preço = fundo
+            if psar[i-1] > closes[i-1] and psar[i] < closes[i]:
+                if (not sequential or last_pivot_type != "low"):
+                    if not pivots_low_index or pivots_low_index[-1] != i:
+                        low_pivots.append(timestamps[i])
+                        pivots_low_index.append(i)
+                        last_pivot_type = "low"
+
+            # PSAR abaixo -> acima do preço = topo
+            elif psar[i-1] < closes[i-1] and psar[i] > closes[i]:
+                if (not sequential or last_pivot_type != "high"):
+                    if not pivots_high_index or pivots_high_index[-1] != i:
+                        high_pivots.append(timestamps[i])
+                        pivots_high_index.append(i)
+                        last_pivot_type = "high"
+
+        return high_pivots, low_pivots, pivots_high_index, pivots_low_index
+    
+    @staticmethod
+    def filter_close_pivots(pivots_idx, prices, min_distance=0.005):
+        filtered = []
+        if not pivots_idx:
+            return filtered
+        pivots_idx = sorted(pivots_idx)
+        group = [pivots_idx[0]]
+
+        for idx in pivots_idx[1:]:
+            # Distância relativa no preço entre este pivot e último do grupo
+            dist = abs(prices[idx] - prices[group[-1]]) / prices[group[-1]]
+            if dist < min_distance:
+                # Mantém só o pivot mais extremo do grupo
+                if prices[idx] > prices[group[-1]]:
+                    group[-1] = idx
+            else:
+                filtered.extend(group)
+                group = [idx]
+        filtered.extend(group)
+        return filtered
+    
+    @staticmethod
+    def filter_close_pivots_with_volume(pivots_idx, prices, volumes, avg_volume, min_distance=0.005):
+        """
+        Filtra pivots muito próximos, mantém só os mais extremos e com volume acima da média.
+
+        pivots_idx: lista de índices dos pivots
+        prices: lista de preços (highs ou lows)
+        volumes: lista de volumes
+        avg_volume: valor médio do volume de referência
+        min_distance: distância mínima relativa no preço para separar pivots
+        """
+        filtered = []
+        if not pivots_idx:
+            return filtered
+
+        pivots_idx = sorted(pivots_idx)
+        group = []
+
+        for idx in pivots_idx:
+            # Ignora pivots com volume baixo
+            if volumes[idx] < avg_volume:
+                continue
+
+            if not group:
+                group = [idx]
+                continue
+
+            dist = abs(prices[idx] - prices[group[-1]]) / prices[group[-1]]
+            if dist < min_distance:
+                # Mantém só o pivot mais extremo no grupo
+                if prices[idx] > prices[group[-1]]:
+                    group[-1] = idx
+            else:
+                filtered.extend(group)
+                group = [idx]
+
+        filtered.extend(group)
+        return filtered
+
 
     @staticmethod
     def find_pivots(ohlcv: OhlcvWrapper, left: int = 3, right: int = 3) -> Tuple[List[int], List[int]]:
@@ -717,6 +1063,676 @@ class StrategyUtils:
         A = np.vstack([x, np.ones(len(x))]).T
         slope, _ = np.linalg.lstsq(A, y, rcond=None)[0] # type: ignore
         return slope
+    
+    @staticmethod
+    def get_volatility_moves(candles: OhlcvWrapper, lookback: int = 50) -> list[float]:
+        return [
+            abs(c.high - c.low)
+            for c in candles.get_recent_closed(lookback)
+        ]
+    
+    @staticmethod
+    def get_early_signal(ohlcv: OhlcvWrapper) -> Signal | None:
+        indicators = Indicators(ohlcv)
+        rsi = indicators.rsi()
+        stoch_k, stoch_d = indicators.stochastic()
+        volume = ohlcv.volumes
+        close = ohlcv.closes
+        high = ohlcv.highs
+        low = ohlcv.lows
+
+        i = -1
+
+        avg_volume = np.mean(volume[-20:])
+        signals = []
+
+        # Early BUY
+        if (
+            rsi[i] > 50 and rsi[i-1] < rsi[i] and
+            stoch_k[i] > stoch_d[i] and
+            volume[i] > avg_volume * 1.05 and
+            close[i] > high[i-1] * 0.995  # breakout com folga
+        ):
+            signals.append(Signal.BUY)
+
+        # Early SELL
+        if (
+            rsi[i] < 50 and rsi[i-1] > rsi[i] and
+            stoch_k[i] < stoch_d[i] and
+            volume[i] > avg_volume * 1.05 and
+            close[i] < low[i-1] * 1.005  # breakdown com tolerância
+        ):
+            signals.append(Signal.SELL)
+
+        return signals[0] if signals else None
+    
+    @staticmethod
+    def is_late_entry(ohlcv: OhlcvWrapper, signal: Signal) -> bool:
+        indicators = Indicators(ohlcv)
+        rsi = indicators.rsi()
+
+        is_top, is_bottom = StrategyUtils.is_exhaustion_candle(ohlcv)
+
+        if signal == Signal.BUY:
+            return rsi[-1] > 70 and is_top
+        elif signal == Signal.SELL:
+            return rsi[-1] < 30 and is_bottom
+        return False
+    
+
+    @staticmethod
+    def is_strong_trend_up(ohlcv: OhlcvWrapper) -> bool:
+        indicators = Indicators(ohlcv)
+
+        ema_fast = indicators.ema(10)
+        ema_slow = indicators.ema(50)
+        adx = indicators.adx()
+        i = -1
+        return ema_fast[i] > ema_slow[i] and adx[i] > 25
+
+    @staticmethod
+    def is_strong_trend_down(ohlcv: OhlcvWrapper) -> bool:
+        indicators = Indicators(ohlcv)
+
+        ema_fast = indicators.ema(10)
+        ema_slow = indicators.ema(50)
+        adx = indicators.adx()
+        i = -1
+        return ema_fast[i] < ema_slow[i] and adx[i] > 25
+    
+    @staticmethod
+    def is_pullback_in_uptrend(ohlcv: OhlcvWrapper) -> bool:
+        indicators = Indicators(ohlcv)
+
+        closes = ohlcv.closes
+        lows = ohlcv.lows
+        ema_fast = indicators.ema(10)
+        ema_slow = indicators.ema(50)
+        i = -1
+        return (
+            ema_fast[i] > ema_slow[i] and
+            closes[i] > ema_slow[i] and
+            lows[i] < ema_fast[i] * 0.985
+        )
+    
+    @staticmethod
+    def is_pullback_in_downtrend(ohlcv: OhlcvWrapper) -> bool:
+        indicators = Indicators(ohlcv)
+
+        closes = ohlcv.closes
+        highs = ohlcv.highs
+        ema_fast = indicators.ema(10)
+        ema_slow = indicators.ema(50)
+        i = -1
+        return (
+            ema_fast[i] < ema_slow[i] and
+            closes[i] < ema_slow[i] and
+            highs[i] > ema_fast[i] * 1.015
+        )
+    
+    @staticmethod
+    def equal_weights(keys: list[str]) -> dict[str, float]:
+        count = len(keys)
+        value = 1 / count
+        return {k: value for k in keys}
+    
+    @staticmethod
+    def is_weak_momentum(ohlcv: OhlcvWrapper, idx: int, ema_fast=9, ema_slow=21, threshold=0.0015) -> bool:
+        """
+        Retorna True se a diferença entre EMA rápida e lenta for pequena
+        (momentum fraco).
+        """
+        close = ohlcv.get_last_closed_candle().close
+        ema_fast_val = Indicators(ohlcv).ema(ema_fast)[idx]
+        ema_slow_val = Indicators(ohlcv).ema(ema_slow)[idx]
+        diff = abs(ema_fast_val - ema_slow_val) / close
+        return diff < threshold
+
+    @staticmethod
+    def is_stoch_overbought(ohlcv: OhlcvWrapper, idx: int, k_period=14, d_period=3, overbought=80) -> bool:
+        """
+        Retorna True se o estocástico estiver sobrecomprado.
+        """
+        
+        k, d = Indicators(ohlcv).stochastic()
+        return k[idx] > overbought and d[idx] > overbought
+
+    @staticmethod
+    def is_stoch_oversold(ohlcv: OhlcvWrapper, idx: int, k_period=14, d_period=3, oversold=20) -> bool:
+        """
+        Retorna True se o estocástico estiver sobrevendido.
+        """
+        k, d = Indicators(ohlcv).stochastic()
+        return k[idx] < oversold and d[idx] < oversold
+    
+    @staticmethod
+    def is_rsi_overbought(ohlcv: OhlcvWrapper, rsi_threshold: float = 70) -> bool:
+        """
+        Verifica se o RSI do último candle fechado está em sobrecompra.
+        
+        Args:
+            ohlcv: Wrapper que contém o RSI e os candles.
+            rsi_threshold: Valor limite para considerar sobrecompra (default 70).
+        
+        Returns:
+            True se RSI estiver acima do limite de sobrecompra, False caso contrário.
+        """
+        rsi_series = Indicators(ohlcv).rsi()  # supõe que tens método para obter indicador
+        if rsi_series is None or len(rsi_series) == 0:
+            return False
+        last_rsi = rsi_series[-1]
+        return last_rsi >= rsi_threshold
+    
+    @staticmethod
+    def is_rsi_oversold(ohlcv: OhlcvWrapper, rsi_threshold: float = 30) -> bool:
+        """
+        Verifica se o RSI do último candle fechado está em sobrevenda.
+        
+        Args:
+            ohlcv: Wrapper que contém o RSI e os candles.
+            rsi_threshold: Valor limite para considerar sobrevenda (default 30).
+        
+        Returns:
+            True se RSI estiver abaixo do limite de sobrevenda, False caso contrário.
+        """
+        rsi_series = Indicators(ohlcv).rsi() # supõe que tens método para obter indicador
+        if rsi_series is None or len(rsi_series) == 0:
+            return False
+        last_rsi = rsi_series[-1]
+        return last_rsi <= rsi_threshold
+    
+    @staticmethod
+    def _calc_rsi(closes, period:int=14) -> float:
+        deltas = np.diff(closes)
+        ups = deltas.clip(min=0)
+        downs = -deltas.clip(max=0)
+        avg_gain = np.mean(ups[-period:])
+        avg_loss = np.mean(downs[-period:])
+        if avg_loss == 0:
+            return 100
+        rs = avg_gain / avg_loss
+        return float(100 - (100 / (1 + rs)))
+    
+    
+    @staticmethod
+    def rsi_signal(ohlcv: OhlcvWrapper, period: int = 14) -> Signal:
+        """
+        Retorna 'buy' se RSI < oversold, 'sell' se RSI > overbought, senão None.
+        """
+        closes = ohlcv.closes
+        if len(closes) < period + 1:
+            return Signal.HOLD
+
+        deltas = np.diff(closes)
+        ups = deltas.clip(min=0)
+        downs = -deltas.clip(max=0)
+
+        avg_gain = np.mean(ups[-period:])
+        avg_loss = np.mean(downs[-period:])
+
+        if avg_loss == 0:
+            rsi = 100
+        else:
+            rs = avg_gain / avg_loss
+            rsi = 100 - (100 / (1 + rs))
+
+        # Inclinação do RSI
+        prev_rsi = StrategyUtils._calc_rsi(closes[:-1], period)
+        slope = rsi - prev_rsi
+
+        # Lógica combinada
+        if rsi >= 50 and slope >= 0:
+            return Signal.BUY
+        elif rsi < 50 and slope <= 0:
+            return Signal.SELL
+        elif slope > 0:
+            return Signal.BUY
+        else:
+            return Signal.SELL
+
+    @staticmethod
+    def stochastic_signal(ohlcv: OhlcvWrapper, period=14) -> Signal:
+        highs = ohlcv.highs
+        lows = ohlcv.lows
+        closes = ohlcv.closes
+
+        if len(closes) < period + 1:
+            return Signal.HOLD
+
+        # Calcular %K atual
+        highest_high = max(highs[-period:])
+        lowest_low = min(lows[-period:])
+        k = 100 * (closes[-1] - lowest_low) / (highest_high - lowest_low)
+
+        # Calcular %K anterior
+        prev_highest_high = max(highs[-period-1:-1])
+        prev_lowest_low = min(lows[-period-1:-1])
+        prev_k = 100 * (closes[-2] - prev_lowest_low) / (prev_highest_high - prev_lowest_low)
+
+        slope = k - prev_k
+
+        
+        # Lógica combinada
+        if k >= 50 and slope >= 0:
+            return Signal.BUY
+        elif k < 50 and slope <= 0:
+            return Signal.SELL
+        elif slope > 0:
+            return Signal.BUY
+        else:
+            return Signal.SELL
+        
+    @staticmethod
+    def ema_signal(ohlcv: OhlcvWrapper, fast_period:int=21, slow_period:int=50) -> Signal:
+        closes = ohlcv.closes
+
+        if len(closes) < slow_period:
+            return Signal.HOLD
+
+        # Calcular EMAs
+        ema_fast = Indicators(ohlcv).ema()
+        ema_slow = Indicators(ohlcv).ema(50)
+
+        # Inclinação da EMA rápida
+        slope = ema_fast[-1] - ema_fast[-2]
+
+        # Lógica de decisão
+        if ema_fast[-1] > ema_slow[-1] and slope >= 0:
+            return Signal.BUY
+        elif ema_fast[-1] < ema_slow[-1] and slope <= 0:
+            return Signal.SELL
+        elif slope > 0:
+            return Signal.BUY
+        else:
+            return Signal.SELL
+        
+    @staticmethod
+    def ema_signal_strict(
+        ohlcv: OhlcvWrapper,
+        fast_period: int = 21,
+        slow_period: int = 50,
+        min_slope: float = 0.0,
+        min_ema_distance: float = 0.001,  # 0.1% de distância mínima
+        lookback_support_resistance: int = 20
+    ) -> Signal:
+        closes = ohlcv.closes
+
+        if len(closes) < slow_period:
+            return Signal.HOLD
+
+        # Calcular EMAs
+        indicators = Indicators(ohlcv)
+        ema_fast = indicators.ema(fast_period)
+        ema_slow = indicators.ema(slow_period)
+
+        # Inclinação da EMA rápida
+        slope = ema_fast[-1] - ema_fast[-2]
+
+        # Distância relativa entre EMAs
+        ema_distance = abs(ema_fast[-1] - ema_slow[-1]) / ema_slow[-1]
+
+        # Preço atual
+        price = closes[-1]
+
+        # Suporte e resistência recentes
+        highs = ohlcv.highs[-lookback_support_resistance:]
+        lows = ohlcv.lows[-lookback_support_resistance:]
+        recent_support = min(lows)
+        recent_resistance = max(highs)
+
+        # PSAR (opcional)
+        psar_values = Indicators(ohlcv).psar()
+        psar_last = psar_values[-1]
+
+        # --- Lógica de Compra ---
+        if (
+            ema_fast[-1] > ema_slow[-1]  # tendência de alta
+            and slope > min_slope        # inclinação positiva
+            and ema_distance > min_ema_distance
+            and price > ema_slow[-1]     # preço acima da EMA lenta
+            and price > recent_support   # preço não está colado ao suporte
+            and psar_last < price        # PSAR de compra
+        ):
+            return Signal.BUY
+
+        # --- Lógica de Venda ---
+        elif (
+            ema_fast[-1] < ema_slow[-1]  # tendência de baixa
+            and slope < -min_slope       # inclinação negativa
+            and ema_distance > min_ema_distance
+            and price < ema_slow[-1]
+            and price < recent_resistance
+            and psar_last > price
+        ):
+            return Signal.SELL
+
+        return Signal.HOLD
+    
+    @staticmethod
+    def candle_body_signal(ohlcv:  OhlcvWrapper) -> Signal:
+        
+        idx = len(ohlcv.closes) - 1
+        if idx < 1:
+            return Signal.HOLD  # Não há candle anterior suficiente
+
+        open_curr, close_curr = ohlcv.opens[idx], ohlcv.closes[idx]
+        open_prev, close_prev = ohlcv.opens[idx-1], ohlcv.closes[idx-1]
+
+        body_curr = abs(close_curr - open_curr)
+        body_prev = abs(close_prev - open_prev)
+
+        if close_curr > open_curr and body_curr > body_prev:
+            return Signal.BUY
+        elif close_curr < open_curr and body_curr > body_prev:
+            return Signal.SELL
+        else:
+            return Signal.HOLD
+
+    @staticmethod    
+    def is_market_sideways(ohlcv: OhlcvWrapper, lookback:int=14, atr_threshold_pct:float=0.003, range_threshold_pct:float=0.003) -> bool:
+        """
+        Detecta mercado lateral com base em ATR e range médio.
+
+        Args:
+            ohlcv (OhlcvWrapper): dados OHLCV com arrays .highs, .lows, .closes
+            lookback (int): número de candles para cálculo da média
+            atr_threshold_pct (float): limite percentual para ATR (ex: 0.003 = 0.3%)
+            range_threshold_pct (float): limite percentual para range (high-low) médio
+
+        Returns:
+            bool: True se mercado lateral, False caso contrário
+        """
+        highs = ohlcv.highs
+        lows = ohlcv.lows
+        closes = ohlcv.closes
+
+        if len(highs) < lookback + 1:
+            return False  # dados insuficientes
+
+        # Calcula ATR simplificado (True Range médio)
+        tr_values = []
+        for i in range(-lookback, 0):
+            tr = max(
+                highs[i] - lows[i],
+                abs(highs[i] - closes[i-1]),
+                abs(lows[i] - closes[i-1]),
+            )
+            tr_values.append(tr)
+        atr = sum(tr_values) / lookback
+
+        # Calcula range médio (high - low)
+        range_values = [highs[i] - lows[i] for i in range(-lookback, 0)]
+        avg_range = sum(range_values) / lookback
+
+        # Preço médio para referência percentual (podes usar close médio)
+        avg_price = sum(closes[-lookback:]) / lookback
+
+        atr_ratio = atr / avg_price
+        range_ratio = avg_range / avg_price
+
+        # Debug prints (podes tirar depois)
+        print(f"ATR ratio: {atr_ratio:.5f}, Range ratio: {range_ratio:.5f}")
+
+        return (atr_ratio < atr_threshold_pct) and (range_ratio < range_threshold_pct)
+    
+    @staticmethod
+    def is_market_sideways_strict(ohlcv: OhlcvWrapper, lookback=20, atr_threshold_pct=0.003, max_trend_pct=0.01, max_ema_slope=0.0005):
+        closes = ohlcv.closes
+        highs = ohlcv.highs
+        lows = ohlcv.lows
+
+        if len(closes) < lookback + 1:
+            return False
+
+        # 1. ATR relativo
+        atr = Indicators(ohlcv).atr()
+        atr_value = atr[-1]
+        atr_rel = atr_value / closes[-1]
+
+        # 2. Variação percentual do fechamento inicial para final do lookback
+        price_start = closes[-lookback - 1]
+        price_end = closes[-1]
+        trend_pct = abs(price_end - price_start) / price_start
+
+        # 3. Range total percentual no lookback (max - min) / preço atual
+        period_max = max(highs[-lookback:])
+        period_min = min(lows[-lookback:])
+        range_pct = (period_max - period_min) / closes[-1]
+
+        # 4. Inclinação EMA21 (aprox. diferença percentual entre última e penúltima EMA)
+        ema21 = Indicators(ohlcv).ema(21)
+        if len(ema21) < 2:
+            return False
+        ema_slope = abs(ema21[-1] - ema21[-2]) / ema21[-2]
+
+        print(f"ATR rel: {atr_rel:.5f}, Trend pct: {trend_pct:.5f}, Range pct: {range_pct:.5f}, EMA slope: {ema_slope:.5f}")
+
+        # Verifica critérios estritos para lateralidade
+        if atr_rel < atr_threshold_pct \
+        and trend_pct < max_trend_pct \
+        and range_pct < max_trend_pct \
+        and ema_slope < max_ema_slope:
+            return True
+        else:
+            return False
+
+    @staticmethod   
+    def ratio_support_resistence(ohlcv: OhlcvWrapper) -> float:
+        resistance, support = StrategyUtils.detect_support_resistance(ohlcv, lookback=20, tolerance_pct=0.02)
+        close_price = ohlcv.get_last_closed_candle().close
+
+        channel_height = resistance - support
+
+        channel_position = 0
+        if channel_height > 0:
+            # evitar divisão por zero, devolve penalização neutra (0) ou outro valor que faças sentido
+            channel_position = (close_price - support) / channel_height
+        return channel_position    
+    
+    @staticmethod
+    def calculate_sl_tp_dynamic_channel(
+        ohlcv: OhlcvWrapper,
+        price_entry: float,
+        side: Signal,
+        risk_reward_ratio: float = 2.0,
+        band_multiplier: float = 2.0,
+        tp_band_limit: float = 0.95,  # máximo TP a 95% do canal para evitar TP no limite exato
+        sl_band_buffer: float = 0.005  # buffer 0.5% para SL abaixo/ acima da banda para BUY/SELL
+    ) -> tuple[float, float]:
+        """
+        Calcula SL e TP baseados nas bandas do canal para limitar distâncias.
+        SL fica próximo da banda inferior (BUY) ou superior (SELL) com buffer.
+        TP fica limitado para nunca ultrapassar 95% do canal, respeitando risk_reward_ratio.
+
+        Args:
+            ohlcv (OhlcvWrapper): Dados OHLCV.
+            price_entry (float): Preço de entrada.
+            side (Signal): Signal.BUY ou Signal.SELL.
+            risk_reward_ratio (float): Razão risco/recompensa (default=2.0).
+            band_multiplier (float): Multiplicador para calcular bandas (default=2.0).
+            tp_band_limit (float): Limite máximo para TP dentro do canal (default=0.95).
+            sl_band_buffer (float): Buffer percentual para SL abaixo/ acima da banda (default=0.5%).
+
+        Returns:
+            tuple: (sl_price, tp_price)
+        """
+
+        atr = Indicators(ohlcv).atr()
+        window = 4
+        atr_ema = StrategyUtils.ema(atr[-window:], window)
+        price = ohlcv.get_last_closed_candle().close
+
+        base_multiplier = 3.0
+        min_buffer = 0.005
+
+        band_multiplier = max(base_multiplier * (atr_ema / price), min_buffer)
+
+        upper_band, lower_band = StrategyUtils.calculate_bands(ohlcv, multiplier=band_multiplier)
+        if not upper_band or not lower_band or len(upper_band) < 1:
+            # fallback simples caso as bandas não estejam disponíveis
+            sl_price = price_entry * (0.98 if side == Signal.BUY else 1.02)
+            tp_price = price_entry * (1.04 if side == Signal.BUY else 0.96)
+            return sl_price, tp_price
+
+        channel_high = upper_band[-1]
+        channel_low = lower_band[-1]
+
+        channel_high, channel_low = StrategyUtils.detect_support_resistance(ohlcv, 20)
+
+        print("RESISTANCE E SUPPORT", channel_high, channel_low)
+
+        if side == Signal.BUY:
+            # SL um pouco abaixo da banda inferior, com buffer
+            sl_price = channel_low * (1 - sl_band_buffer)
+            sl_price = min(sl_price, price_entry * 0.995)  # nunca acima do entry (buffer 0.5%)
+
+            risk_distance = price_entry - sl_price
+
+            print("RISK AQUII", risk_distance)
+            tp_target = price_entry + risk_distance * risk_reward_ratio
+
+            # Limitar TP para não ultrapassar 95% da distância até o topo do canal
+            max_tp = price_entry + (channel_high - price_entry) * tp_band_limit
+            tp_price = min(tp_target, max_tp)
+
+            print("RISK AQUII 2", tp_target, max_tp, price_entry)
+
+        elif side == Signal.SELL:
+            # SL um pouco acima da banda superior, com buffer
+            sl_price = channel_high * (1 + sl_band_buffer)
+            sl_price = max(sl_price, price_entry * 1.005)  # nunca abaixo do entry (buffer 0.5%)
+
+            risk_distance = sl_price - price_entry
+            tp_target = price_entry - risk_distance * risk_reward_ratio
+
+            # Limitar TP para não ultrapassar 95% da distância até o fundo do canal
+            min_tp = price_entry - (price_entry - channel_low) * tp_band_limit
+            tp_price = max(tp_target, min_tp)
+
+        else:
+            raise ValueError("side deve ser Signal.BUY ou Signal.SELL")
+
+        return sl_price, tp_price
+    
+    @staticmethod
+    def calculate_sl_tp_simple(
+        ohlcv: OhlcvWrapper,
+        price_entry: float,
+        side: Signal,
+        atr_mult: float = 1.5,
+        lookback_support_resistance: int = 3
+    ) -> tuple[float, float]:
+
+        highs = ohlcv.highs
+        lows = ohlcv.lows
+        atr = Indicators(ohlcv).atr(period=14)
+        last_candle_range = highs[-1] - lows[-1]
+
+        # tamanho base para TP (ATR ou candle range)
+        base_range = last_candle_range if last_candle_range > 0 else atr[-1]
+
+        if StrategyUtils.trend_strength_signal(ohlcv) != side:
+            atr_mult *= 0.5  # reduz TP pela metade se a tendência estiver fraca
+
+        if side == Signal.BUY:
+            support = min(lows[-lookback_support_resistance:])
+            sl_price = support * 0.998
+            tp_price = price_entry + base_range * atr_mult
+
+        elif side == Signal.SELL:
+            resistance = max(highs[-lookback_support_resistance:])
+            sl_price = resistance * 1.002
+            tp_price = price_entry - base_range * atr_mult
+
+        else:
+            raise ValueError("side deve ser Signal.BUY ou Signal.SELL")
+
+        return sl_price, tp_price
+    
+    @staticmethod
+    def ema(values, window):
+        weights = np.exp(np.linspace(-1., 0., window))
+        weights /= weights.sum()
+        return np.convolve(values, weights, mode='valid')[-1]
+    
+    @staticmethod
+    def channel_position_normalized(ohlcv: OhlcvWrapper, multiplier: float) -> float:
+        """
+        Retorna a posição do preço dentro do canal normalizada entre 0 e 1.
+        0 = preço na base do canal
+        1 = preço no topo do canal
+        """
+        upper_band, lower_band = StrategyUtils.calculate_bands(ohlcv, multiplier=multiplier)
+        close = ohlcv.get_last_closed_candle().close
+
+        if not upper_band or not lower_band or len(upper_band) < 1:
+            return 0.0
+
+        top = upper_band[-1]
+        bottom = lower_band[-1]
+        band_range = top - bottom
+        if band_range == 0:
+            return 0.0
+        print("BANDS", top, bottom)
+        # Distância relativa dentro do canal
+        position = (close - bottom) / band_range
+
+        # Limitar a [0, 1]
+        return max(min(position, 1.0), 0.0)
+    
+    @staticmethod
+    def trend_strength_signal(ohlcv: OhlcvWrapper, lookback: int = 3, adx_threshold: float = 25) -> Signal:
+        """
+        Retorna um sinal consolidado da tendência:
+        - Signal.BUY -> tendência de alta ainda forte
+        - Signal.SELL -> tendência de baixa ainda forte
+        - Signal.HOLD -> tendência está enfraquecendo ou indecisa
+        """
+        closes = ohlcv.closes
+        highs = ohlcv.highs
+        lows = ohlcv.lows
+        opens = ohlcv.opens
+        indicators = Indicators(ohlcv)
+        
+        ema_fast = indicators.ema(10)
+        ema_slow = indicators.ema(50)
+        adx = indicators.adx()
+        
+        n = len(closes)
+        if n < lookback + 1 or len(adx) < lookback + 1:
+            return Signal.HOLD  # dados insuficientes
+        
+        # Contadores de candles enfraquecidos
+        weakening_count = 0
+        
+        for i in range(n - lookback, n):
+            candle_body = abs(closes[i] - opens[i])
+            candle_range = highs[i] - lows[i]
+            if candle_range == 0:
+                continue
+            body_ratio = candle_body / candle_range
+            
+            weak_adx = adx[i] < adx_threshold or adx[i] < adx[i-1]
+            small_candle = body_ratio < 0.4
+            trend_conflict = (ema_fast[i] < ema_slow[i] and closes[i] > ema_fast[i]) or \
+                            (ema_fast[i] > ema_slow[i] and closes[i] < ema_fast[i])
+            
+            if sum([weak_adx, small_candle, trend_conflict]) >= 2:
+                weakening_count += 1
+
+        # Se a maioria das velas no lookback está enfraquecendo, HOLD
+        if weakening_count >= (lookback // 2) + 1:
+            return Signal.HOLD
+        
+        # Senão, retorna a tendência dominante
+        if ema_fast[-1] > ema_slow[-1]:
+            return Signal.BUY
+        elif ema_fast[-1] < ema_slow[-1]:
+            return Signal.SELL
+        else:
+            return Signal.HOLD
+
+       
         
         
         

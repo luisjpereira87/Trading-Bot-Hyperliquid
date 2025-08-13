@@ -15,7 +15,7 @@ class OhlcvWrapper:
         self.raw = ohlcv
 
     def get_candle(self, index) -> Ohlcv:
-        return Ohlcv(self.timestamps[index], self.opens[index], self.highs[index], self.lows[index], self.closes[index], self.volumes[index])
+        return Ohlcv(self.timestamps[index], self.opens[index], self.highs[index], self.lows[index], self.closes[index], self.volumes[index], index)
 
     
     def get_last_closed_candle(self) -> Ohlcv:
@@ -49,9 +49,9 @@ class OhlcvWrapper:
         return len(self.ohlcv)
     
     def candles_to_arrays(self):
-        opens = np.array([c.open for c in self.ohlcv])
-        highs = np.array([c.high for c in self.ohlcv])
-        lows = np.array([c.low for c in self.ohlcv])
-        closes = np.array([c.close for c in self.ohlcv])
-        volumes = np.array([c.volume for c in self.ohlcv])
+        opens = np.array([c[1] for c in self.ohlcv])
+        highs = np.array([c[2] for c in self.ohlcv])
+        lows = np.array([c[3] for c in self.ohlcv])
+        closes = np.array([c[4] for c in self.ohlcv])
+        volumes = np.array([c[5] for c in self.ohlcv])
         return opens, highs, lows, closes, volumes

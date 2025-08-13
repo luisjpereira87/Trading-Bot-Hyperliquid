@@ -2,6 +2,8 @@ import os
 import sys
 from typing import List
 
+import pandas as pd
+
 ROOT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if ROOT_PATH not in sys.path:
     sys.path.insert(0, ROOT_PATH)
@@ -396,11 +398,11 @@ class BacktestRunner:
         self.ohlcv = []
 
 
-    async def run(self, params=None, is_plot = False):
+    async def run(self, params=None, is_plot = False, train = False):
         logging.info(f"🔁 Starting backtest for {self.pair.symbol}")
 
-        self.ohlcv = await self.get_historical_ohlcv(self.timeframe, self.limit)
-        self.ohlcv_higher = await self.get_historical_ohlcv(self.timeframe.get_higher(), self.limit)
+        self.ohlcv = await self.get_historical_ohlcv(self.timeframe, self.limit, train)
+        self.ohlcv_higher = await self.get_historical_ohlcv(self.timeframe.get_higher(), self.limit, train)
 
         exchange_client = ExchangeClientMock({self.pair.symbol: self.ohlcv}, {self.pair.symbol: self.ohlcv_higher}, self.pair, self.balance)
         helpers = TradingHelpers()
@@ -423,7 +425,11 @@ class BacktestRunner:
             signal = await bot.run_pair(self.pair)
 
             signals.append({'signal': signal, 'index': i})
-    
+
+            #if i == 180:
+            #   break
+
+        #print(self.ohlcv)
         if is_plot:
             PlotTrades.plot_trades(self.pair.symbol, self.ohlcv, signals, exchange_client.trades)
 
@@ -433,7 +439,7 @@ class BacktestRunner:
         return summary
     
     # Função para obter candles históricos (ajuste para o seu projeto)
-    async def get_historical_ohlcv(self, timeframe: TimeframeEnum, limit: int = 5):
+    async def get_historical_ohlcv(self, timeframe: TimeframeEnum, limit: int = 5, train: bool = False):
         if len(self.ohlcv) > 0:
             return self.ohlcv
 
@@ -445,6 +451,18 @@ class BacktestRunner:
 
         try:
             # Busca candles OHLCV históricos (timestamp, open, high, low, close, volume)
+
+            if train:
+
+                since_timestamp = int(pd.Timestamp("2025-06-01").timestamp() * 1000)  # em ms
+                old_data = await exchange.fetch_ohlcv(self.pair.symbol, timeframe, since=since_timestamp, limit=limit)
+
+                since_timestamp1 = int(pd.Timestamp("2025-07-01").timestamp() * 1000)  # em ms
+                old_data1 = await exchange.fetch_ohlcv(self.pair.symbol, timeframe, since=since_timestamp1, limit=limit)
+
+                return old_data + old_data1
+
+            
             self.ohlcv = await exchange.fetch_ohlcv(self.pair.symbol, timeframe, limit=limit)
             return self.ohlcv
         finally:
@@ -455,7 +473,7 @@ class BacktestRunner:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("SOL/USDC:USDC")
+    pair = get_pair_by_symbol("BTC/USDC:USDC")
 
     if pair != None:
 

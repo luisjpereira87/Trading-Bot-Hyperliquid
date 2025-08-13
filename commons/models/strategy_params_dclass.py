@@ -23,10 +23,10 @@ class StrategyParams:
     rsi_oversold_threshold : float = 0.0
     buy_threshold : float = 0.0
     volatility_breakout_ratio: float = 0.0
-    sl_multiplier_aggressive : float = 0.0
-    tp_multiplier_aggressive : float = 0.0
-    sl_multiplier_conservative : float = 0.0
-    tp_multiplier_conservative : float = 0.0
+    #sl_multiplier_aggressive : float = 0.0
+    #tp_multiplier_aggressive : float = 0.0
+    #sl_multiplier_conservative : float = 0.0
+    #tp_multiplier_conservative : float = 0.0
     volume_threshold_ratio : float = 0.0
     atr_threshold_ratio : float = 0.0
 
@@ -35,10 +35,8 @@ class StrategyParams:
     weights_trend: float = 0.0
     weights_momentum: float = 0.0
     weights_oscillators: float = 0.0
-    weights_price_action: float = 0.0
-    weights_price_levels: float = 0.0
-    weights_divergence: float = 0.0
-    weights_channel_position: float = 0.0
+    weights_structure: float = 0.0
+    weights_early_signal: float = 0.0
 
     penalty_exhaustion: float = 0.0
     penalty_factor: float = 0.0
