@@ -1616,10 +1616,11 @@ class StrategyUtils:
     @staticmethod
     def calculate_sl_tp_simple(
         ohlcv: OhlcvWrapper,
-        price_entry: float,
+        entry_price: float,
         side: Signal,
         atr_mult: float = 1.5,
-        lookback_support_resistance: int = 3
+        min_pct: float = 0.002,
+        lookback_support_resistance: int = 5
     ) -> tuple[float, float]:
 
         highs = ohlcv.highs
@@ -1632,16 +1633,24 @@ class StrategyUtils:
 
         if StrategyUtils.trend_strength_signal(ohlcv) != side:
             atr_mult *= 0.5  # reduz TP pela metade se a tendência estiver fraca
+        else:
+            atr_mult *= 1.5
 
         if side == Signal.BUY:
             support = min(lows[-lookback_support_resistance:])
-            sl_price = support * 0.998
-            tp_price = price_entry + base_range * atr_mult
+            sl_price = support * 0.997
+            tp_price = entry_price + base_range * atr_mult
+
+            if (tp_price - entry_price) / entry_price < min_pct or tp_price <= entry_price:
+                raise ValueError(f"TP demasiado próximo do preço de entrada: {tp_price} vs {entry_price}")
 
         elif side == Signal.SELL:
             resistance = max(highs[-lookback_support_resistance:])
-            sl_price = resistance * 1.002
-            tp_price = price_entry - base_range * atr_mult
+            sl_price = resistance * 1.003
+            tp_price = entry_price - base_range * atr_mult
+
+            if (entry_price - tp_price) / entry_price < min_pct or tp_price >= entry_price:
+                raise ValueError(f"TP demasiado próximo do preço de entrada: {tp_price} vs {entry_price}")
 
         else:
             raise ValueError("side deve ser Signal.BUY ou Signal.SELL")

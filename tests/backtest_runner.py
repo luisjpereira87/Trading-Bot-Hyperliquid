@@ -20,6 +20,7 @@ from commons.enums.timeframe_enum import TimeframeEnum
 from commons.helpers.trading_helpers import TradingHelpers
 from commons.models.closed_order_dclass import ClosedOrder
 from commons.models.ohlcv_format_dclass import OhlcvFormat
+from commons.models.ohlcv_type_dclass import Ohlcv
 from commons.models.open_position_dclass import OpenPosition
 from commons.models.opened_order_dclass import OpenedOrder
 from commons.utils.config_loader import (PairConfig, get_pair_by_symbol,
@@ -44,36 +45,43 @@ class ExchangeClientMock(ExchangeClient):
         self.total_pnl = 0.0  # USDC
         self.num_wins = 0
         self.num_losses = 0
-        self.current_candle = []
+        #self.current_candle = []
         self.pair = pair
         self.trades = []
         self.id = 0
         self.stop_loss_orders = {}
         self.closed_orders:List[ClosedOrder] = []
+        self.current_candle:Ohlcv
+        self.last_closed_candle:Ohlcv
 
     def update_candles(self, symbol, current_candle, index):
-        self.current_candle = current_candle
         self.current_index[symbol] = index
+        window = self.candles[symbol][:index+1]  # inclui o candle atual
+        wrapper = OhlcvWrapper(window)
+        self.current_candle = wrapper.get_current_candle()       # candle em "tempo real"
+        self.last_closed_candle = wrapper.get_last_closed_candle()  # último candle fechado
 
     def __get_window(self, full_candles, current_index, window_size):
         end = current_index
         start = max(0, current_index - window_size)
-        return full_candles[start:end +1]
+        return full_candles[start:end]
 
     async def fetch_ohlcv(self, symbol, timeframe:TimeframeEnum =TimeframeEnum.M15, limit=100, is_higher: bool = False)->OhlcvFormat:
         idx = self.current_index[symbol]
 
-        window = self.__get_window(self.candles[symbol], idx, limit)
-        window_higher = self.__get_window(self.candles_higher[symbol], idx, limit)
-
-        self.current_price = OhlcvWrapper(window).get_last_closed_candle().close
+        window = self.candles[symbol][:idx+1]  # incluir candle atual
+        window_higher = self.candles_higher[symbol][:idx+1]
+        wrapper = OhlcvWrapper(window)
+        self.current_candle = wrapper.get_current_candle()
+        self.last_closed_candle = wrapper.get_last_closed_candle()
+        self.current_price = self.current_candle.close
 
         print(f"[DEBUG fetch_ohlcv] idx usado={self.current_index[symbol]} | último close retornado={self.candles[symbol][self.current_index[symbol]][4]}")
         return OhlcvFormat(OhlcvWrapper(window), OhlcvWrapper(window_higher))
     
     async def get_entry_price(self, symbol: str) -> float:
         idx = self.current_index[symbol]
-        return self.candles[symbol][idx + 1][4]
+        return self.current_candle.open
         #return self.current_price
 
     async def fetch_positions(self, params=None, **kwargs):
@@ -93,7 +101,7 @@ class ExchangeClientMock(ExchangeClient):
         return self.balance
     
     async def fetch_ticker(self, symbol):
-        return {"close": self.current_candle[4]}
+        return {"close": self.current_price}
 
     async def cancel_all_orders(self, symbol, params=None, **kwargs):
         pass
@@ -125,8 +133,8 @@ class ExchangeClientMock(ExchangeClient):
     
     async def open_new_position(self, symbol, leverage, signal, capital_amount, pair, sl, tp) -> (OpenedOrder | None) :
         idx = self.current_index[symbol]
-        price = self.candles[symbol][idx + 1][4]
-        print(f"CURRENT PRICE OPEN {price}")
+        price = self.last_closed_candle.close
+        print(f"CURRENT PRICE OPEN {price}", sl, tp)
 
         entry_amount = await self.calculate_entry_amount(price, capital_amount)
 
@@ -157,7 +165,7 @@ class ExchangeClientMock(ExchangeClient):
         self.trades.append({
             "type": "entry",
             "side": signal.value,
-            "index": idx + 1,
+            "index": idx,
             "price": price,
             "current_candle": self.current_candle,
             "sl": sl,
@@ -175,7 +183,8 @@ class ExchangeClientMock(ExchangeClient):
             return 0
 
         idx = self.current_index[pair]
-        close_price = self.candles[pair][idx + 1][4]
+        print("AQUIIII", self.current_candle)
+        close_price = self.last_closed_candle.close
 
         entry_price = pos['entryPrice']
         position_side = pos['side']
@@ -200,7 +209,7 @@ class ExchangeClientMock(ExchangeClient):
         self.trades.append({
             "type": "exit",
             "side": pos['side'],
-            "index": idx + 1,
+            "index": idx,
             "price": close_price,
             "pnl": pnl,
         })
@@ -414,22 +423,26 @@ class BacktestRunner:
         if params is not None:
             strategy.set_params(params)
 
-        for i in range(strategy.MIN_REQUIRED_CANDLES, len(self.ohlcv) - 1):
+        for i in range(strategy.MIN_REQUIRED_CANDLES, len(self.ohlcv)):
             #candles_slice = self.ohlcv[:i]  # candles até i-1 fechados
             current_candle = self.ohlcv[i]  # vela em que vais abrir posição no início
 
             exchange_client.update_candles(self.pair.symbol, current_candle, i)
 
-            await exchange_client.simulate_tp_sl(current_candle, self.pair.symbol)
+            if i > strategy.MIN_REQUIRED_CANDLES:
 
-            signal = await bot.run_pair(self.pair)
 
-            signals.append({'signal': signal, 'index': i})
+                await exchange_client.simulate_tp_sl(current_candle, self.pair.symbol)
 
-            #if i == 180:
+                signal = await bot.run_pair(self.pair)
+                #print("AQUIIII", current_candle)
+                signals.append({'signal': signal, 'index': i - 1, 'candle': current_candle})
+            
+
+            #if i == 100:
             #   break
 
-        #print(self.ohlcv)
+        #print(signals)
         if is_plot:
             PlotTrades.plot_trades(self.pair.symbol, self.ohlcv, signals, exchange_client.trades)
 
@@ -473,7 +486,7 @@ class BacktestRunner:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("BTC/USDC:USDC")
+    pair = get_pair_by_symbol("SOL/USDC:USDC")
 
     if pair != None:
 

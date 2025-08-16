@@ -51,7 +51,7 @@ class ExitLogicSignalBased:
             logging.info("🔁 Reversão: BUY > SELL → fechar SELL")
             await self._exit(pair.symbol, current_position.size, current_position.side)
             return True
-
+        
         return False
 
     

@@ -7,6 +7,7 @@ from commons.models.strategy_base_dclass import StrategyBase
 from commons.models.strategy_params_dclass import StrategyParams
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from strategies.ai_supertrend import AISuperTrend
+from strategies.ai_supertrend_strategy import AISuperTrendStrategy
 from strategies.combined import CombinedStrategy
 from strategies.ml_strategy import MLModelType, MLStrategy
 from strategies.supertrend import SuperTrend
@@ -29,7 +30,7 @@ class StrategyManager(StrategyBase):
 
     def _load_strategy(self):
         if self.name == StrategyEnum.AI_SUPERTREND:
-            self.strategy = AISuperTrend(self.exchange)
+            self.strategy = AISuperTrendStrategy(self.exchange)
         elif self.name == StrategyEnum.ML_XGBOOST:
             self.strategy = MLStrategy(self.exchange, MLModelType.XGBOOST)
         elif self.name == StrategyEnum.ML_MLP:

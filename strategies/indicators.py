@@ -53,7 +53,17 @@ class Indicators:
             return ema
         else:
             ema_series = self.EMAIndicator(close=self.df['close'], window=period).ema_indicator()
+            
             return ema_series.tolist()
+    def ema_array(self, values, period=21):
+        ema = []
+        k = 2 / (period + 1)
+        for i in range(len(values)):
+            if i < period:
+                ema.append(np.mean(values[:i+1]))
+            else:
+                ema.append(values[i]*k + ema[i-1]*(1-k))
+        return np.array(ema)
 
     def rsi(self, period=14):
         if self.mode == 'custom':

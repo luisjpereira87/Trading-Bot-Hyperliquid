@@ -2,6 +2,7 @@ import logging
 
 from commons.enums.signal_enum import Signal
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
+from strategies.ai_super_trend_utils import AISuperTrendUtils
 from strategies.indicators import Indicators
 from strategies.strategy_utils import StrategyUtils
 
@@ -16,28 +17,40 @@ class SignalStrategy:
         score_sell = 0.0
         weight_sum = 0.0
 
+        last_closed_candle = ohlcv.get_last_closed_candle()
+
+        supertrend, trend, upperband, lowerband, supertrend_smooth, trend_signal = AISuperTrendUtils(ohlcv).get_supertrend()
+
+        if trend_signal[last_closed_candle.idx] == Signal.BUY:
+            score_buy += 1
+        elif trend_signal[last_closed_candle.idx] == Signal.SELL:
+            score_sell += 1
+
+        """
         # 1. PSAR
         score_buy, score_sell, weight_sum = SignalStrategy.psar_score(ohlcv, score_buy, score_sell, weight_sum)
-
+        print(score_buy, score_sell)
         # 2. RSI and Stochastic
         score_buy, score_sell, weight_sum = SignalStrategy.rsi_stochastic_score(ohlcv, score_buy, score_sell, weight_sum)
-
+        print(score_buy, score_sell)
         # 3. EMA
-        score_buy, score_sell, weight_sum = SignalStrategy.ema_score(ohlcv, score_buy, score_sell, weight_sum)
-
+        #score_buy, score_sell, weight_sum = SignalStrategy.ema_score(ohlcv, score_buy, score_sell, weight_sum)
+        print(score_buy, score_sell)
         # 4. Candle body
-        score_buy, score_sell, weight_sum = SignalStrategy.candle_body_score(ohlcv, score_buy, score_sell, weight_sum)
-
+        #score_buy, score_sell, weight_sum = SignalStrategy.candle_body_score(ohlcv, score_buy, score_sell, weight_sum)
+        print(score_buy, score_sell)
         # 5. Lateral market
-        score_buy, score_sell, weight_sum = SignalStrategy.lateral_market_score(ohlcv, score_buy, score_sell, weight_sum)
-
+        #score_buy, score_sell, weight_sum = SignalStrategy.lateral_market_score(ohlcv, score_buy, score_sell, weight_sum)
+        print(score_buy, score_sell)
         # 6. Support and resistance
-        score_buy, score_sell, weight_sum = SignalStrategy.support_resistence_score(ohlcv, score_buy, score_sell, weight_sum)
-
+        #score_buy, score_sell, weight_sum = SignalStrategy.support_resistence_score(ohlcv, score_buy, score_sell, weight_sum)
+        print(score_buy, score_sell)
         # 7. Trend
         score_buy, score_sell, weight_sum = SignalStrategy.trend_strength_score(ohlcv, score_buy, score_sell, weight_sum)
+        print(score_buy, score_sell)
 
-        return score_buy / weight_sum, score_sell / weight_sum
+        """
+        return score_buy / 1, score_sell / 1
     
     @staticmethod  
     def psar_score(ohlcv: OhlcvWrapper, score_buy: float, score_sell: float, weight_sum: float, weight_point: float = 1) -> tuple[float, float, float]:
@@ -110,6 +123,7 @@ class SignalStrategy:
     
     @staticmethod  
     def support_resistence_score(ohlcv: OhlcvWrapper, score_buy: float, score_sell: float, weight_sum: float, weight_point: float = 1) -> tuple[float, float, float]:
+        print("RATIO", StrategyUtils.ratio_support_resistence(ohlcv))
         score_sell += weight_point * StrategyUtils.ratio_support_resistence(ohlcv)
         score_buy += weight_point * (1-StrategyUtils.ratio_support_resistence(ohlcv))
         

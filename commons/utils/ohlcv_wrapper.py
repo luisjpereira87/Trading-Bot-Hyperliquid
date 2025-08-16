@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import numpy as np
 
 from commons.models.ohlcv_type_dclass import Ohlcv
@@ -7,6 +9,7 @@ class OhlcvWrapper:
     def __init__(self, ohlcv):
         self.ohlcv = ohlcv
         self.timestamps = [c[0] for c in ohlcv]
+        self.dates = [datetime.fromtimestamp(c[0]/1000) for c in ohlcv]
         self.opens = [c[1] for c in ohlcv]
         self.highs = [c[2] for c in ohlcv]
         self.lows = [c[3] for c in ohlcv]
@@ -15,7 +18,7 @@ class OhlcvWrapper:
         self.raw = ohlcv
 
     def get_candle(self, index) -> Ohlcv:
-        return Ohlcv(self.timestamps[index], self.opens[index], self.highs[index], self.lows[index], self.closes[index], self.volumes[index], index)
+        return Ohlcv(self.timestamps[index], self.opens[index], self.highs[index], self.lows[index], self.closes[index], self.volumes[index], index, self.dates[index])
 
     
     def get_last_closed_candle(self) -> Ohlcv:
