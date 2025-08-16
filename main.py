@@ -14,7 +14,6 @@ from commons.utils.config_loader import load_pair_configs
 from machine_learning.ml_train_pipeline import MLTrainer
 from strategies.ml_strategy import MLModelType
 from strategies.strategy_manager import StrategyManager
-from tests.test_custom import TestCustom
 from trading_bot.bot import TradingBot
 from trading_bot.exchange_client import ExchangeClient
 
@@ -76,10 +75,6 @@ async def run_backtest():
     await backtestRunner.run() 
 """
 
-async def run_custom_test():
-    print("📊 A executar custom_test...")
-    testCustom = TestCustom()
-    await testCustom.run() 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
@@ -88,8 +83,6 @@ if __name__ == "__main__":
         comando = sys.argv[1].lower()
         if comando == "train":
             asyncio.run(run_train())
-        elif comando == "customtest":
-            asyncio.run(run_custom_test())
         else:
             print(f"❌ Comando desconhecido: {comando}")
             print("Usa: python main.py [treino | backtest]")

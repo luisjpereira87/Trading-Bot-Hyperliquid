@@ -429,14 +429,11 @@ class BacktestRunner:
 
             exchange_client.update_candles(self.pair.symbol, current_candle, i)
 
-            if i > strategy.MIN_REQUIRED_CANDLES:
+            await exchange_client.simulate_tp_sl(current_candle, self.pair.symbol)
 
-
-                await exchange_client.simulate_tp_sl(current_candle, self.pair.symbol)
-
-                signal = await bot.run_pair(self.pair)
-                #print("AQUIIII", current_candle)
-                signals.append({'signal': signal, 'index': i - 1, 'candle': current_candle})
+            signal = await bot.run_pair(self.pair)
+            #print("AQUIIII", current_candle)
+            signals.append({'signal': signal, 'index': i - 1, 'candle': current_candle})
             
 
             #if i == 100:
@@ -486,7 +483,7 @@ class BacktestRunner:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("SOL/USDC:USDC")
+    pair = get_pair_by_symbol("ETH/USDC:USDC")
 
     if pair != None:
 

@@ -1,10 +1,14 @@
 import logging
 
 from commons.enums.signal_enum import Signal
+from commons.utils.ai_supertrend.ai_super_trend_utils import AISuperTrendUtils
+from commons.utils.indicators.indicators_utils import IndicatorsUtils
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
-from strategies.ai_super_trend_utils import AISuperTrendUtils
-from strategies.indicators import Indicators
-from strategies.strategy_utils import StrategyUtils
+from commons.utils.strategies.momentum_utils import MomentumUtils
+from commons.utils.strategies.price_action_utils import PriceActionUtils
+from commons.utils.strategies.support_resistance_utils import \
+    SupportResistanceUtils
+from commons.utils.strategies.trend_utils import TrendUtils
 
 
 class SignalStrategy:
@@ -54,11 +58,11 @@ class SignalStrategy:
     
     @staticmethod  
     def psar_score(ohlcv: OhlcvWrapper, score_buy: float, score_sell: float, weight_sum: float, weight_point: float = 1) -> tuple[float, float, float]:
-        indicators = Indicators(ohlcv)
+        indicators = IndicatorsUtils(ohlcv)
 
         last_closed_candle = ohlcv.get_last_closed_candle()
 
-        indicators = Indicators(ohlcv)
+        indicators = IndicatorsUtils(ohlcv)
         psar_values = indicators.psar()  
         last_psar = psar_values[-2]
 
@@ -77,9 +81,9 @@ class SignalStrategy:
         
         last_closed_candle = ohlcv.get_last_closed_candle()
 
-        if StrategyUtils.is_stoch_oversold(ohlcv, last_closed_candle.idx) and StrategyUtils.is_rsi_oversold(ohlcv):
+        if MomentumUtils.is_stoch_oversold(ohlcv, last_closed_candle.idx) and MomentumUtils.is_rsi_oversold(ohlcv):
             score_buy += weight_point
-        elif StrategyUtils.is_stoch_overbought(ohlcv, last_closed_candle.idx) and StrategyUtils.is_rsi_overbought(ohlcv):
+        elif MomentumUtils.is_stoch_overbought(ohlcv, last_closed_candle.idx) and MomentumUtils.is_rsi_overbought(ohlcv):
             score_sell += weight_point
         
         weight_sum += weight_point
@@ -88,9 +92,9 @@ class SignalStrategy:
     
     @staticmethod  
     def ema_score(ohlcv: OhlcvWrapper, score_buy: float, score_sell: float, weight_sum: float, weight_point: float = 1) -> tuple[float, float, float]:
-        if StrategyUtils.ema_signal_strict(ohlcv) == Signal.BUY:
+        if MomentumUtils.ema_signal_strict(ohlcv) == Signal.BUY:
             score_buy += 1
-        elif StrategyUtils.ema_signal_strict(ohlcv) == Signal.SELL:
+        elif MomentumUtils.ema_signal_strict(ohlcv) == Signal.SELL:
             score_sell += 1 
         
         weight_sum += weight_point
@@ -99,9 +103,9 @@ class SignalStrategy:
     
     @staticmethod  
     def candle_body_score(ohlcv: OhlcvWrapper, score_buy: float, score_sell: float, weight_sum: float, weight_point: float = 1) -> tuple[float, float, float]:
-        if StrategyUtils.candle_body_signal(ohlcv)  == Signal.BUY:
+        if PriceActionUtils.candle_body_signal(ohlcv)  == Signal.BUY:
             score_buy += weight_point
-        elif StrategyUtils.candle_body_signal(ohlcv)  == Signal.SELL:
+        elif PriceActionUtils.candle_body_signal(ohlcv)  == Signal.SELL:
             score_sell += weight_point
         
         weight_sum += weight_point
@@ -110,7 +114,7 @@ class SignalStrategy:
     
     @staticmethod  
     def lateral_market_score(ohlcv: OhlcvWrapper, score_buy: float, score_sell: float, weight_sum: float, weight_point: float = 1) -> tuple[float, float, float]:
-        if StrategyUtils.is_market_sideways_strict(ohlcv):
+        if TrendUtils.is_market_sideways_strict(ohlcv):
             score_sell -= weight_point
             score_buy -= weight_point
         else:
@@ -123,9 +127,9 @@ class SignalStrategy:
     
     @staticmethod  
     def support_resistence_score(ohlcv: OhlcvWrapper, score_buy: float, score_sell: float, weight_sum: float, weight_point: float = 1) -> tuple[float, float, float]:
-        print("RATIO", StrategyUtils.ratio_support_resistence(ohlcv))
-        score_sell += weight_point * StrategyUtils.ratio_support_resistence(ohlcv)
-        score_buy += weight_point * (1-StrategyUtils.ratio_support_resistence(ohlcv))
+        print("RATIO", SupportResistanceUtils.ratio_support_resistence(ohlcv))
+        score_sell += weight_point * SupportResistanceUtils.ratio_support_resistence(ohlcv)
+        score_buy += weight_point * (1-SupportResistanceUtils.ratio_support_resistence(ohlcv))
         
         weight_sum += weight_point
 
@@ -133,9 +137,9 @@ class SignalStrategy:
     
     @staticmethod  
     def trend_strength_score(ohlcv: OhlcvWrapper, score_buy: float, score_sell: float, weight_sum: float, weight_point: float = 1) -> tuple[float, float, float]:
-        if StrategyUtils.trend_strength_signal(ohlcv) == Signal.BUY:
+        if TrendUtils.trend_strength_signal(ohlcv) == Signal.BUY:
             score_buy += weight_point
-        elif StrategyUtils.trend_strength_signal(ohlcv) == Signal.SELL:
+        elif TrendUtils.trend_strength_signal(ohlcv) == Signal.SELL:
             score_sell += weight_point
         
         weight_sum += weight_point

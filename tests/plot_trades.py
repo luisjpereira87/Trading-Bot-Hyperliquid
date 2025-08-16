@@ -17,10 +17,9 @@ if ROOT_PATH not in sys.path:
 
 from commons.enums.signal_enum import Signal
 from commons.enums.timeframe_enum import TimeframeEnum
+from commons.utils.ai_supertrend.ai_super_trend_utils import AISuperTrendUtils
 from commons.utils.config_loader import PairConfig, get_pair_by_symbol
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
-from strategies.ai_super_trend_utils import AISuperTrendUtils
-from strategies.indicators import Indicators
 
 
 class PlotTrades:

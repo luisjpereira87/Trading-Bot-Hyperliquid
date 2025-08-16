@@ -81,6 +81,8 @@ class TradingBot:
 
             signal = await self.strategy.get_signal()
 
+            logging.info(f"[DEBUG] signal: {signal}")
+
             await self.exchange_client.print_balance()
             await self.exchange_client.print_open_orders(symbol)
 

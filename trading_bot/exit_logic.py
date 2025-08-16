@@ -4,9 +4,9 @@ from commons.enums.signal_enum import Signal
 from commons.models.open_position_dclass import OpenPosition
 from commons.models.signal_result_dclass import SignalResult
 from commons.utils.config_loader import PairConfig
+from commons.utils.indicators.indicators_utils import IndicatorsUtils
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
-from strategies.indicators import Indicators
-from strategies.strategy_utils import StrategyUtils
+from commons.utils.strategies.price_action_utils import PriceActionUtils
 
 
 class ExitLogic:
@@ -42,7 +42,7 @@ class ExitLogic:
         if side is None:
             return False
         
-        indicators = Indicators(self.ohlcv)
+        indicators = IndicatorsUtils(self.ohlcv)
         atr = indicators.atr()
         atr_now = atr[-1]
 
@@ -97,7 +97,7 @@ class ExitLogic:
 
     def _should_exit_by_reversal(self, symbol: str, side: str) -> bool:
 
-        reversal_top, reversal_bottom = StrategyUtils.detect_reversal_pattern(self.ohlcv)
+        reversal_top, reversal_bottom = PriceActionUtils.detect_reversal_pattern(self.ohlcv)
         return (
             reversal_top if side == "buy"
             else reversal_bottom if side == "sell"
@@ -172,7 +172,7 @@ class ExitLogic:
 
         # Agora confirmar momentum/tendência:
         # Exemplo simples com indicadores (podes adaptar para o que tens)
-        indicators = Indicators(self.ohlcv)
+        indicators = IndicatorsUtils(self.ohlcv)
         rsi = indicators.rsi(period=14)[-1]
         adx = indicators.adx(period=14)[-1]
         curr_candle = self.ohlcv.get_recent_closed(lookback=1)[-1]

@@ -10,12 +10,13 @@ from commons.models.signal_result_dclass import SignalResult
 from commons.models.strategy_base_dclass import StrategyBase
 from commons.models.strategy_params_dclass import StrategyParams
 from commons.models.trade_snapashot_dclass import TradeSnapshot
+from commons.utils.indicators.indicators_utils import IndicatorsUtils
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
-from strategies.signal_strategy import SignalStrategy
-from strategies.strategy_utils import StrategyUtils
+from commons.utils.strategies.price_action_utils import PriceActionUtils
+from commons.utils.strategies.sl_tp_utils import SlTpUtils
+from commons.utils.strategies.trend_utils import TrendUtils
+from strategies.generic_strategy import SignalStrategy
 from trading_bot.exchange_client import ExchangeClient
-
-from .indicators import Indicators
 
 
 class AISuperTrend(StrategyBase):
@@ -50,7 +51,7 @@ class AISuperTrend(StrategyBase):
         self.penalty_confirmation_candle = 0.5
 
         #self.weights = StrategyUtils.equal_weights(["trend", "momentum", "oscillators", "structure"])
-        self.penalties = StrategyUtils.equal_weights(["exhaustion", "factor", "manipulation", "abnormal_volume"])
+        #self.penalties = StrategyUtils.equal_weights(["exhaustion", "factor", "manipulation", "abnormal_volume"])
 
    
         self.weights = {
@@ -145,7 +146,7 @@ class AISuperTrend(StrategyBase):
 
         #print(f"Last closed candle - ts: {last_closed.timestamp}, open: {last_closed.open}, high: {last_closed.high}, low: {last_closed.low}, close: {last_closed.close}, volume: {last_closed.volume}")
 
-        is_bearish_reversal, is_bullish_reversal = StrategyUtils.detect_reversal_pattern(self.ohlcv)
+        is_bearish_reversal, is_bullish_reversal = PriceActionUtils.detect_reversal_pattern(self.ohlcv)
 
 
 
@@ -200,7 +201,7 @@ class AISuperTrend(StrategyBase):
             return SignalResult(Signal.HOLD, None, None, hold_score, max(buy_score, sell_score), buy_score, sell_score, hold_score, None)
 
         try:
-            sl, tp = StrategyUtils.calculate_sl_tp_simple(
+            sl, tp = SlTpUtils.calculate_sl_tp_simple(
                         self.ohlcv,
                         self.price_ref,
                         signal
@@ -228,17 +229,17 @@ class AISuperTrend(StrategyBase):
             return None
 
 
-        indicators = Indicators(self.ohlcv)
+        indicators = IndicatorsUtils(self.ohlcv)
         rsi = indicators.rsi()[-1]
         stoch_k, stoch_d = indicators.stochastic()
         adx = indicators.adx()[-1]
         macd_line, macd_signal_line = indicators.macd()
         macd = macd_line[-1] - macd_signal_line[-1]
         cci = indicators.cci(20)[-1]
-        candle_type = StrategyUtils.get_candle_type(self.ohlcv.get_last_closed_candle())
+        candle_type = PriceActionUtils.get_candle_type(self.ohlcv.get_last_closed_candle())
         timestamp = self.ohlcv.get_last_closed_candle().timestamp
-        volume_ratio = StrategyUtils.calculate_volume_ratio(self.ohlcv)
-        atr_ratio = StrategyUtils.calculate_atr_ratio(self.ohlcv)
+        volume_ratio = TrendUtils.calculate_volume_ratio(self.ohlcv)
+        atr_ratio = TrendUtils.calculate_atr_ratio(self.ohlcv)
 
         return TradeSnapshot(
             symbol=self.symbol,

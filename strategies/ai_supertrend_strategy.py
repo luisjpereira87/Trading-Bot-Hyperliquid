@@ -1,9 +1,11 @@
+import logging
+
 from commons.enums.signal_enum import Signal
 from commons.models.signal_result_dclass import SignalResult
 from commons.models.strategy_base_dclass import StrategyBase
 from commons.models.strategy_params_dclass import StrategyParams
+from commons.utils.ai_supertrend.ai_super_trend_utils import AISuperTrendUtils
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
-from strategies.ai_super_trend_utils import AISuperTrendUtils
 from trading_bot.exchange_client import ExchangeClient
 
 
@@ -33,7 +35,7 @@ class AISuperTrendStrategy(StrategyBase):
         self.ohlcv_higher = ohlcv_higher
 
     async def get_signal(self) -> SignalResult:
-        
+
         last_closed_candle = self.ohlcv.get_last_closed_candle()
         supertrend, trend, upperband, lowerband, supertrend_smooth, trend_signal = AISuperTrendUtils(self.ohlcv).get_supertrend()
         signal = trend_signal[-2]

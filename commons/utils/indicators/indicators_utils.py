@@ -4,7 +4,7 @@ import pandas as pd
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 
 
-class Indicators:
+class IndicatorsUtils:
     def __init__(self, ohlcv: OhlcvWrapper, mode='ta'):
         """
         ohlcv: lista de velas, onde cada vela é [timestamp, open, high, low, close, volume]
