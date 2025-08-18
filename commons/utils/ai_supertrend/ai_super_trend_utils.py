@@ -114,6 +114,7 @@ class AISuperTrendUtils:
                     supertrend[i] = final_upperband[i]
                     trend_count = 0
 
+        """
         # gerar sinais
         rel_threshold = 0.005
         trend_signal = [Signal.HOLD] * n
@@ -131,6 +132,68 @@ class AISuperTrendUtils:
             elif trend[i - 2] == 1 and trend[i - 1] == -1 and trend[i] == -1:
                 if closes[i - 1] < final_upperband[i - 1]:
                     trend_signal[i - 1] = Signal.SELL
+        """
+        """
+        trend_signal = [Signal.HOLD] * n
+        window = 4
+        proximity_threshold = 0.004  # 2% de margem, podes afinar
+
+        for i in range(window-1, n):
+            last_trends = trend[i-window+1:i+1]   # últimos 4 valores
+            price = closes[i]
+
+            # distância relativa às bandas
+            dist_upper = abs(price - final_upperband[i]) / price
+            dist_lower = abs(price - final_lowerband[i]) / price
+
+            if sum(last_trends) > 0 and trend[i] == 1:  # tendência para cima
+                if price > final_lowerband[i] and dist_upper > proximity_threshold:
+                    trend_signal[i] = Signal.BUY
+
+            elif sum(last_trends) < 0 and trend[i] == -1:  # tendência para baixo
+                if price < final_upperband[i] and dist_lower > proximity_threshold:
+                    trend_signal[i] = Signal.SELL
+        """
+        """
+        trend_signal = [Signal.HOLD] * n
+        proximity = 0.35  # 20% da largura das bandas
+        window = 2
+        slope_threshold = 0.0005  # inclinação mínima para validar tendência
+
+        for i in range(window-1, n):
+            band_range = final_upperband[i] - final_lowerband[i]
+            if band_range <= 0:
+                continue
+
+            dist_to_lower = closes[i] - final_lowerband[i]
+            dist_to_upper = final_upperband[i] - closes[i]
+
+            # maioria da tendência nos últimos 3 candles
+            last_trends = trend[i-window+1:i+1]
+            majority = 1 if sum(last_trends) > 0 else -1
+
+            # inclinação média dos últimos candles (pode usar close ou banda)
+            slope_avg = (closes[i] - closes[i-window+1]) / window
+
+            # BUY se maioria bullish, preço perto da banda inferior e inclinação positiva
+            if majority == 1 and dist_to_lower <= proximity * band_range and slope_avg > slope_threshold:
+                trend_signal[i] = Signal.BUY
+
+            # SELL se maioria bearish, preço perto da banda superior e inclinação negativa
+            elif majority == -1 and dist_to_upper <= proximity * band_range and slope_avg < -slope_threshold:
+                trend_signal[i] = Signal.SELL
+        """
+
+        trend_signal = [Signal.HOLD] * n
+
+        for i in range(1, n):
+            # BUY: o candle fecha acima da banda superior, indicando mudança de tendência para alta
+            if closes[i-1] <= final_upperband[i-1] and closes[i] > final_upperband[i]:
+                trend_signal[i] = Signal.BUY
+
+            # SELL: o candle fecha abaixo da banda inferior, indicando mudança de tendência para baixa
+            elif closes[i-1] >= final_lowerband[i-1] and closes[i] < final_lowerband[i]:
+                trend_signal[i] = Signal.SELL
 
         supertrend_smooth = self.indicators.ema_array(supertrend, smooth_period)
 

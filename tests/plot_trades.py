@@ -240,7 +240,7 @@ class PlotTrades:
                         fontsize=9,
                         ha='center',
                         va='top',           # alinhado pelo topo do texto
-                        color=color,
+                        color='green',
                         bbox=dict(facecolor='white', alpha=0.6, boxstyle='round,pad=0.2'),
                         zorder=6
                     )
@@ -255,7 +255,7 @@ class PlotTrades:
                         fontsize=9,
                         ha='center',
                         va='top',           # alinhado pelo topo do texto
-                        color=color,
+                        color='red',
                         bbox=dict(facecolor='white', alpha=0.6, boxstyle='round,pad=0.2'),
                         zorder=6
                     )
@@ -352,11 +352,11 @@ class PlotTrades:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("SOL/USDC:USDC")
+    pair = get_pair_by_symbol("ETH/USDC:USDC")
 
     if pair:
 
-        ohlcv = await PlotTrades.get_historical_ohlcv(pair, TimeframeEnum.M15, 250)
+        ohlcv = await PlotTrades.get_historical_ohlcv(pair, TimeframeEnum.M15, 650)
 
         PlotTrades.plot_supertrend_with_signals(ohlcv, pair.symbol)
 

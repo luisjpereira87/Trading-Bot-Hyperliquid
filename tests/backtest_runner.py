@@ -432,7 +432,7 @@ class BacktestRunner:
             await exchange_client.simulate_tp_sl(current_candle, self.pair.symbol)
 
             signal = await bot.run_pair(self.pair)
-            #print("AQUIIII", current_candle)
+            print("AQUIIII", signal)
             signals.append({'signal': signal, 'index': i - 1, 'candle': current_candle})
             
 
@@ -483,7 +483,7 @@ class BacktestRunner:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("ETH/USDC:USDC")
+    pair = get_pair_by_symbol("BTC/USDC:USDC")
 
     if pair != None:
 
