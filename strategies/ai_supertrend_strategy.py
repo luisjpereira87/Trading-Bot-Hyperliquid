@@ -7,6 +7,8 @@ from commons.models.strategy_params_dclass import StrategyParams
 from commons.utils.ai_supertrend.ai_super_trend_utils import AISuperTrendUtils
 from commons.utils.indicators.indicators_utils import IndicatorsUtils
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
+from commons.utils.strategies.support_resistance_utils import \
+    SupportResistanceUtils
 from trading_bot.exchange_client import ExchangeClient
 
 
@@ -41,22 +43,60 @@ class AISuperTrendStrategy(StrategyBase):
         supertrend, trend, upperband, lowerband, supertrend_smooth, trend_signal = AISuperTrendUtils(self.ohlcv).get_supertrend()
         signal = trend_signal[-1]
 
+        atr = IndicatorsUtils(self.ohlcv).atr(14)
+        tolerance = 0.005  # 0.5% de margem
+        resistance_levels, support_levels = SupportResistanceUtils.detect_multiple_support_resistance(self.ohlcv)
+        closes = self.ohlcv.closes
+        highs = self.ohlcv.highs
+        lows = self.ohlcv.lows
+        tolerance = atr[-1] / closes[-1]  # converte ATR em percentagem relativa ao preço
+
+
         if signal == Signal.BUY:
 
             #sl, tp = self.calculate_sl_tp_with_risk(signal, lowerband[-1], upperband[-1], self.price_ref)
 
-            sl = lowerband[-1]
-            tp = upperband[-1]
-            tp = self.price_ref + (upperband[-1] - lowerband[-1])
+            #sl = lowerband[-1]
+            #tp = upperband[-1]
+            #tp = self.price_ref + (upperband[-1] - lowerband[-1])
+            
+            nearest_res = min([r for r in resistance_levels if r > closes[-1]], default=None)
+            if nearest_res:
+                sl = lows[-1] - 0.5 * atr[-1]   # SL com margem de 0.5x ATR abaixo do candle
+                #sl = self.ohlcv.lows[-1] - (self.ohlcv.highs[-1] - self.ohlcv.lows[-1]) * 0.25
+                nearest_res *= (1 - tolerance)
+                tp = nearest_res
+            else:
+                sl = lowerband[-1]
+                tp = self.price_ref + (upperband[-1] - lowerband[-1])
+                #tp = upperband[-1]
 
         elif signal == Signal.SELL:
-            sl = upperband[-1]
-            tp = lowerband[-1]
-            tp = self.price_ref - (upperband[-1] - lowerband[-1])
+            #sl = upperband[-1]
+            #tp = lowerband[-1]
+            #tp = self.price_ref - (upperband[-1] - lowerband[-1])
             #sl, tp = self.calculate_sl_tp_with_risk(signal, lowerband[-1], upperband[-1], self.price_ref)
+
+            nearest_sup = max([s for s in support_levels if s < closes[-1]], default=None)
+            if nearest_sup:
+                sl = highs[-1] + 0.5 * atr[-1]  # SL com margem de 0.5x ATR acima do candle
+                #sl = self.ohlcv.lows[-1] + (self.ohlcv.highs[-1] - self.ohlcv.lows[-1]) * 0.25
+                nearest_sup *= (1 + tolerance)
+                tp = nearest_sup
+            else:
+                sl = upperband[-1]
+                tp = self.price_ref - (upperband[-1] - lowerband[-1])
+                #tp = lowerband[-1]
+
+            
 
         else:
             return SignalResult(Signal.HOLD, None, None, None, 0)
+        
+        if (tp - self.price_ref) / self.price_ref < 0.002 or tp <= self.price_ref:
+            #raise ValueError(f"TP demasiado próximo do preço de entrada: {tp} vs {self.price_ref}")
+            logging.info(f"TP demasiado próximo do preço de entrada: {tp} vs {self.price_ref}")
+            return SignalResult(signal, sl, tp, None, 0, 0, 0, 0,  None)
         
         return SignalResult(signal, sl, tp, None, 0, 0, 0, 0,  None)
     

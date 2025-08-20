@@ -5,6 +5,8 @@ import numpy as np
 from commons.enums.signal_enum import Signal
 from commons.utils.indicators.indicators_utils import IndicatorsUtils
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
+from commons.utils.strategies.support_resistance_utils import \
+    SupportResistanceUtils
 
 
 class AISuperTrendUtils:
@@ -184,6 +186,7 @@ class AISuperTrendUtils:
                 trend_signal[i] = Signal.SELL
         """
 
+       
         trend_signal = [Signal.HOLD] * n
 
         for i in range(1, n):
@@ -194,7 +197,28 @@ class AISuperTrendUtils:
             # SELL: o candle fecha abaixo da banda inferior, indicando mudança de tendência para baixa
             elif closes[i-1] >= final_lowerband[i-1] and closes[i] < final_lowerband[i]:
                 trend_signal[i] = Signal.SELL
+        """
 
+ 
+        trend_signal = [Signal.HOLD] * n
+        ema = self.indicators.ema(21)
+        resistance_levels, support_levels = SupportResistanceUtils.detect_multiple_support_resistance(self.ohlcv)
+        for i in range(1, n):
+            signal = Signal.HOLD
+
+            # BUY
+            if closes[i-1] <= final_upperband[i-1] and closes[i] > final_upperband[i]:
+                if closes[i] < min(resistance_levels, default=float('inf')):
+                    signal = Signal.BUY
+
+            # SELL
+            elif closes[i-1] >= final_lowerband[i-1] and closes[i] < final_lowerband[i]:
+                # preço ainda acima do suporte mais baixo
+                if closes[i] > min(support_levels, default=float('-inf')):
+                    signal = Signal.SELL
+
+            trend_signal[i] = signal
+         """
         supertrend_smooth = self.indicators.ema_array(supertrend, smooth_period)
 
         return supertrend, trend, final_upperband, final_lowerband, supertrend_smooth, trend_signal
