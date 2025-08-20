@@ -94,9 +94,8 @@ class AISuperTrendStrategy(StrategyBase):
             return SignalResult(Signal.HOLD, None, None, None, 0)
         
         if (tp - self.price_ref) / self.price_ref < 0.002 or tp <= self.price_ref:
-            #raise ValueError(f"TP demasiado próximo do preço de entrada: {tp} vs {self.price_ref}")
             logging.info(f"TP demasiado próximo do preço de entrada: {tp} vs {self.price_ref}")
-            return SignalResult(signal, sl, tp, None, 0, 0, 0, 0,  None)
+            return SignalResult(Signal.HOLD, None, None, None, 0)
         
         return SignalResult(signal, sl, tp, None, 0, 0, 0, 0,  None)
     
