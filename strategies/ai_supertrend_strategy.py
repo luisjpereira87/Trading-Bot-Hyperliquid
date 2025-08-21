@@ -71,6 +71,10 @@ class AISuperTrendStrategy(StrategyBase):
                 tp = self.price_ref + (upperband[-1] - lowerband[-1])
                 #tp = upperband[-1]
 
+            if (tp - self.price_ref) / self.price_ref < 0.002 or tp <= self.price_ref:
+                logging.info(f"TP demasiado próximo do preço de entrada (BUY): {tp} vs {self.price_ref}")
+                return SignalResult(Signal.HOLD, None, None, None, 0)
+
         elif signal == Signal.SELL:
             #sl = upperband[-1]
             #tp = lowerband[-1]
@@ -88,13 +92,10 @@ class AISuperTrendStrategy(StrategyBase):
                 tp = self.price_ref - (upperband[-1] - lowerband[-1])
                 #tp = lowerband[-1]
 
-            
-
+            if (self.price_ref - tp) / self.price_ref < 0.002 or tp >= self.price_ref:
+                logging.info(f"TP demasiado próximo do preço de entrada (SELL): {tp} vs {self.price_ref}")
+                return SignalResult(Signal.HOLD, None, None, None, 0)
         else:
-            return SignalResult(Signal.HOLD, None, None, None, 0)
-        
-        if (tp - self.price_ref) / self.price_ref < 0.002 or tp <= self.price_ref:
-            logging.info(f"TP demasiado próximo do preço de entrada: {tp} vs {self.price_ref}")
             return SignalResult(Signal.HOLD, None, None, None, 0)
         
         return SignalResult(signal, sl, tp, None, 0, 0, 0, 0,  None)
