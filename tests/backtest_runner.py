@@ -159,7 +159,7 @@ class ExchangeClientMock(ExchangeClient):
         entries_count = sum(1 for t in self.trades if t['type'] == 'entry')
         exits_count = sum(1 for t in self.trades if t['type'] == 'exit')
         if  entries_count > exits_count:
-            await self.close_position(pair, size, signal)
+            await self.__close_position(self.last_closed_candle, pair, size, signal)
 
 
         self.trades.append({
@@ -172,19 +172,21 @@ class ExchangeClientMock(ExchangeClient):
             "tp": tp,
         })
 
+        await self.simulate_tp_sl(self.current_candle, self.pair.symbol)
+        #await self.__close_position(self.current_candle, pair, size, signal)
+
         logging.info(f"OPEN {signal.value} {symbol} entry_amount={entry_amount} idx={idx} size={size:.4f} price={price:.2f}, sl={sl} tp={tp}")
         
         return OpenedOrder(str(idx), None, None, None, symbol, "entry", signal.value, price, size, False, None)
 
-    async def close_position(self, pair, size, side: Signal):
+    async def __close_position(self, candle: Ohlcv, pair, size, side: Signal):
         pos = self.positions.get(pair)
         if not pos:
             logging.warning(f"Tentou fechar posição que não existe: {pair}")
             return 0
 
         idx = self.current_index[pair]
-        print("AQUIIII", self.current_candle)
-        close_price = self.last_closed_candle.close
+        close_price = candle.close
 
         entry_price = pos['entryPrice']
         position_side = pos['side']
@@ -230,6 +232,9 @@ class ExchangeClientMock(ExchangeClient):
         logging.info(f"CLOSE {side} {pair} size={size:.4f} idx={idx} entry={entry_price:.2f} close={close_price:.2f} "
                  f"PnL={pnl:.2f} (gross: {gross_pnl:.2f}, fees: {total_fees:.4f})")
         return pnl
+
+    async def close_position(self, pair, size, side: Signal):
+       return await self.__close_position(self.last_closed_candle, pair, size, side)
     
     async def fetch_closed_orders(self, symbol=None, limit=50) -> List[ClosedOrder]:
         return self.closed_orders
@@ -257,7 +262,7 @@ class ExchangeClientMock(ExchangeClient):
         else:        
             print(f"⚠️ Nenhuma SL encontrada para modificar em {symbol} com entry_id {entry_id}")
     
-    async def simulate_tp_sl(self, candle, symbol):
+    async def simulate_tp_sl(self, candle: Ohlcv, symbol):
 
         position = self.positions.get(symbol)
         
@@ -269,8 +274,8 @@ class ExchangeClientMock(ExchangeClient):
             pair = position["pair"].symbol
             size = position["size"]
 
-            low = candle[2]
-            high = candle[3]
+            low = candle.low
+            high = candle.high
 
             if side == "buy":
                 hit_sl = sl is not None and low <= sl
@@ -279,13 +284,13 @@ class ExchangeClientMock(ExchangeClient):
                 if hit_tp and hit_sl:
                     # Decide prioridade (ex: assume SL primeiro)
                     print(f"Candle ambíguo BUY: SL e TP atingidos. Prioridade ao SL.")
-                    await self.close_position(pair, size, Signal.BUY)
+                    await self.__close_position(candle, pair, size, Signal.BUY)
                 elif hit_sl:
                     print(f"close buy SL {low} {sl}")
-                    await self.close_position(pair, size, Signal.BUY)
+                    await self.__close_position(candle, pair, size, Signal.BUY)
                 elif hit_tp:
                     print(f"close buy TP {high} {tp}")
-                    await self.close_position(pair, size, Signal.BUY)
+                    await self.__close_position(candle, pair, size, Signal.BUY)
 
                 return candle
 
@@ -295,13 +300,13 @@ class ExchangeClientMock(ExchangeClient):
 
                 if hit_tp and hit_sl:
                     print(f"Candle ambíguo SELL: SL e TP atingidos. Prioridade ao SL.")
-                    await self.close_position(pair, size, Signal.SELL)
+                    await self.__close_position(candle, pair, size, Signal.SELL)
                 elif hit_sl:
                     print(f"close sell SL {high} {sl}")
-                    await self.close_position(pair, size, Signal.SELL)
+                    await self.__close_position(candle, pair, size, Signal.SELL)
                 elif hit_tp:
                     print(f"close sell TP {low} {tp}")
-                    await self.close_position(pair, size, Signal.SELL)
+                    await self.__close_position(candle, pair, size, Signal.SELL)
                 return candle
         
 
@@ -428,14 +433,14 @@ class BacktestRunner:
             current_candle = self.ohlcv[i]  # vela em que vais abrir posição no início
 
             exchange_client.update_candles(self.pair.symbol, current_candle, i)
-
-            await exchange_client.simulate_tp_sl(current_candle, self.pair.symbol)
+            
+            await exchange_client.simulate_tp_sl(OhlcvWrapper(self.ohlcv).get_candle(i), self.pair.symbol)
 
             signal = await bot.run_pair(self.pair)
             signals.append({'signal': signal, 'index': i - 1, 'candle': current_candle})
             
 
-            #if i == 100:
+            #if i == 170:
             #   break
 
         #print(signals)
@@ -482,7 +487,7 @@ class BacktestRunner:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("ETH/USDC:USDC")
+    pair = get_pair_by_symbol("BTC/USDC:USDC")
 
     if pair != None:
 

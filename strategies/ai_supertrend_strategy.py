@@ -7,6 +7,7 @@ from commons.models.strategy_params_dclass import StrategyParams
 from commons.utils.ai_supertrend.ai_super_trend_utils import AISuperTrendUtils
 from commons.utils.indicators.indicators_utils import IndicatorsUtils
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
+from commons.utils.strategies.risk_utils import RiskUtils
 from commons.utils.strategies.support_resistance_utils import \
     SupportResistanceUtils
 from trading_bot.exchange_client import ExchangeClient
@@ -50,81 +51,46 @@ class AISuperTrendStrategy(StrategyBase):
         highs = self.ohlcv.highs
         lows = self.ohlcv.lows
         tolerance = atr[-1] / closes[-1]  # converte ATR em percentagem relativa ao preço
-
+        sl = tp = 0.0
 
         if signal == Signal.BUY:
-
-            #sl, tp = self.calculate_sl_tp_with_risk(signal, lowerband[-1], upperband[-1], self.price_ref)
-
-            #sl = lowerband[-1]
-            #tp = upperband[-1]
-            #tp = self.price_ref + (upperband[-1] - lowerband[-1])
             
             nearest_res = min([r for r in resistance_levels if r > closes[-1]], default=None)
             if nearest_res:
                 sl = lows[-1] - 0.5 * atr[-1]   # SL com margem de 0.5x ATR abaixo do candle
                 #sl = self.ohlcv.lows[-1] - (self.ohlcv.highs[-1] - self.ohlcv.lows[-1]) * 0.25
                 nearest_res *= (1 - tolerance)
-                tp = nearest_res
+                tp = min(nearest_res, upperband[-1], highs[-1])
             else:
                 sl = lowerband[-1]
-                tp = self.price_ref + (upperband[-1] - lowerband[-1])
-                #tp = upperband[-1]
+                tp = upperband[-1]
+                #tp = self.price_ref + (upperband[-1] - lowerband[-1])
 
-            if (tp - self.price_ref) / self.price_ref < 0.002 or tp <= self.price_ref:
-                logging.info(f"TP demasiado próximo do preço de entrada (BUY): {tp} vs {self.price_ref}")
+            sl, tp = RiskUtils.adjust_sl_tp(signal, sl, tp, self.price_ref, atr[-1], support_levels, resistance_levels)
+            if tp is None:
+                logging.info(f"TP demasiado próximo do preço de entrada ({signal.value}): {tp} vs {self.price_ref}")
                 return SignalResult(Signal.HOLD, None, None, None, 0)
 
         elif signal == Signal.SELL:
-            #sl = upperband[-1]
-            #tp = lowerband[-1]
-            #tp = self.price_ref - (upperband[-1] - lowerband[-1])
-            #sl, tp = self.calculate_sl_tp_with_risk(signal, lowerband[-1], upperband[-1], self.price_ref)
 
             nearest_sup = max([s for s in support_levels if s < closes[-1]], default=None)
             if nearest_sup:
                 sl = highs[-1] + 0.5 * atr[-1]  # SL com margem de 0.5x ATR acima do candle
                 #sl = self.ohlcv.lows[-1] + (self.ohlcv.highs[-1] - self.ohlcv.lows[-1]) * 0.25
                 nearest_sup *= (1 + tolerance)
-                tp = nearest_sup
+                tp = max(nearest_sup, lowerband[-1], lows[-1])
             else:
                 sl = upperband[-1]
-                tp = self.price_ref - (upperband[-1] - lowerband[-1])
-                #tp = lowerband[-1]
+                tp = lowerband[-1]
+                #tp = self.price_ref - (upperband[-1] - lowerband[-1])
 
-            if (self.price_ref - tp) / self.price_ref < 0.002 or tp >= self.price_ref:
-                logging.info(f"TP demasiado próximo do preço de entrada (SELL): {tp} vs {self.price_ref}")
+            sl, tp = RiskUtils.adjust_sl_tp(signal, sl, tp, self.price_ref, atr[-1], support_levels, resistance_levels)
+            if tp is None:
+                logging.info(f"TP demasiado próximo do preço de entrada ({signal.value}): {tp} vs {self.price_ref}")
                 return SignalResult(Signal.HOLD, None, None, None, 0)
+
         else:
             return SignalResult(Signal.HOLD, None, None, None, 0)
         
         return SignalResult(signal, sl, tp, None, 0, 0, 0, 0,  None)
-    
-    def calculate_sl_tp_with_risk(self, signal: Signal, band_lower, band_upper, entry_price, margin_pct=0.001, risk_multiplier=2):
-        """
-        Calcula SL e TP usando bandas como referência, mas ajustando o TP pelo risco.
-        
-        :param signal: Signal.BUY ou Signal.SELL
-        :param band_lower: banda inferior
-        :param band_upper: banda superior
-        :param entry_price: preço de entrada
-        :param margin_pct: margem mínima intra-candle
-        :param risk_multiplier: multiplica o risco (distância até SL) para definir TP
-        :return: sl, tp
-        """
-        if signal == Signal.BUY:
-            sl = band_lower - band_lower * margin_pct  # SL abaixo da banda
-            risk = entry_price - sl
-            tp = entry_price + risk * risk_multiplier
-            # garante que o TP não ultrapassa a banda superior
-            tp = min(tp, band_upper + band_upper * margin_pct)
-
-        elif signal == Signal.SELL:
-            sl = band_upper + band_upper * margin_pct  # SL acima da banda
-            risk = sl - entry_price
-            tp = entry_price - risk * risk_multiplier
-            # garante que o TP não ultrapassa a banda inferior
-            tp = max(tp, band_lower - band_lower * margin_pct)
-
-        return sl, tp
     
