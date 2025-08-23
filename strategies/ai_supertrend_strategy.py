@@ -45,13 +45,13 @@ class AISuperTrendStrategy(StrategyBase):
         #signal = trend_signal[-1]
         atr = IndicatorsUtils(self.ohlcv).atr(14)
 
-        signal = trend_signal[-2]
+        signal = trend_signal[-1]
         close = last_closed_candle.close
         high = last_closed_candle.high
         low = last_closed_candle.low
-        atr_val = atr[-2]
-        ub = upperband[-2]
-        lb = lowerband[-2]
+        atr_val = atr[-1]
+        ub = upperband[-1]
+        lb = lowerband[-1]
 
         
         tolerance = 0.005  # 0.5% de margem
