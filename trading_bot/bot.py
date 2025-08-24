@@ -74,6 +74,13 @@ class TradingBot:
             ts = datetime.fromtimestamp(last_closed.timestamp / 1000).astimezone(pytz.timezone('Europe/Lisbon'))
             logging.info(f"✅ Último candle fechado usado para {symbol}: {ts.strftime('%Y-%m-%d %H:%M:%S')}")
 
+
+            ts1 = datetime.fromtimestamp(ohlcv.raw[-1][0] / 1000).astimezone(pytz.timezone('Europe/Lisbon'))
+            ts2 = datetime.fromtimestamp(ohlcv.raw[-2][0] / 1000).astimezone(pytz.timezone('Europe/Lisbon'))
+
+            print("ULTIMO CANDLE", {ts1.strftime('%Y-%m-%d %H:%M:%S')})
+            print("PENULTIMO CANDLE", {ts2.strftime('%Y-%m-%d %H:%M:%S')})
+
             price_ref = await self.exchange_client.get_entry_price(symbol)
             logging.info(f"[DEBUG] Current price: {price_ref}")
 

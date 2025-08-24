@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import List
 
 from commons.enums.exit_type_enum import ExitTypeEnum
@@ -22,23 +23,104 @@ class ExchangeClient:
         #self.leverage = leverage
         self.helpers = TradingHelpers()
 
-    async def fetch_ohlcv(self, symbol: str, timeframe: TimeframeEnum = TimeframeEnum.M15, limit: int = 14, is_higher: bool = False) -> OhlcvFormat:
+    async def fetch_ohlcv(
+        self,
+        symbol: str,
+        timeframe: TimeframeEnum = TimeframeEnum.M15,
+        limit: int = 14,
+        is_higher: bool = False
+    ) -> OhlcvFormat:
         try:
             # Fetch timeframe principal
-            ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe.value, limit)
-            
+            ohlcv_data = await self.exchange.fetch_ohlcv(symbol, timeframe.value, limit)
+
+            # Timestamp esperado do último candle fechado
+            expected_timestamp = self.get_expected_timestamp(timeframe)
+
+            if ohlcv_data:
+                last_ts = ohlcv_data[-1][0]
+
+                if last_ts < expected_timestamp:
+                    logging.debug(
+                        f"[{symbol}] Candle em falta ({timeframe.value}) "
+                        f"(expected={expected_timestamp}, last={last_ts}). "
+                        f"Adicionando placeholder..."
+                    )
+
+                    # Remove o mais antigo
+                    ohlcv_data.pop(0)
+
+                    # Preço atual como referência
+                    current_price = await self.get_entry_price(symbol)
+
+                    # Adiciona candle "em falta"
+                    ohlcv_data.append([
+                        expected_timestamp,
+                        current_price,  # open
+                        current_price,  # high
+                        current_price,  # low
+                        current_price,  # close
+                        0.0             # volume (placeholder)
+                    ])
+
+                    logging.debug(
+                        f"[{symbol}] Placeholder adicionado "
+                        f"(ts={expected_timestamp}, price={current_price})"
+                    )
+
+                elif last_ts > expected_timestamp:
+                    logging.debug(
+                        f"[{symbol}] Exchange devolveu candle futuro "
+                        f"(last={last_ts}, expected={expected_timestamp}). Ignorado."
+                    )
+
             # Fetch timeframe maior, se necessário
-            ohlcv_higher = []
+            ohlcv_higher_data = []
             if is_higher:
                 higher_tf = timeframe.get_higher()
-                ohlcv_higher = await self.exchange.fetch_ohlcv(symbol, higher_tf.value, limit)
+                ohlcv_higher_data = await self.exchange.fetch_ohlcv(symbol, higher_tf.value, limit)
 
-            
-            return OhlcvFormat(OhlcvWrapper(ohlcv), OhlcvWrapper(ohlcv_higher))
-        
+            return OhlcvFormat(
+                OhlcvWrapper(ohlcv_data),
+                OhlcvWrapper(ohlcv_higher_data)
+            )
+
         except Exception as e:
             logging.error(f"[{symbol}] Erro ao buscar os candles ({timeframe.value}): {e}")
             raise
+
+    def get_expected_timestamp(self, timeframe: TimeframeEnum) -> int:
+        """
+        Retorna o timestamp em ms do ÚLTIMO candle FECHADO para o timeframe fornecido.
+        """
+        now = datetime.now(timezone.utc)
+
+        # Define duração do candle em minutos
+        tf_minutes = {
+            TimeframeEnum.M1: 1,
+            TimeframeEnum.M5: 5,
+            TimeframeEnum.M15: 15,
+            TimeframeEnum.M30: 30,
+            TimeframeEnum.H1: 60,
+            TimeframeEnum.H4: 240,
+            TimeframeEnum.D1: 1440
+        }.get(timeframe, 15)  # default 15 min
+
+        # Quantos minutos já se passaram desde o início da hora
+        minutes_passed = now.minute % tf_minutes
+        seconds_passed = now.second
+        microseconds_passed = now.microsecond
+
+        # O último fechado é "agora" menos o tempo decorrido no candle atual
+        delta = timedelta(
+            minutes=minutes_passed,
+            seconds=seconds_passed,
+            microseconds=microseconds_passed
+        )
+        last_candle_time = now - delta
+
+        # Retorna timestamp em ms
+        return int(last_candle_time.timestamp() * 1000)
 
     async def get_available_balance(self) -> float:
         try:
