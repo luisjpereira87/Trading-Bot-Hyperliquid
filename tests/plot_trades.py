@@ -157,7 +157,7 @@ class PlotTrades:
         closes = ohlcv.closes
 
         # Obter todos os arrays do SuperTrend
-        supertrend, trend, upperband, lowerband, supertrend_smooth, trend_signal = AISuperTrendUtils(ohlcv).get_supertrend()
+        supertrend, trend, upperband, lowerband, supertrend_smooth, trend_signal, trend_signal_filtered = AISuperTrendUtils(ohlcv).get_supertrend()
 
         fig, ax = plt.subplots(figsize=(15, 7))
         ax.set_title(f"Backtest Trades - {symbol}")
@@ -208,7 +208,7 @@ class PlotTrades:
         closes = ohlcv.closes
 
         # Obter todos os arrays do SuperTrend
-        supertrend, trend, upperband, lowerband, supertrend_smooth, trend_signal = AISuperTrendUtils(ohlcv).get_supertrend()
+        supertrend, trend, upperband, lowerband, supertrend_smooth, trend_signal, trend_signal_filtered = AISuperTrendUtils(ohlcv).get_supertrend()
 
         fig, ax = plt.subplots(figsize=(18, 7))
         ax.set_title(f"Backtest Trades - {symbol}")
@@ -266,44 +266,15 @@ class PlotTrades:
         ax.plot(dates, st_up, color='blue', label='SuperTrend Up', linewidth=2)
         ax.plot(dates, st_down, color='orange', label='SuperTrend Down', linewidth=2)
 
-        #print("st_up",st_up)
-        #print("st_down",st_down)
-        #print("supertrend_smooth",supertrend_smooth)
-
         # UpperBand / LowerBand
         ax.plot(dates, upperband, color='purple', linestyle='--', label='Upper Band', alpha=0.7)
         ax.plot(dates, lowerband, color='brown', linestyle='--', label='Lower Band', alpha=0.7)
+
+         # EMA 21
+        ema21 = AISuperTrendUtils(ohlcv).indicators.ema(21)
+        ax.plot(dates, ema21, color='black', linestyle='-', linewidth=1.5, label='EMA 21')
+    
         
-        # SuperTrend Smooth
-        #ax.plot(dates, supertrend_smooth, color='cyan', linewidth=2, label='SuperTrend Smooth')
-
-        # Pontos de entrada da tendência
-
-        """
-        for i in range(1, len(trend)):
-            if trend[i] != trend[i-1]:  # mudança de tendência
-                dates_num = mdates.date2num(dates[i])
-                if trend[i] == 1:  # entrada de compra
-                    ax.scatter(dates_num, lows[i] - (0.001*closes[i]), color='green', s=100, zorder=5)
-                elif trend[i] == -1:  # entrada de venda
-                    ax.scatter(dates_num, highs[i] + (0.001*closes[i]), color='red', s=100, zorder=5)
-        """
-        #print("TREND", supertrend, trend)
-
-
-        """
-        # Marca início real de tendência baseado no SuperTrend
-        for i in range(1, len(supertrend)):
-            if trend[i] == 1 and trend[i-1] == -1:
-                dates_num = mdates.date2num(dates[i])
-                # Mudou de baixa para alta (SuperTrend desceu para baixo do preço)
-                ax.scatter(dates_num, lows[i] - (0.002 * closes[i]),
-                        color='green', s=120, edgecolors='black', zorder=5, label="Início Tendência Alta")
-            elif trend[i] == -1 and trend[i-1] == 1:
-                # Mudou de alta para baixa (SuperTrend subiu para cima do preço)
-                ax.scatter(dates_num, highs[i] + (0.002 * closes[i]),
-                        color='red', s=120, edgecolors='black', zorder=5, label="Início Tendência Baixa")
-        """
         # Evitar legendas repetidas
         handles, labels = plt.gca().get_legend_handles_labels()
         by_label = dict(zip(labels, handles))
@@ -352,11 +323,11 @@ class PlotTrades:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("ETH/USDC:USDC")
+    pair = get_pair_by_symbol("SOL/USDC:USDC")
 
     if pair:
 
-        ohlcv = await PlotTrades.get_historical_ohlcv(pair, TimeframeEnum.M15, 650)
+        ohlcv = await PlotTrades.get_historical_ohlcv(pair, TimeframeEnum.M15, 250)
 
         PlotTrades.plot_supertrend_with_signals(ohlcv, pair.symbol)
 

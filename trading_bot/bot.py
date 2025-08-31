@@ -97,7 +97,7 @@ class TradingBot:
 
             #await self._check_closed_trades_and_finalize(symbol)
 
-            """
+            
             # 1) Verifica saída via ExitLogic, se posição aberta e tamanho > 0
             if current_position:
                 position_size = float(current_position.size)
@@ -108,7 +108,7 @@ class TradingBot:
                     if should_exit:
                         current_position = None  # atualiza para evitar fechar de novo
                         #return
-            """
+            
 
             # 2) Se não há sinal válido, skip
             if signal.signal not in [Signal.BUY, Signal.SELL]:

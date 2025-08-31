@@ -42,14 +42,14 @@ class ExitLogicPSARBased:
 
         if side == Signal.BUY:
             # Sai se o preço fechar abaixo do PSAR
-            if (current_price < last_psar * (1 + tolerance) and trend_signal != side):
+            if (current_price < last_psar * (1 + tolerance)):
                 logging.info("🔁 Reversão por PSAR: fechar BUY")
                 await self._exit(pair.symbol, current_position.size, current_position.side)
                 return True
 
         elif side == Signal.SELL:
             # Sai se o preço fechar acima do PSAR
-            if (current_price > last_psar * (1 + tolerance) and trend_signal != side):
+            if (current_price > last_psar * (1 + tolerance)):
                 logging.info("🔁 Reversão por PSAR: fechar SELL")
                 await self._exit(pair.symbol, current_position.size, current_position.side)
                 return True

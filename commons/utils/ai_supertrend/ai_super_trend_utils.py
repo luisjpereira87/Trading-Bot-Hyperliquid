@@ -115,79 +115,12 @@ class AISuperTrendUtils:
                     trend[i] = -1
                     supertrend[i] = final_upperband[i]
                     trend_count = 0
-
-        """
-        # gerar sinais
-        rel_threshold = 0.005
-        trend_signal = [Signal.HOLD] * n
-
-        for i in range(2, n):
-            threshold = closes[i - 1] * rel_threshold
-            band_distance = final_upperband[i - 1] - final_lowerband[i - 1]
-
-            if band_distance < threshold:
-                continue
-
-            if trend[i - 2] == -1 and trend[i - 1] == 1 and trend[i] == 1:
-                if closes[i - 1] > final_lowerband[i - 1]:
-                    trend_signal[i - 1] = Signal.BUY
-            elif trend[i - 2] == 1 and trend[i - 1] == -1 and trend[i] == -1:
-                if closes[i - 1] < final_upperband[i - 1]:
-                    trend_signal[i - 1] = Signal.SELL
-        """
-        """
-        trend_signal = [Signal.HOLD] * n
-        window = 4
-        proximity_threshold = 0.004  # 2% de margem, podes afinar
-
-        for i in range(window-1, n):
-            last_trends = trend[i-window+1:i+1]   # últimos 4 valores
-            price = closes[i]
-
-            # distância relativa às bandas
-            dist_upper = abs(price - final_upperband[i]) / price
-            dist_lower = abs(price - final_lowerband[i]) / price
-
-            if sum(last_trends) > 0 and trend[i] == 1:  # tendência para cima
-                if price > final_lowerband[i] and dist_upper > proximity_threshold:
-                    trend_signal[i] = Signal.BUY
-
-            elif sum(last_trends) < 0 and trend[i] == -1:  # tendência para baixo
-                if price < final_upperband[i] and dist_lower > proximity_threshold:
-                    trend_signal[i] = Signal.SELL
-        """
-        """
-        trend_signal = [Signal.HOLD] * n
-        proximity = 0.35  # 20% da largura das bandas
-        window = 2
-        slope_threshold = 0.0005  # inclinação mínima para validar tendência
-
-        for i in range(window-1, n):
-            band_range = final_upperband[i] - final_lowerband[i]
-            if band_range <= 0:
-                continue
-
-            dist_to_lower = closes[i] - final_lowerband[i]
-            dist_to_upper = final_upperband[i] - closes[i]
-
-            # maioria da tendência nos últimos 3 candles
-            last_trends = trend[i-window+1:i+1]
-            majority = 1 if sum(last_trends) > 0 else -1
-
-            # inclinação média dos últimos candles (pode usar close ou banda)
-            slope_avg = (closes[i] - closes[i-window+1]) / window
-
-            # BUY se maioria bullish, preço perto da banda inferior e inclinação positiva
-            if majority == 1 and dist_to_lower <= proximity * band_range and slope_avg > slope_threshold:
-                trend_signal[i] = Signal.BUY
-
-            # SELL se maioria bearish, preço perto da banda superior e inclinação negativa
-            elif majority == -1 and dist_to_upper <= proximity * band_range and slope_avg < -slope_threshold:
-                trend_signal[i] = Signal.SELL
-        """
-
        
+
         trend_signal = [Signal.HOLD] * n
+        trend_signal_filtered = [Signal.HOLD] * n
+        trend_signal_scored = [Signal.HOLD] * n         # sinais com score (EMA, distância, etc.)
+        trend_score = np.zeros(n) 
 
         for i in range(1, n):
             # BUY: o candle fecha acima da banda superior, indicando mudança de tendência para alta
@@ -197,28 +130,80 @@ class AISuperTrendUtils:
             # SELL: o candle fecha abaixo da banda inferior, indicando mudança de tendência para baixa
             elif closes[i-1] >= final_lowerband[i-1] and closes[i] < final_lowerband[i]:
                 trend_signal[i] = Signal.SELL
-        """
 
- 
-        trend_signal = [Signal.HOLD] * n
-        ema = self.indicators.ema(21)
-        resistance_levels, support_levels = SupportResistanceUtils.detect_multiple_support_resistance(self.ohlcv)
+      
+        for i in range(2, n):
+            # Confirmação de mudança de tendência
+            if trend[i-2] == -1 and trend[i-1] == 1 and trend[i] == 1:
+                trend_signal_filtered[i] = Signal.BUY
+            elif trend[i-2] == 1 and trend[i-1] == -1 and trend[i] == -1:
+                trend_signal_filtered[i] = Signal.SELL
+
+        #############################################
+        # --- Confirmação/score com EMA(21) ---
+        trend_signal_cross = [Signal.HOLD] * n
+        ema21 = self.indicators.ema(21)
+        min_slope_pct = 0.0005
+        large_body_pct = 0.01  # 1% do preço
+        slope = ema21[i] - ema21[i-1]
+
+        last_signal = None  # inicializa vazio
         for i in range(1, n):
-            signal = Signal.HOLD
+            slope = ema21[i] - ema21[i-1]
+            slope_threshold = min_slope_pct * ema21[i]
 
-            # BUY
-            if closes[i-1] <= final_upperband[i-1] and closes[i] > final_upperband[i]:
-                if closes[i] < min(resistance_levels, default=float('inf')):
-                    signal = Signal.BUY
+            body_high = max(opens[i], closes[i])
+            body_low = min(opens[i], closes[i])
+            body_size = body_high - body_low
 
-            # SELL
-            elif closes[i-1] >= final_lowerband[i-1] and closes[i] < final_lowerband[i]:
-                # preço ainda acima do suporte mais baixo
-                if closes[i] > min(support_levels, default=float('-inf')):
-                    signal = Signal.SELL
 
-            trend_signal[i] = signal
-         """
+            if body_size == 0:  # doji
+               continue
+
+            # quanto do corpo está acima/abaixo da EMA
+            above = max(0, body_high - ema21[i])
+            below = max(0, ema21[i] - body_low)
+
+            above_ratio = above / body_size
+            below_ratio = below / body_size
+
+            current_signal = None
+
+            # caso 1: corpo maioritariamente acima
+            if (above_ratio > 0.5 and slope > slope_threshold):
+                current_signal = Signal.BUY
+
+            # caso 2: corpo maioritariamente abaixo
+            elif (below_ratio > 0.5 and slope < -slope_threshold):
+                current_signal = Signal.SELL
+
+            # só regista se for diferente do último
+            if current_signal is not None and current_signal != last_signal:
+                trend_signal_cross[i] = current_signal
+                last_signal = current_signal
+
         supertrend_smooth = self.indicators.ema_array(supertrend, smooth_period)
 
-        return supertrend, trend, final_upperband, final_lowerband, supertrend_smooth, trend_signal
+
+        return supertrend, trend, final_upperband, final_lowerband, supertrend_smooth, trend_signal_cross, trend_signal_filtered
+    
+    def _calculate_signal_strength(self, i, closes, opens, lows, volumes, ema21):
+        score = 0
+
+        # 1. Tamanho do corpo do candle
+        body = abs(closes[i] - opens[i])
+        avg_body = np.mean([abs(closes[j] - opens[j]) for j in range(i-20, i)]) if i >= 20 else body
+        if body > avg_body:
+            score += 1
+
+        # 2. Volume acima da média
+        avg_volume = np.mean(volumes[i-20:i]) if i >= 20 else volumes[i]
+        if volumes[i] > avg_volume:
+            score += 1
+
+        # 3. Distância da EMA21
+        distance = abs(closes[i] - ema21[i]) / ema21[i]
+        if distance < 0.02:  # menos de 2% de distância → saudável
+            score += 1
+
+        return score

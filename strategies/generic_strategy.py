@@ -23,7 +23,7 @@ class SignalStrategy:
 
         last_closed_candle = ohlcv.get_last_closed_candle()
 
-        supertrend, trend, upperband, lowerband, supertrend_smooth, trend_signal = AISuperTrendUtils(ohlcv).get_supertrend()
+        supertrend, trend, upperband, lowerband, supertrend_smooth, trend_signal, trend_signal_filtered = AISuperTrendUtils(ohlcv).get_supertrend()
 
         if trend_signal[last_closed_candle.idx] == Signal.BUY:
             score_buy += 1
