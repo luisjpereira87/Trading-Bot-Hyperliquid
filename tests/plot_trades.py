@@ -157,7 +157,9 @@ class PlotTrades:
         closes = ohlcv.closes
 
         # Obter todos os arrays do SuperTrend
-        supertrend, trend, upperband, lowerband, supertrend_smooth, trend_signal, trend_signal_filtered = AISuperTrendUtils(ohlcv).get_supertrend()
+        aISuperTrendUtils = AISuperTrendUtils(ohlcv)
+        supertrend, trend, upperband, lowerband, supertrend_smooth = aISuperTrendUtils.get_supertrend()
+        ema_cross_signal = aISuperTrendUtils.get_ema_cross_signal()
 
         fig, ax = plt.subplots(figsize=(15, 7))
         ax.set_title(f"Backtest Trades - {symbol}")
@@ -208,7 +210,9 @@ class PlotTrades:
         closes = ohlcv.closes
 
         # Obter todos os arrays do SuperTrend
-        supertrend, trend, upperband, lowerband, supertrend_smooth, trend_signal, trend_signal_filtered = AISuperTrendUtils(ohlcv).get_supertrend()
+        aISuperTrendUtils = AISuperTrendUtils(ohlcv)
+        supertrend, trend, upperband, lowerband, supertrend_smooth = aISuperTrendUtils.get_supertrend()
+        ema_cross_signal = aISuperTrendUtils.get_ema_cross_signal()
 
         fig, ax = plt.subplots(figsize=(18, 7))
         ax.set_title(f"Backtest Trades - {symbol}")
@@ -229,7 +233,7 @@ class PlotTrades:
             #ax.hlines(sl, dates_num-0.2, dates_num+0.2, colors='red', linestyles='dashed', linewidth=1)
             #ax.hlines(tp, dates_num-0.2, dates_num+0.2, colors='green', linestyles='dashed', linewidth=1)
 
-            if trend_signal[i] == Signal.BUY:
+            if ema_cross_signal[i] == Signal.BUY:
                 ax.scatter(dates_num, (0.985*lows[i]), color='green', s=100, zorder=5)
                 ax.vlines(dates_num, ymin=lows[i], ymax=(0.985*lows[i]), linestyles='dashed', color='green', linewidth=1.2, zorder=5)
             
@@ -244,7 +248,7 @@ class PlotTrades:
                         bbox=dict(facecolor='white', alpha=0.6, boxstyle='round,pad=0.2'),
                         zorder=6
                     )
-            elif trend_signal[i] == Signal.SELL:
+            elif ema_cross_signal[i] == Signal.SELL:
                 ax.scatter(dates_num, (1.015*highs[i]), color='red', s=100, zorder=5)
                 ax.vlines(dates_num, ymin=highs[i], ymax=(1.015*highs[i]), linestyles='dashed', color='red', linewidth=1.2, zorder=5)
 

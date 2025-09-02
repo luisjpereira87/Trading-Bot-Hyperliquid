@@ -9,7 +9,11 @@
     "trailing_stop_multiplier": 1.5,
     "stop_loss_atr_multiplier": 1.5,
     "partial_take_profit_pct": 0.03,
-    "partial_close_pct": 0.5
+    "partial_close_pct": 0.5,
+    "atr_multiplier": 1.5,
+    "atr_momentum_drop": 0.95,
+    "psar_tolerance": 0.001
+
   },
   {
     "symbol": "ETH/USDC:USDC",
@@ -21,7 +25,10 @@
     "trailing_stop_multiplier": 1.5,
     "stop_loss_atr_multiplier": 1.5,
     "partial_take_profit_pct": 0.03,
-    "partial_close_pct": 0.5
+    "partial_close_pct": 0.5,
+    "atr_multiplier": 1.8,
+    "atr_momentum_drop": 0.93,
+    "psar_tolerance": 0.0015
   },
   {
     "symbol": "SOL/USDC:USDC",
@@ -33,7 +40,10 @@
     "trailing_stop_multiplier": 1.5,
     "stop_loss_atr_multiplier": 1.5,
     "partial_take_profit_pct": 0.03,
-    "partial_close_pct": 0.5
+    "partial_close_pct": 0.5,
+    "atr_multiplier": 2.0,
+    "atr_momentum_drop": 0.90,
+    "psar_tolerance": 0.002
   }
   
 ]

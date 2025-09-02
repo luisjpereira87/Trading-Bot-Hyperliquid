@@ -19,9 +19,7 @@ from commons.utils.config_loader import PairConfig
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from strategies.strategy_manager import StrategyManager  # Para cálculo ATR
 from trading_bot.exchange_client import ExchangeClient
-from trading_bot.exit_logic_psar_based import ExitLogicPSARBased
-from trading_bot.exit_logic_risk_based import ExitLogicRiskBased
-from trading_bot.exit_logic_signal_based import ExitLogicSignalBased
+from trading_bot.exit_logic.exit_logic_psar_based import ExitLogicPSARBased
 from trading_bot.trade_features_memory import TradeFeaturesMemory
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -74,13 +72,6 @@ class TradingBot:
             ts = datetime.fromtimestamp(last_closed.timestamp / 1000).astimezone(pytz.timezone('Europe/Lisbon'))
             logging.info(f"✅ Último candle fechado usado para {symbol}: {ts.strftime('%Y-%m-%d %H:%M:%S')}")
 
-
-            ts1 = datetime.fromtimestamp(ohlcv.raw[-1][0] / 1000).astimezone(pytz.timezone('Europe/Lisbon'))
-            ts2 = datetime.fromtimestamp(ohlcv.raw[-2][0] / 1000).astimezone(pytz.timezone('Europe/Lisbon'))
-
-            print("ULTIMO CANDLE", {ts1.strftime('%Y-%m-%d %H:%M:%S')})
-            print("PENULTIMO CANDLE", {ts2.strftime('%Y-%m-%d %H:%M:%S')})
-
             price_ref = await self.exchange_client.get_entry_price(symbol)
             logging.info(f"[DEBUG] Current price: {price_ref}")
 
@@ -97,7 +88,6 @@ class TradingBot:
 
             #await self._check_closed_trades_and_finalize(symbol)
 
-            
             # 1) Verifica saída via ExitLogic, se posição aberta e tamanho > 0
             if current_position:
                 position_size = float(current_position.size)

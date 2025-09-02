@@ -117,12 +117,20 @@ class AISuperTrendUtils:
                     trend_count = 0
        
 
-        trend_signal = [Signal.HOLD] * n
-        trend_signal_filtered = [Signal.HOLD] * n
-        trend_signal_scored = [Signal.HOLD] * n         # sinais com score (EMA, distância, etc.)
-        trend_score = np.zeros(n) 
+        supertrend_smooth = self.indicators.ema_array(supertrend, smooth_period)
 
-        for i in range(1, n):
+        return supertrend, trend, final_upperband, final_lowerband, supertrend_smooth
+    
+    def get_trend_signal(self):
+
+        closes = self.ohlcv.closes
+        opens = self.ohlcv.opens
+        n = len(closes)
+        trend_signal = [Signal.HOLD] * n
+
+        _, _, final_upperband, final_lowerband, _ = self.get_supertrend()
+
+        for i in range(2, n):
             # BUY: o candle fecha acima da banda superior, indicando mudança de tendência para alta
             if closes[i-1] <= final_upperband[i-1] and closes[i] > final_upperband[i]:
                 trend_signal[i] = Signal.BUY
@@ -130,8 +138,17 @@ class AISuperTrendUtils:
             # SELL: o candle fecha abaixo da banda inferior, indicando mudança de tendência para baixa
             elif closes[i-1] >= final_lowerband[i-1] and closes[i] < final_lowerband[i]:
                 trend_signal[i] = Signal.SELL
+        
+        return trend_signal
 
-      
+
+    def get_bands_cross_signal(self):
+
+        _, trend, _, _, _ = self.get_supertrend()
+
+        n = len(self.ohlcv.closes)
+        trend_signal_filtered = [Signal.HOLD] * n
+
         for i in range(2, n):
             # Confirmação de mudança de tendência
             if trend[i-2] == -1 and trend[i-1] == 1 and trend[i] == 1:
@@ -139,15 +156,26 @@ class AISuperTrendUtils:
             elif trend[i-2] == 1 and trend[i-1] == -1 and trend[i] == -1:
                 trend_signal_filtered[i] = Signal.SELL
 
+        return trend_signal_filtered
+
+
+    def get_ema_cross_signal(self):
         #############################################
         # --- Confirmação/score com EMA(21) ---
+        closes = self.ohlcv.closes
+        opens = self.ohlcv.opens
+        n = len(closes)
+
         trend_signal_cross = [Signal.HOLD] * n
         ema21 = self.indicators.ema(21)
         min_slope_pct = 0.0005
         large_body_pct = 0.01  # 1% do preço
-        slope = ema21[i] - ema21[i-1]
-
+        window = 3  
         last_signal = None  # inicializa vazio
+
+        trend_signal = self.get_trend_signal()
+
+
         for i in range(1, n):
             slope = ema21[i] - ema21[i-1]
             slope_threshold = min_slope_pct * ema21[i]
@@ -156,6 +184,16 @@ class AISuperTrendUtils:
             body_low = min(opens[i], closes[i])
             body_size = body_high - body_low
 
+            # --- Inclinação média da EMA (mais robusta que só 1 candle) ---
+            #slope1 = (ema21[i] - ema21[i-window]) / ema21[i-window]
+
+            """
+            # Verifica se EMA está lateral
+            lateral = abs(slope1) < min_slope_pct
+
+            if lateral:  # doji
+               continue
+            """
 
             if body_size == 0:  # doji
                continue
@@ -169,6 +207,15 @@ class AISuperTrendUtils:
 
             current_signal = None
 
+            """
+            if (above_ratio > 0.5 and slope > slope_threshold) or (closes[i-1] < ema21[i-1] and above_ratio > 0.5):
+                current_signal = Signal.BUY
+
+            # SELL: corpo abaixo + EMA inclinada para baixo
+            elif (below_ratio > 0.5 and slope < -slope_threshold) or (closes[i-1] > ema21[i-1] and below_ratio > 0.5):
+                current_signal = Signal.SELL
+
+            """
             # caso 1: corpo maioritariamente acima
             if (above_ratio > 0.5 and slope > slope_threshold):
                 current_signal = Signal.BUY
@@ -177,15 +224,17 @@ class AISuperTrendUtils:
             elif (below_ratio > 0.5 and slope < -slope_threshold):
                 current_signal = Signal.SELL
 
+            
+            elif (trend_signal[i] == Signal.SELL and ema21[i] > closes[i]) or (trend_signal[i] == Signal.BUY and ema21[i] < closes[i]): 
+                current_signal = trend_signal[i]
+        
             # só regista se for diferente do último
             if current_signal is not None and current_signal != last_signal:
                 trend_signal_cross[i] = current_signal
                 last_signal = current_signal
 
-        supertrend_smooth = self.indicators.ema_array(supertrend, smooth_period)
+        return trend_signal_cross
 
-
-        return supertrend, trend, final_upperband, final_lowerband, supertrend_smooth, trend_signal_cross, trend_signal_filtered
     
     def _calculate_signal_strength(self, i, closes, opens, lows, volumes, ema21):
         score = 0
