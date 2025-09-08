@@ -1,5 +1,7 @@
 import logging
 
+import numpy as np
+
 from commons.enums.signal_enum import Signal
 from commons.helpers.trading_helpers import TradingHelpers
 from commons.models.open_position_dclass import OpenPosition
@@ -61,7 +63,7 @@ class ExitLogicPSARBased:
                 logging.info("🔁 Reversão por PSAR: fechar SELL")
                 await self._exit(pair.symbol, current_position.size, current_position.side)
                 return True
-             
+        """         
         # === 2) Fecho auxiliar por perda de momentum (ATR a cair) ===
         if pl > 0:  # só aplica se já está em lucro
             if last_atr < prev_atr * atr_momentum_drop:  # queda de mais de 5% no ATR
@@ -83,7 +85,8 @@ class ExitLogicPSARBased:
                 logging.info("📈 Stop ATR atingido (SELL) → fechar posição")
                 await self._exit(pair.symbol, current_position.size, current_position.side)
                 return True
-        
+        """
+        """
         # === 4) Candle contrário à tendência com lucro ===
         if pl > 0:  # só aplica se estamos em lucro
             prev_close = ohlcv.closes[-2]
@@ -102,7 +105,31 @@ class ExitLogicPSARBased:
                     logging.info("🛑 Candle verde contra SELL → fechar posição")
                     await self._exit(pair.symbol, current_position.size, current_position.side)
                     return True
+        """
+        """
+        last_open = ohlcv.opens[-1]
+        last_close = ohlcv.closes[-1]
+        last_volume = ohlcv.volumes[-1]
+        mean_volume = np.mean(ohlcv.volumes[-20:])
 
+        # Candle contrário
+        if side == Signal.BUY:
+            candle_contra = last_close < last_open   # candle vermelho
+        else:
+            candle_contra = last_close > last_open   # candle verde
+
+        # Força do candle (≥ 50% ATR)
+        candle_size = abs(last_close - last_open)
+        candle_forte = candle_size >= 0.5 * last_atr
+
+        # Volume anormal (≥ 1.5x média)
+        volume_alto = last_volume > mean_volume * 1.5
+
+        if pl > 0 and candle_contra and candle_forte and volume_alto:
+            logging.info("🚨 Candle contrário forte + volume alto → fechar posição e proteger lucro")
+            await self._exit(pair.symbol, current_position.size, current_position.side)
+            return True
+        """
         return False
     
     async def _exit(self, symbol: str, size: float, side: str) -> bool:

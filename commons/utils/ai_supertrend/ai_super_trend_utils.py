@@ -140,8 +140,7 @@ class AISuperTrendUtils:
                 trend_signal[i] = Signal.SELL
         
         return trend_signal
-
-
+    
     def get_bands_cross_signal(self):
 
         _, trend, _, _, _ = self.get_supertrend()
@@ -157,9 +156,175 @@ class AISuperTrendUtils:
                 trend_signal_filtered[i] = Signal.SELL
 
         return trend_signal_filtered
-
-
+    
     def get_ema_cross_signal(self):
+        closes = self.ohlcv.closes
+        opens = self.ohlcv.opens
+        highs = self.ohlcv.highs
+        lows = self.ohlcv.lows
+        n = len(closes)
+
+        trend_signal_cross = [Signal.HOLD] * n
+        ema21 = self.indicators.ema(21)
+        ema50 = self.indicators.ema(50)
+
+        cross_pending = None       # Armazena o tipo de cruzamento (BUY/SELL)
+        i_cross = None             # Índice do candle do cruzamento
+        last_signal = None
+
+        lookback = 3
+        min_dist = 0.0010
+
+        upper, mid, lower = self.indicators.bollinger_bands(period=20, std_dev=2)
+        psar = self.indicators.psar()
+        threshold = 0.0005  # distância mínima em relação à banda para considerar fechamento
+
+        for i in range(1, n):
+            ema_dist_prev = ema21[i-1] - ema50[i-1]
+            ema_dist = ema21[i] - ema50[i]
+
+            current_signal = None
+
+            is_lateral = False
+            if i >= lookback:
+                distancias = [
+                    abs(ema21[i - j] - ema50[i - j]) / ema50[i - j]
+                    for j in range(lookback)
+                ]
+                if all(d < min_dist for d in distancias):
+                    is_lateral = True
+
+            # Detecta cruzamento
+            if ema_dist_prev <= 0 and ema_dist > 0:
+                cross_pending = Signal.BUY
+                i_cross = i
+            elif ema_dist_prev >= 0 and ema_dist < 0:
+                cross_pending = Signal.SELL
+                i_cross = i
+
+            if last_signal == Signal.BUY:
+                # PSAR indica reversão + candle confirma enfraquecimento
+                if closes[i-1] > upper[i-1] and closes[i] < upper[i] and closes[i] < opens[i]:
+                    if abs(closes[i] - upper[i]) > threshold:
+                        current_signal = Signal.CLOSE
+
+            elif last_signal == Signal.SELL:
+                if closes[i-1] < lower[i-1] and closes[i] > lower[i] and closes[i] > opens[i]:
+                    if abs(closes[i] - lower[i]) > threshold:
+                        current_signal = Signal.CLOSE
+
+            # Se houver cruzamento pendente, aguarda o candle mais vantajoso
+            if cross_pending is not None and not is_lateral:
+                # Condições de entrada:
+                # Candle perto da EMA21, cor correta e corpo não muito grande
+                body_size = abs(closes[i] - opens[i])
+                body_mid = (closes[i] + opens[i]) / 2
+                distance_to_ema = abs(body_mid - ema21[i]) / ema21[i]
+
+                if cross_pending == Signal.BUY:
+                    candle_ok = closes[i] > opens[i]  # candle verde
+                    ema_ok = closes[i] > ema21[i]     # acima da EMA21
+                else:  # SELL
+                    candle_ok = closes[i] < opens[i]  # candle vermelho
+                    ema_ok = closes[i] < ema21[i]     # abaixo da EMA21
+
+                if candle_ok and ema_ok and distance_to_ema < 0.003:
+                    current_signal = cross_pending
+                    cross_pending = None  # sinal consumido
+                    i_cross = None
+
+            # Só registra se for diferente do último
+            if current_signal is not None and current_signal != last_signal:
+                trend_signal_cross[i] = current_signal
+                last_signal = current_signal
+
+        return trend_signal_cross
+    
+    
+    def get_ema_cross_signal_2(self):
+        closes = self.ohlcv.closes
+        opens = self.ohlcv.opens
+        highs = self.ohlcv.highs
+        lows = self.ohlcv.lows
+        n = len(closes)
+
+        trend_signal_cross = [Signal.HOLD] * n
+        ema21 = self.indicators.ema(21)
+        ema50 = self.indicators.ema(50)
+        psar = self.indicators.psar()
+        atr = self.indicators.atr()
+
+        lookback = 3
+        min_dist = 0.0015
+        last_signal = None
+        last_closed_signal = None # última direção fechada (BUY/SELL)
+        _, _, upperband, lowerband, _ = self.get_supertrend()
+
+        bands_cross_signal = self.get_bands_cross_signal()
+        trend_signal = self.get_trend_signal()
+        threshold = 0.001
+        upper, mid, lower = self.indicators.bollinger_bands(period=20, std_dev=2)
+
+        #lookback = 5  # nº de candles para verificar "reta"
+
+
+
+        for i in range(2, n):
+
+            ema_dist = (ema21[i] - ema50[i]) / ema50[i]
+            ema_dist_prev = (ema21[i-1] - ema50[i-1]) / ema50[i-1]
+
+            current_signal = None
+            is_lateral = False
+            lookback = 3  # últimos 3 candles
+            distancias = [(ema21[i-j] - ema50[i-j]) / ema50[i-j] for j in range(lookback)]
+
+            
+            if i >= lookback:
+                distancias = [
+                    abs(ema21[i - j] - ema50[i - j]) / ema50[i - j]
+                    for j in range(lookback)
+                ]
+                if all(d < min_dist for d in distancias):
+                    is_lateral = True
+         
+            #if last_signal == Signal.BUY and upperband[i-2] == upperband[i-1] and upperband[i-1] > upperband[i]:
+            #    current_signal = Signal.CLOSE
+            #elif last_signal == Signal.SELL and lowerband[i-2] == lowerband[i-1] and lowerband[i-1] < lowerband[i]:
+            #    current_signal = Signal.CLOSE
+
+            distance_to_ema = abs(closes[i] - ema21[i]) / ema21[i]
+            if distance_to_ema > 0.002:  # >0.5% de distância
+                continue  # ignora sinal, muito esticado
+            
+
+
+            print("AQUIII",i,ema_dist, trend_signal[i], closes[i] > upperband[i])
+            close_distance_threshold = 0.001  # 0.2% de distância mínima da banda
+
+            if last_signal == Signal.BUY:
+                if closes[i-1] > upper[i-1] and closes[i] < upper[i] and closes[i] < opens[i]:
+                    current_signal = Signal.CLOSE
+
+            elif last_signal == Signal.SELL:
+                if closes[i-1] < lower[i-1] and closes[i] > lower[i] and closes[i] > opens[i]:
+                    current_signal = Signal.CLOSE
+
+            if current_signal is None and is_lateral == False:
+                if  ema_dist > 0 and closes[i] > ema21[i]:
+                    current_signal = Signal.BUY
+                elif ema_dist < 0 and closes[i] < ema21[i]:
+                    current_signal = Signal.SELL
+                    
+             # só regista se for diferente do último
+            if current_signal is not None and current_signal != last_signal:
+                trend_signal_cross[i] = current_signal
+                last_signal = current_signal
+
+        return trend_signal_cross
+
+    
+    def get_ema_cross_signal_1(self):
         #############################################
         # --- Confirmação/score com EMA(21) ---
         closes = self.ohlcv.closes
@@ -224,17 +389,20 @@ class AISuperTrendUtils:
             elif (below_ratio > 0.5 and slope < -slope_threshold):
                 current_signal = Signal.SELL
 
-            
+            """
             elif (trend_signal[i] == Signal.SELL and ema21[i] > closes[i]) or (trend_signal[i] == Signal.BUY and ema21[i] < closes[i]): 
                 current_signal = trend_signal[i]
-        
+            """
+            
+
             # só regista se for diferente do último
             if current_signal is not None and current_signal != last_signal:
                 trend_signal_cross[i] = current_signal
                 last_signal = current_signal
 
         return trend_signal_cross
-
+    
+    
     
     def _calculate_signal_strength(self, i, closes, opens, lows, volumes, ema21):
         score = 0

@@ -19,6 +19,10 @@ from commons.utils.config_loader import PairConfig
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from strategies.strategy_manager import StrategyManager  # Para cálculo ATR
 from trading_bot.exchange_client import ExchangeClient
+from trading_bot.exit_logic.exit_logic_ema_based import ExitLogicEmaBased
+from trading_bot.exit_logic.exit_logic_hybrid import ExitLogicHybrid
+from trading_bot.exit_logic.exit_logic_percent_based import \
+    ExitLogicPercentBased
 from trading_bot.exit_logic.exit_logic_psar_based import ExitLogicPSARBased
 from trading_bot.trade_features_memory import TradeFeaturesMemory
 
@@ -37,7 +41,7 @@ class TradingBot:
         self.strategy = strategy
         self.params_loader = BestParamsLoader()
         #self.exit_logic = ExitLogic(self.helpers, self.exchange_client)
-        self.exit_logic = ExitLogicPSARBased(self.helpers, self.exchange_client)
+        self.exit_logic = ExitLogicEmaBased(self.helpers, self.exchange_client)
         self.trade_features_memory = TradeFeaturesMemory()
 
     async def run_pair(self, pair: PairConfig) -> SignalResult:
@@ -88,6 +92,7 @@ class TradingBot:
 
             #await self._check_closed_trades_and_finalize(symbol)
 
+            
             # 1) Verifica saída via ExitLogic, se posição aberta e tamanho > 0
             if current_position:
                 position_size = float(current_position.size)

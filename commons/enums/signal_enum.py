@@ -7,6 +7,7 @@ class Signal(Enum):
     HOLD = "hold"
     SHORT = "short"
     LONG = "long"
+    CLOSE = "close"
 
     @staticmethod
     def from_str(value: (str|None)):
@@ -19,7 +20,8 @@ class Signal(Enum):
             "sell": Signal.SELL,
             "hold": Signal.HOLD,
             "short": Signal.SHORT,
-            "long": Signal.LONG
+            "long": Signal.LONG,
+            "close": Signal.CLOSE
         }
 
         if value in mapping:

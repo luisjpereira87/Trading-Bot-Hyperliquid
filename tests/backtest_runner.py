@@ -487,11 +487,11 @@ class BacktestRunner:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("ETH/USDC:USDC")
+    pair = get_pair_by_symbol("SOL/USDC:USDC")
 
     if pair != None:
 
-        runner = BacktestRunner(StrategyEnum.AI_SUPERTREND, TimeframeEnum.M15, pair, 250, 1000)
+        runner = BacktestRunner(StrategyEnum.AI_SUPERTREND, TimeframeEnum.M15, pair, 450, 1000)
         
         await runner.run(LoadParams.load_best_params_with_weights(pair.symbol), True)
     #print(LoadParams.load_best_params_with_weights())

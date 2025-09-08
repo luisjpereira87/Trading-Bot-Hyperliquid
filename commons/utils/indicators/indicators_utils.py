@@ -331,3 +331,18 @@ class IndicatorsUtils:
                 max_step=max_step
             ).psar()
             return psar_series.tolist()
+
+    def bollinger_bands(self, period: int = 20, std_dev: float = 2.0):
+        """
+        Calcula as Bandas de Bollinger.
+        Retorna: (upper_band, middle_band, lower_band)
+        """
+        closes = self.df['close']
+
+        middle_band = closes.rolling(window=period).mean()
+        std = closes.rolling(window=period).std()
+
+        upper_band = middle_band + (std_dev * std)
+        lower_band = middle_band - (std_dev * std)
+
+        return upper_band.values, middle_band.values, lower_band.values

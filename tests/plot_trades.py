@@ -213,11 +213,14 @@ class PlotTrades:
         aISuperTrendUtils = AISuperTrendUtils(ohlcv)
         supertrend, trend, upperband, lowerband, supertrend_smooth = aISuperTrendUtils.get_supertrend()
         ema_cross_signal = aISuperTrendUtils.get_ema_cross_signal()
+        trend_signal = aISuperTrendUtils.get_trend_signal()
 
         fig, ax = plt.subplots(figsize=(18, 7))
         ax.set_title(f"Backtest Trades - {symbol}")
         
-        
+        psar = AISuperTrendUtils(ohlcv).indicators.psar()
+        upper, mid, lower = AISuperTrendUtils(ohlcv).indicators.bollinger_bands(period=20, std_dev=2)
+
         for i in range(len(closes)):
             # Cor da vela pela tendência
             color = 'green' if trend[i] == 1 else 'red'
@@ -236,7 +239,7 @@ class PlotTrades:
             if ema_cross_signal[i] == Signal.BUY:
                 ax.scatter(dates_num, (0.985*lows[i]), color='green', s=100, zorder=5)
                 ax.vlines(dates_num, ymin=lows[i], ymax=(0.985*lows[i]), linestyles='dashed', color='green', linewidth=1.2, zorder=5)
-            
+               
                 ax.text(
                         dates_num,
                         (0.985*lows[i]),    # ligeiramente abaixo do círculo
@@ -263,20 +266,47 @@ class PlotTrades:
                         bbox=dict(facecolor='white', alpha=0.6, boxstyle='round,pad=0.2'),
                         zorder=6
                     )
+            elif ema_cross_signal[i] == Signal.CLOSE:
+                ax.scatter(dates_num, (1.015*highs[i]), color='brown', s=100, zorder=5)
+                ax.vlines(dates_num, ymin=highs[i], ymax=(1.015*highs[i]), linestyles='dashed', color='brown', linewidth=1.2, zorder=5)
 
+                ax.text(
+                        dates_num,
+                        (1.015*highs[i]),    # ligeiramente abaixo do círculo
+                        f"Index {i}",
+                        fontsize=9,
+                        ha='center',
+                        va='top',           # alinhado pelo topo do texto
+                        color='brown',
+                        bbox=dict(facecolor='white', alpha=0.6, boxstyle='round,pad=0.2'),
+                        zorder=6
+                    )
+            
+            # PSAR → desenha como pontos
+            #ax.scatter(dates_num, psar[i], color="green", s=10, label="PSAR", alpha=0.7)
         # SuperTrend Up / Down
         st_up = np.where(trend == 1, supertrend, np.nan)
         st_down = np.where(trend == -1, supertrend, np.nan)
+
         ax.plot(dates, st_up, color='blue', label='SuperTrend Up', linewidth=2)
         ax.plot(dates, st_down, color='orange', label='SuperTrend Down', linewidth=2)
 
         # UpperBand / LowerBand
-        ax.plot(dates, upperband, color='purple', linestyle='--', label='Upper Band', alpha=0.7)
-        ax.plot(dates, lowerband, color='brown', linestyle='--', label='Lower Band', alpha=0.7)
+        #ax.plot(dates, upperband, color='purple', linestyle='--', label='Upper Band', alpha=0.7)
+        #ax.plot(dates, lowerband, color='brown', linestyle='--', label='Lower Band', alpha=0.7)
 
-         # EMA 21
+        # EMA 21
         ema21 = AISuperTrendUtils(ohlcv).indicators.ema(21)
         ax.plot(dates, ema21, color='black', linestyle='-', linewidth=1.5, label='EMA 21')
+
+        # EMA 50
+        ema50 = AISuperTrendUtils(ohlcv).indicators.ema(50)
+        ax.plot(dates, ema50, color='blue', linestyle='-', linewidth=1.5, label='EMA 50')
+
+        # Plot das Bandas de Bollinger
+        ax.plot(dates, upper, color="purple", linestyle="--", linewidth=1, label="Bollinger Upper")
+        ax.plot(dates, mid, color="gray", linestyle="--", linewidth=1, label="Bollinger Mid")
+        ax.plot(dates, lower, color="purple", linestyle="--", linewidth=1, label="Bollinger Lower")
     
         
         # Evitar legendas repetidas
@@ -327,11 +357,11 @@ class PlotTrades:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("SOL/USDC:USDC")
+    pair = get_pair_by_symbol("BTC/USDC:USDC")
 
     if pair:
 
-        ohlcv = await PlotTrades.get_historical_ohlcv(pair, TimeframeEnum.M15, 250)
+        ohlcv = await PlotTrades.get_historical_ohlcv(pair, TimeframeEnum.M15, 450)
 
         PlotTrades.plot_supertrend_with_signals(ohlcv, pair.symbol)
 
