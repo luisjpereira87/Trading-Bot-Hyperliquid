@@ -440,7 +440,7 @@ class BacktestRunner:
             signals.append({'signal': signal, 'index': i - 1, 'candle': current_candle})
             
 
-            #if i == 170:
+            #if i == 305:
             #   break
 
         #print(signals)
@@ -460,7 +460,7 @@ class BacktestRunner:
         # Configura sua exchange Hyperliquid
         exchange =  hyperliquid({
                 "enableRateLimit": True,
-                "testnet": True,
+                "testnet": False,
             })
 
         try:

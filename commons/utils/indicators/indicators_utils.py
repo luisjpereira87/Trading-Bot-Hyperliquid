@@ -345,4 +345,4 @@ class IndicatorsUtils:
         upper_band = middle_band + (std_dev * std)
         lower_band = middle_band - (std_dev * std)
 
-        return upper_band.values, middle_band.values, lower_band.values
+        return upper_band.values.tolist(), middle_band.values.tolist(), lower_band.values.tolist()

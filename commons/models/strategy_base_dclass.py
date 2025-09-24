@@ -7,6 +7,7 @@ from commons.utils.ohlcv_wrapper import OhlcvWrapper
 
 class StrategyBase(ABC):
     MIN_REQUIRED_CANDLES = 50
+    REQUIRED_CANDLES_200 = 200
     VOLUME_ANALYSIS_PERIOD = 20
     ohlcv: OhlcvWrapper
 

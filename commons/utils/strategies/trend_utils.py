@@ -486,3 +486,42 @@ class TrendUtils:
             return True
         else:
             return False
+        
+    @staticmethod
+    def is_valid_trend_signal(i: int, bb_upper: List, bb_lower: List, sma_mid: List, 
+                          min_expand_factor=1.3, min_slope=0.0005, lookback=20):
+        """
+        Valida se um sinal de tendência é 'forte' ou apenas um falso start.
+
+        Args:
+            i (int): índice atual do candle
+            closes (list/array): preços de fecho
+            bb_upper (list/array): banda superior
+            bb_lower (list/array): banda inferior
+            sma_mid (list/array): média central das Bollinger
+            min_expand_factor (float): expansão mínima das bandas em relação à média histórica
+            min_slope (float): inclinação mínima da SMA (tendência)
+            lookback (int): nº de candles para calcular largura média das bandas
+
+        Returns:
+            bool: True se for um sinal válido, False se for lateralidade/tendência curta
+        """
+        if i < lookback + 1:
+            return False
+
+        # largura atual das bandas
+        bb_width = bb_upper[i] - bb_lower[i]
+
+        # largura média no passado
+        avg_width = np.mean([bb_upper[j] - bb_lower[j] for j in range(i-lookback, i)])
+
+        # condição 1 → expansão suficiente
+        expand_ok = bb_width > avg_width * min_expand_factor
+
+        # inclinação da SMA central
+        slope = sma_mid[i] - sma_mid[i-lookback]
+
+        # condição 2 → inclinação mínima
+        slope_ok = abs(slope) > min_slope
+
+        return expand_ok and slope_ok

@@ -283,7 +283,7 @@ class PlotTrades:
                     )
             
             # PSAR → desenha como pontos
-            #ax.scatter(dates_num, psar[i], color="green", s=10, label="PSAR", alpha=0.7)
+            ax.scatter(dates_num, psar[i], color="green", s=10, label="PSAR", alpha=0.7)
         # SuperTrend Up / Down
         st_up = np.where(trend == 1, supertrend, np.nan)
         st_down = np.where(trend == -1, supertrend, np.nan)
@@ -292,8 +292,8 @@ class PlotTrades:
         ax.plot(dates, st_down, color='orange', label='SuperTrend Down', linewidth=2)
 
         # UpperBand / LowerBand
-        #ax.plot(dates, upperband, color='purple', linestyle='--', label='Upper Band', alpha=0.7)
-        #ax.plot(dates, lowerband, color='brown', linestyle='--', label='Lower Band', alpha=0.7)
+        ax.plot(dates, upperband, color='purple', linestyle='--', label='Upper Band', alpha=0.7)
+        ax.plot(dates, lowerband, color='brown', linestyle='--', label='Lower Band', alpha=0.7)
 
         # EMA 21
         ema21 = AISuperTrendUtils(ohlcv).indicators.ema(21)
@@ -302,6 +302,10 @@ class PlotTrades:
         # EMA 50
         ema50 = AISuperTrendUtils(ohlcv).indicators.ema(50)
         ax.plot(dates, ema50, color='blue', linestyle='-', linewidth=1.5, label='EMA 50')
+
+         # EMA 50
+        ema200 = AISuperTrendUtils(ohlcv).indicators.ema(200)
+        ax.plot(dates, ema200, color='grey', linestyle='-', linewidth=1.5, label='EMA 200')
 
         # Plot das Bandas de Bollinger
         ax.plot(dates, upper, color="purple", linestyle="--", linewidth=1, label="Bollinger Upper")
@@ -342,8 +346,8 @@ class PlotTrades:
         # Configura sua exchange Hyperliquid
         exchange =  hyperliquid({
                 "enableRateLimit": True,
-                "testnet": True,
-            })
+                "testnet": False,
+            }) # type: ignore
 
         try:
             # Busca candles OHLCV históricos (timestamp, open, high, low, close, volume)
@@ -357,7 +361,7 @@ class PlotTrades:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("BTC/USDC:USDC")
+    pair = get_pair_by_symbol("SOL/USDC:USDC")
 
     if pair:
 

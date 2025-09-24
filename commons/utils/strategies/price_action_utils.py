@@ -298,3 +298,109 @@ class PriceActionUtils:
             return Signal.SELL
         else:
             return Signal.HOLD
+
+    @staticmethod  
+    def is_hammer(ohlcv:  Ohlcv) -> bool:
+        open = ohlcv.open
+        close = ohlcv.close
+        high = ohlcv.high
+        low = ohlcv.low
+
+        body = abs(close - open)
+        candle_range = high - low
+        lower_wick = min(open, close) - low
+        upper_wick = high - max(open, close)
+        return body < candle_range * 0.3 and lower_wick > body * 2 and upper_wick < body
+
+    @staticmethod  
+    def is_shooting_star(ohlcv:  Ohlcv) -> bool:
+        open = ohlcv.open
+        close = ohlcv.close
+        high = ohlcv.high
+        low = ohlcv.low
+
+        body = abs(close - open)
+        candle_range = high - low
+        upper_wick = high - max(open, close)
+        lower_wick = min(open, close) - low
+        return body < candle_range * 0.3 and upper_wick > body * 2 and lower_wick < body
+
+    @staticmethod  
+    def is_pinbar_bullish(ohlcv:  Ohlcv) -> bool:
+        open = ohlcv.open
+        close = ohlcv.close
+        high = ohlcv.high
+        low = ohlcv.low
+
+        body = abs(close - open)
+        lower_wick = min(open, close) - low
+        upper_wick = high - max(open, close)
+        return lower_wick > body * 2 and upper_wick < body
+
+    @staticmethod  
+    def is_pinbar_bearish(ohlcv:  Ohlcv) -> bool: 
+        open = ohlcv.open
+        close = ohlcv.close
+        high = ohlcv.high
+        low = ohlcv.low
+
+        body = abs(close - open)
+        upper_wick = high - max(open, close)
+        lower_wick = min(open, close) - low
+        return upper_wick > body * 2 and lower_wick < body
+    
+    @staticmethod
+    def is_bearish_engulfing_below_band(prev: Ohlcv, curr: Ohlcv, band_upper: float, margin=0.001):
+        """Engolfo de baixa válido apenas se candle abrir e fechar abaixo da banda superior."""
+        if prev is None or curr is None:
+            return False
+        
+        engulfing = (
+            prev.close > prev.open and       # candle anterior bullish
+            curr.close < curr.open and       # candle atual bearish
+            curr.open > prev.close and       # abertura acima do fecho anterior
+            curr.close < prev.open           # fecho abaixo da abertura anterior
+        )
+        
+        # Só valida se **tanto abertura quanto fecho** estiverem abaixo da banda (com margem)
+        below_band = curr.close < band_upper * (1 - margin) and curr.open < band_upper * (1 - margin)
+        
+        return engulfing and below_band
+    
+    @staticmethod
+    def is_bullish_engulfing_above_band(prev: Ohlcv, curr: Ohlcv, band_lower: float, margin=0.001):
+        """Engolfo de alta válido apenas se candle abrir e fechar acima da banda inferior."""
+        if prev is None or curr is None:
+            return False
+        
+        engulfing = (
+            prev.close < prev.open and       # candle anterior bearish
+            curr.close > curr.open and       # candle atual bullish
+            curr.open < prev.close and       # abertura abaixo do fecho anterior
+            curr.close > prev.open           # fecho acima da abertura anterior
+        )
+        
+        # Só valida se **tanto abertura quanto fecho** estiverem acima da banda inferior (com margem)
+        above_band = curr.close > band_lower * (1 + margin) and curr.open > band_lower * (1 + margin)
+        
+        return engulfing and above_band
+    
+    
+    @staticmethod
+    def is_bullish_rejection(prev: Ohlcv, curr: Ohlcv, min_wick_ratio=1.5):
+        """
+        Detecta reversão de sell:
+        - prev: candle vermelho grande
+        - curr: candle verde pequeno com pavio inferior longo
+        """
+        body_curr = abs(curr.close - curr.open)
+        lower_wick = curr.open - curr.low
+        if body_curr == 0:
+            return False
+        wick_ratio = lower_wick / body_curr
+        prev_body = abs(prev.close - prev.open)
+        
+        if prev.close < prev.open and curr.close > curr.open and wick_ratio >= min_wick_ratio:
+            return True
+        return False
+    

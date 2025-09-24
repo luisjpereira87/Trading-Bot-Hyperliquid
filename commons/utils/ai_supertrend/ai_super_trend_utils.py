@@ -5,8 +5,10 @@ import numpy as np
 from commons.enums.signal_enum import Signal
 from commons.utils.indicators.indicators_utils import IndicatorsUtils
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
+from commons.utils.strategies.price_action_utils import PriceActionUtils
 from commons.utils.strategies.support_resistance_utils import \
     SupportResistanceUtils
+from commons.utils.strategies.trend_utils import TrendUtils
 
 
 class AISuperTrendUtils:
@@ -143,7 +145,7 @@ class AISuperTrendUtils:
     
     def get_bands_cross_signal(self):
 
-        _, trend, _, _, _ = self.get_supertrend()
+        _, trend, final_upperband, final_lowerband, _ = self.get_supertrend()
 
         n = len(self.ohlcv.closes)
         trend_signal_filtered = [Signal.HOLD] * n
@@ -157,6 +159,7 @@ class AISuperTrendUtils:
 
         return trend_signal_filtered
     
+
     def get_ema_cross_signal(self):
         closes = self.ohlcv.closes
         opens = self.ohlcv.opens
@@ -164,263 +167,50 @@ class AISuperTrendUtils:
         lows = self.ohlcv.lows
         n = len(closes)
 
-        trend_signal_cross = [Signal.HOLD] * n
-        ema21 = self.indicators.ema(21)
-        ema50 = self.indicators.ema(50)
+        trend_signal = [Signal.HOLD] * n
 
-        cross_pending = None       # Armazena o tipo de cruzamento (BUY/SELL)
-        i_cross = None             # Índice do candle do cruzamento
         last_signal = None
-
-        lookback = 3
-        min_dist = 0.0010
-
-        upper, mid, lower = self.indicators.bollinger_bands(period=20, std_dev=2)
-        psar = self.indicators.psar()
-        threshold = 0.0005  # distância mínima em relação à banda para considerar fechamento
+        bands_cross_signal = self.get_bands_cross_signal()
+        active_trend = None
+        ema200 = self.indicators.ema(200)
+        ema50 = self.indicators.ema(50)
+        ema21 = self.indicators.ema(21)
+        macd_line, signal_line = self.indicators.macd(fast_period=3, slow_period=10, signal_period=16)
 
         for i in range(1, n):
+
+            current_signal = None
             ema_dist_prev = ema21[i-1] - ema50[i-1]
             ema_dist = ema21[i] - ema50[i]
 
-            current_signal = None
+            if last_signal == Signal.SELL and macd_line[i-1] < signal_line[i-1] and macd_line[i] > signal_line[i] and signal_line[i] < 0:
+                current_signal = Signal.CLOSE
+            elif last_signal == Signal.BUY and macd_line[i-1] > signal_line[i-1] and macd_line[i] < signal_line[i] and signal_line[i] > 0:
+                current_signal = Signal.CLOSE
 
-            is_lateral = False
-            if i >= lookback:
-                distancias = [
-                    abs(ema21[i - j] - ema50[i - j]) / ema50[i - j]
-                    for j in range(lookback)
-                ]
-                if all(d < min_dist for d in distancias):
-                    is_lateral = True
+            spread = abs(ema21[i] - ema50[i])
+            price = closes[i]
+            # Normaliza o spread em relação ao preço (percentagem)
+            spread_pct = spread / price
 
-            # Detecta cruzamento
             if ema_dist_prev <= 0 and ema_dist > 0:
-                cross_pending = Signal.BUY
-                i_cross = i
+                active_trend = Signal.BUY
             elif ema_dist_prev >= 0 and ema_dist < 0:
-                cross_pending = Signal.SELL
-                i_cross = i
+                active_trend = Signal.SELL
 
-            if last_signal == Signal.BUY:
-                # PSAR indica reversão + candle confirma enfraquecimento
-                if closes[i-1] > upper[i-1] and closes[i] < upper[i] and closes[i] < opens[i]:
-                    if abs(closes[i] - upper[i]) > threshold:
-                        current_signal = Signal.CLOSE
+            if bands_cross_signal[i] == Signal.BUY:
+                active_trend = Signal.BUY
+            elif bands_cross_signal[i] == Signal.SELL:
+                active_trend = Signal.SELL
 
-            elif last_signal == Signal.SELL:
-                if closes[i-1] < lower[i-1] and closes[i] > lower[i] and closes[i] > opens[i]:
-                    if abs(closes[i] - lower[i]) > threshold:
-                        current_signal = Signal.CLOSE
-
-            # Se houver cruzamento pendente, aguarda o candle mais vantajoso
-            if cross_pending is not None and not is_lateral:
-                # Condições de entrada:
-                # Candle perto da EMA21, cor correta e corpo não muito grande
-                body_size = abs(closes[i] - opens[i])
-                body_mid = (closes[i] + opens[i]) / 2
-                distance_to_ema = abs(body_mid - ema21[i]) / ema21[i]
-
-                if cross_pending == Signal.BUY:
-                    candle_ok = closes[i] > opens[i]  # candle verde
-                    ema_ok = closes[i] > ema21[i]     # acima da EMA21
-                else:  # SELL
-                    candle_ok = closes[i] < opens[i]  # candle vermelho
-                    ema_ok = closes[i] < ema21[i]     # abaixo da EMA21
-
-                if candle_ok and ema_ok and distance_to_ema < 0.003:
-                    current_signal = cross_pending
-                    cross_pending = None  # sinal consumido
-                    i_cross = None
-
-            # Só registra se for diferente do último
-            if current_signal is not None and current_signal != last_signal:
-                trend_signal_cross[i] = current_signal
-                last_signal = current_signal
-
-        return trend_signal_cross
-    
-    
-    def get_ema_cross_signal_2(self):
-        closes = self.ohlcv.closes
-        opens = self.ohlcv.opens
-        highs = self.ohlcv.highs
-        lows = self.ohlcv.lows
-        n = len(closes)
-
-        trend_signal_cross = [Signal.HOLD] * n
-        ema21 = self.indicators.ema(21)
-        ema50 = self.indicators.ema(50)
-        psar = self.indicators.psar()
-        atr = self.indicators.atr()
-
-        lookback = 3
-        min_dist = 0.0015
-        last_signal = None
-        last_closed_signal = None # última direção fechada (BUY/SELL)
-        _, _, upperband, lowerband, _ = self.get_supertrend()
-
-        bands_cross_signal = self.get_bands_cross_signal()
-        trend_signal = self.get_trend_signal()
-        threshold = 0.001
-        upper, mid, lower = self.indicators.bollinger_bands(period=20, std_dev=2)
-
-        #lookback = 5  # nº de candles para verificar "reta"
-
-
-
-        for i in range(2, n):
-
-            ema_dist = (ema21[i] - ema50[i]) / ema50[i]
-            ema_dist_prev = (ema21[i-1] - ema50[i-1]) / ema50[i-1]
-
-            current_signal = None
-            is_lateral = False
-            lookback = 3  # últimos 3 candles
-            distancias = [(ema21[i-j] - ema50[i-j]) / ema50[i-j] for j in range(lookback)]
-
-            
-            if i >= lookback:
-                distancias = [
-                    abs(ema21[i - j] - ema50[i - j]) / ema50[i - j]
-                    for j in range(lookback)
-                ]
-                if all(d < min_dist for d in distancias):
-                    is_lateral = True
-         
-            #if last_signal == Signal.BUY and upperband[i-2] == upperband[i-1] and upperband[i-1] > upperband[i]:
-            #    current_signal = Signal.CLOSE
-            #elif last_signal == Signal.SELL and lowerband[i-2] == lowerband[i-1] and lowerband[i-1] < lowerband[i]:
-            #    current_signal = Signal.CLOSE
-
-            distance_to_ema = abs(closes[i] - ema21[i]) / ema21[i]
-            if distance_to_ema > 0.002:  # >0.5% de distância
-                continue  # ignora sinal, muito esticado
-            
-
-
-            print("AQUIII",i,ema_dist, trend_signal[i], closes[i] > upperband[i])
-            close_distance_threshold = 0.001  # 0.2% de distância mínima da banda
-
-            if last_signal == Signal.BUY:
-                if closes[i-1] > upper[i-1] and closes[i] < upper[i] and closes[i] < opens[i]:
-                    current_signal = Signal.CLOSE
-
-            elif last_signal == Signal.SELL:
-                if closes[i-1] < lower[i-1] and closes[i] > lower[i] and closes[i] > opens[i]:
-                    current_signal = Signal.CLOSE
-
-            if current_signal is None and is_lateral == False:
-                if  ema_dist > 0 and closes[i] > ema21[i]:
-                    current_signal = Signal.BUY
-                elif ema_dist < 0 and closes[i] < ema21[i]:
-                    current_signal = Signal.SELL
-                    
-             # só regista se for diferente do último
-            if current_signal is not None and current_signal != last_signal:
-                trend_signal_cross[i] = current_signal
-                last_signal = current_signal
-
-        return trend_signal_cross
-
-    
-    def get_ema_cross_signal_1(self):
-        #############################################
-        # --- Confirmação/score com EMA(21) ---
-        closes = self.ohlcv.closes
-        opens = self.ohlcv.opens
-        n = len(closes)
-
-        trend_signal_cross = [Signal.HOLD] * n
-        ema21 = self.indicators.ema(21)
-        min_slope_pct = 0.0005
-        large_body_pct = 0.01  # 1% do preço
-        window = 3  
-        last_signal = None  # inicializa vazio
-
-        trend_signal = self.get_trend_signal()
-
-
-        for i in range(1, n):
-            slope = ema21[i] - ema21[i-1]
-            slope_threshold = min_slope_pct * ema21[i]
-
-            body_high = max(opens[i], closes[i])
-            body_low = min(opens[i], closes[i])
-            body_size = body_high - body_low
-
-            # --- Inclinação média da EMA (mais robusta que só 1 candle) ---
-            #slope1 = (ema21[i] - ema21[i-window]) / ema21[i-window]
-
-            """
-            # Verifica se EMA está lateral
-            lateral = abs(slope1) < min_slope_pct
-
-            if lateral:  # doji
-               continue
-            """
-
-            if body_size == 0:  # doji
-               continue
-
-            # quanto do corpo está acima/abaixo da EMA
-            above = max(0, body_high - ema21[i])
-            below = max(0, ema21[i] - body_low)
-
-            above_ratio = above / body_size
-            below_ratio = below / body_size
-
-            current_signal = None
-
-            """
-            if (above_ratio > 0.5 and slope > slope_threshold) or (closes[i-1] < ema21[i-1] and above_ratio > 0.5):
+            if active_trend == Signal.BUY and spread_pct > 0.003 and closes[i] > ema200[i]: 
                 current_signal = Signal.BUY
-
-            # SELL: corpo abaixo + EMA inclinada para baixo
-            elif (below_ratio > 0.5 and slope < -slope_threshold) or (closes[i-1] > ema21[i-1] and below_ratio > 0.5):
+            elif active_trend == Signal.SELL and spread_pct > 0.003 and closes[i] < ema200[i]:
                 current_signal = Signal.SELL
-
-            """
-            # caso 1: corpo maioritariamente acima
-            if (above_ratio > 0.5 and slope > slope_threshold):
-                current_signal = Signal.BUY
-
-            # caso 2: corpo maioritariamente abaixo
-            elif (below_ratio > 0.5 and slope < -slope_threshold):
-                current_signal = Signal.SELL
-
-            """
-            elif (trend_signal[i] == Signal.SELL and ema21[i] > closes[i]) or (trend_signal[i] == Signal.BUY and ema21[i] < closes[i]): 
-                current_signal = trend_signal[i]
-            """
             
-
-            # só regista se for diferente do último
-            if current_signal is not None and current_signal != last_signal:
-                trend_signal_cross[i] = current_signal
+            # --- Regista sinal apenas se diferente do último ---
+            if current_signal is not None and current_signal != last_signal :
+                trend_signal[i] = current_signal
                 last_signal = current_signal
 
-        return trend_signal_cross
-    
-    
-    
-    def _calculate_signal_strength(self, i, closes, opens, lows, volumes, ema21):
-        score = 0
-
-        # 1. Tamanho do corpo do candle
-        body = abs(closes[i] - opens[i])
-        avg_body = np.mean([abs(closes[j] - opens[j]) for j in range(i-20, i)]) if i >= 20 else body
-        if body > avg_body:
-            score += 1
-
-        # 2. Volume acima da média
-        avg_volume = np.mean(volumes[i-20:i]) if i >= 20 else volumes[i]
-        if volumes[i] > avg_volume:
-            score += 1
-
-        # 3. Distância da EMA21
-        distance = abs(closes[i] - ema21[i]) / ema21[i]
-        if distance < 0.02:  # menos de 2% de distância → saudável
-            score += 1
-
-        return score
+        return trend_signal
