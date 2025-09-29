@@ -206,15 +206,12 @@ class AISuperTrendUtils:
                     if (psar[i] < closes[i] and last_signal == Signal.SELL) or \
                     (psar[i] > closes[i] and last_signal == Signal.BUY):
                         current_signal = Signal.CLOSE
-                        logging.info(f"[CLOSE - trailing] Candle {i} | Entry={entry_price:.2f}, Close={closes[i]:.2f}, Profit={current_profit:.2f}")
             
             # --- Saída por cruzamento de bandas ---
             if last_signal == Signal.BUY and bands_cross_signal[i] != Signal.BUY and closes[i] >= final_upperband[i] and current_profit > fees_min:
                 current_signal = Signal.CLOSE
-                logging.info(f"[CLOSE - upperband] Candle {i} | Entry={entry_price:.2f}, Close={closes[i]:.2f}, Profit={current_profit:.2f}")
             elif last_signal == Signal.SELL and bands_cross_signal[i] != Signal.SELL and closes[i] <= final_lowerband[i] and current_profit > fees_min:
                 current_signal = Signal.CLOSE
-                logging.info(f"[CLOSE - lowerband] Candle {i} | Entry={entry_price:.2f}, Close={closes[i]:.2f}, Profit={current_profit:.2f}")
 
             # --- Detecção de tendência via EMA ---
             spread = abs(ema21[i] - ema50[i])
@@ -232,10 +229,8 @@ class AISuperTrendUtils:
                 
             if active_trend == Signal.BUY and spread_pct > 0.003 and closes[i] > ema200[i]: 
                 current_signal = Signal.BUY
-                logging.info(f"[BUY] Candle {i} | Close={closes[i]:.2f}, Spread%={spread_pct:.4f}")
             elif active_trend == Signal.SELL and spread_pct > 0.003 and closes[i] < ema200[i]:
                 current_signal = Signal.SELL
-                logging.info(f"[SELL] Candle {i} | Close={closes[i]:.2f}, Spread%={spread_pct:.4f}")
             
             # --- Regista sinal apenas se diferente do último ---
             if current_signal is not None and current_signal != last_signal :
