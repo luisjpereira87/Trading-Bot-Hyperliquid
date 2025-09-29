@@ -1,8 +1,10 @@
+import logging
 from typing import List
 
 import numpy as np
 
 from commons.enums.signal_enum import Signal
+from commons.models.ohlcv_type_dclass import Ohlcv
 from commons.utils.indicators.indicators_utils import IndicatorsUtils
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from commons.utils.strategies.price_action_utils import PriceActionUtils
@@ -159,8 +161,8 @@ class AISuperTrendUtils:
 
         return trend_signal_filtered
     
-
-    def get_ema_cross_signal(self):
+    
+    def get_ema_cross_signal(self, trailing_n = 3):
         closes = self.ohlcv.closes
         opens = self.ohlcv.opens
         highs = self.ohlcv.highs
@@ -171,27 +173,52 @@ class AISuperTrendUtils:
 
         last_signal = None
         bands_cross_signal = self.get_bands_cross_signal()
+        _, trend, final_upperband, final_lowerband, _ = self.get_supertrend()
         active_trend = None
         ema200 = self.indicators.ema(200)
         ema50 = self.indicators.ema(50)
         ema21 = self.indicators.ema(21)
-        macd_line, signal_line = self.indicators.macd(fast_period=3, slow_period=10, signal_period=16)
-
+        psar = self.indicators.psar()
+        entry_price = 0
+        profits = []
+        fee_rate = 0.0004  # 0.04% Hyperliquid round trip
         for i in range(1, n):
 
             current_signal = None
             ema_dist_prev = ema21[i-1] - ema50[i-1]
             ema_dist = ema21[i] - ema50[i]
+            fees_min = entry_price * fee_rate
 
-            if last_signal == Signal.SELL and macd_line[i-1] < signal_line[i-1] and macd_line[i] > signal_line[i] and signal_line[i] < 0:
+            # Calcula lucro atual
+            if last_signal == Signal.BUY:
+                current_profit = closes[i] - entry_price
+                profits.append(current_profit)
+                
+            elif last_signal == Signal.SELL:  # SELL
+                current_profit = entry_price - closes[i]
+                profits.append(current_profit)
+            
+            # --- Saída antecipada com trailing_n e PSAR ---
+            if len(profits) >= trailing_n and current_profit > fees_min:
+                # verifica se os últimos N profits estão sempre a descer
+                if all(profits[-k] < profits[-(k+1)] for k in range(1, trailing_n)):
+                    # validação extra com PSAR
+                    if (psar[i] < closes[i] and last_signal == Signal.SELL) or \
+                    (psar[i] > closes[i] and last_signal == Signal.BUY):
+                        current_signal = Signal.CLOSE
+                        logging.info(f"[CLOSE - trailing] Candle {i} | Entry={entry_price:.2f}, Close={closes[i]:.2f}, Profit={current_profit:.2f}")
+            
+            # --- Saída por cruzamento de bandas ---
+            if last_signal == Signal.BUY and bands_cross_signal[i] != Signal.BUY and closes[i] >= final_upperband[i] and current_profit > fees_min:
                 current_signal = Signal.CLOSE
-            elif last_signal == Signal.BUY and macd_line[i-1] > signal_line[i-1] and macd_line[i] < signal_line[i] and signal_line[i] > 0:
+                logging.info(f"[CLOSE - upperband] Candle {i} | Entry={entry_price:.2f}, Close={closes[i]:.2f}, Profit={current_profit:.2f}")
+            elif last_signal == Signal.SELL and bands_cross_signal[i] != Signal.SELL and closes[i] <= final_lowerband[i] and current_profit > fees_min:
                 current_signal = Signal.CLOSE
+                logging.info(f"[CLOSE - lowerband] Candle {i} | Entry={entry_price:.2f}, Close={closes[i]:.2f}, Profit={current_profit:.2f}")
 
+            # --- Detecção de tendência via EMA ---
             spread = abs(ema21[i] - ema50[i])
-            price = closes[i]
-            # Normaliza o spread em relação ao preço (percentagem)
-            spread_pct = spread / price
+            spread_pct = spread / closes[i]
 
             if ema_dist_prev <= 0 and ema_dist > 0:
                 active_trend = Signal.BUY
@@ -202,15 +229,28 @@ class AISuperTrendUtils:
                 active_trend = Signal.BUY
             elif bands_cross_signal[i] == Signal.SELL:
                 active_trend = Signal.SELL
-
+                
             if active_trend == Signal.BUY and spread_pct > 0.003 and closes[i] > ema200[i]: 
                 current_signal = Signal.BUY
+                logging.info(f"[BUY] Candle {i} | Close={closes[i]:.2f}, Spread%={spread_pct:.4f}")
             elif active_trend == Signal.SELL and spread_pct > 0.003 and closes[i] < ema200[i]:
                 current_signal = Signal.SELL
+                logging.info(f"[SELL] Candle {i} | Close={closes[i]:.2f}, Spread%={spread_pct:.4f}")
             
             # --- Regista sinal apenas se diferente do último ---
             if current_signal is not None and current_signal != last_signal :
                 trend_signal[i] = current_signal
                 last_signal = current_signal
+                entry_price = closes[i]
+                active_trend = None
+                profits = []
 
         return trend_signal
+
+    
+
+
+
+        
+
+
