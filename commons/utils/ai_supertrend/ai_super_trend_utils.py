@@ -162,7 +162,7 @@ class AISuperTrendUtils:
         return trend_signal_filtered
     
     
-    def get_ema_cross_signal(self, trailing_n = 3):
+    def get_ema_cross_signal(self, trailing_n = 2):
         closes = self.ohlcv.closes
         opens = self.ohlcv.opens
         highs = self.ohlcv.highs
@@ -175,6 +175,7 @@ class AISuperTrendUtils:
         bands_cross_signal = self.get_bands_cross_signal()
         _, trend, final_upperband, final_lowerband, _ = self.get_supertrend()
         active_trend = None
+        active_supertrend = None
         ema200 = self.indicators.ema(200)
         ema50 = self.indicators.ema(50)
         ema21 = self.indicators.ema(21)
@@ -212,7 +213,7 @@ class AISuperTrendUtils:
                 current_signal = Signal.CLOSE
             elif last_signal == Signal.SELL and bands_cross_signal[i] != Signal.SELL and closes[i] <= final_lowerband[i] and current_profit > fees_min:
                 current_signal = Signal.CLOSE
-
+            
             # --- Detecção de tendência via EMA ---
             spread = abs(ema21[i] - ema50[i])
             spread_pct = spread / closes[i]
@@ -222,16 +223,18 @@ class AISuperTrendUtils:
             elif ema_dist_prev >= 0 and ema_dist < 0:
                 active_trend = Signal.SELL
 
-            if bands_cross_signal[i] == Signal.BUY:
-                active_trend = Signal.BUY
-            elif bands_cross_signal[i] == Signal.SELL:
-                active_trend = Signal.SELL
-                
-            if active_trend == Signal.BUY and spread_pct > 0.003 and closes[i] > ema200[i]: 
-                current_signal = Signal.BUY
-            elif active_trend == Signal.SELL and spread_pct > 0.003 and closes[i] < ema200[i]:
-                current_signal = Signal.SELL
             
+            if bands_cross_signal[i] == Signal.BUY and ema21[i] > ema50[i]:
+                active_supertrend = Signal.BUY
+            elif bands_cross_signal[i] == Signal.SELL and ema21[i] < ema50[i]:
+                active_supertrend = Signal.SELL
+             
+            if (active_trend == Signal.BUY or active_supertrend == Signal.BUY) and spread_pct > 0.002 and closes[i] > ema200[i] and closes[i] > psar[i]: 
+                current_signal = Signal.BUY
+            elif (active_trend == Signal.SELL or active_supertrend == Signal.SELL) and spread_pct > 0.002 and closes[i] < ema200[i] and closes[i] < psar[i]:
+                current_signal = Signal.SELL
+
+            active_supertrend = None
             # --- Regista sinal apenas se diferente do último ---
             if current_signal is not None and current_signal != last_signal :
                 trend_signal[i] = current_signal
