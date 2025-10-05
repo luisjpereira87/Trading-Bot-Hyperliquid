@@ -183,6 +183,7 @@ class AISuperTrendUtils:
         entry_price = 0
         profits = []
         fee_rate = 0.0004  # 0.04% Hyperliquid round trip
+        min_profit_threshold = 0.001
         for i in range(1, n):
 
             current_signal = None
@@ -192,15 +193,15 @@ class AISuperTrendUtils:
 
             # Calcula lucro atual
             if last_signal == Signal.BUY:
-                current_profit = closes[i] - entry_price
-                profits.append(current_profit)
+                current_profit_pct = (closes[i] - entry_price) / entry_price
+                profits.append(current_profit_pct)
                 
             elif last_signal == Signal.SELL:  # SELL
-                current_profit = entry_price - closes[i]
-                profits.append(current_profit)
+                current_profit_pct = (entry_price - closes[i]) / entry_price
+                profits.append(current_profit_pct)
             
             # --- Saída antecipada com trailing_n e PSAR ---
-            if len(profits) >= trailing_n and current_profit > fees_min:
+            if len(profits) >= trailing_n and current_profit_pct > min_profit_threshold:
                 # verifica se os últimos N profits estão sempre a descer
                 if all(profits[-k] < profits[-(k+1)] for k in range(1, trailing_n)):
                     # validação extra com PSAR
@@ -209,9 +210,9 @@ class AISuperTrendUtils:
                         current_signal = Signal.CLOSE
             
             # --- Saída por cruzamento de bandas ---
-            if last_signal == Signal.BUY and bands_cross_signal[i] != Signal.BUY and closes[i] >= final_upperband[i] and current_profit > fees_min:
+            if last_signal == Signal.BUY and bands_cross_signal[i] != Signal.BUY and closes[i] >= final_upperband[i] and current_profit_pct > min_profit_threshold:
                 current_signal = Signal.CLOSE
-            elif last_signal == Signal.SELL and bands_cross_signal[i] != Signal.SELL and closes[i] <= final_lowerband[i] and current_profit > fees_min:
+            elif last_signal == Signal.SELL and bands_cross_signal[i] != Signal.SELL and closes[i] <= final_lowerband[i] and current_profit_pct > min_profit_threshold:
                 current_signal = Signal.CLOSE
             
             # --- Detecção de tendência via EMA ---
