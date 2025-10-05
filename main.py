@@ -45,7 +45,7 @@ async def run_bot():
         {
             "walletAddress": wallet_address,
             "privateKey":private_key,
-            "testnet": True,
+            "testnet": False,
             "enableRateLimit": True,
             "options": {"defaultSlippage": 0.01},
         }
