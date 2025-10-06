@@ -30,7 +30,8 @@ class ExitLogicEmaBased:
         aISuperTrendUtils = AISuperTrendUtils(ohlcv)
         ema_cross_signal = aISuperTrendUtils.get_ema_cross_signal()
 
-        logging.info(f"Saída lógica baseado em reversão de tendência sinal: {ema_cross_signal[-1]}")
+        logging.info(f"[DEBUG] Saída lógica baseado em reversão de tendência sinal anterior: {ema_cross_signal[-2]}")
+        logging.info(f"[DEBUG] Saída lógica baseado em reversão de tendência sinal atual: {ema_cross_signal[-1]}")
 
         # 1) Verificar cruzamento contra a tendência
         if ema_cross_signal[-1] == Signal.CLOSE:
