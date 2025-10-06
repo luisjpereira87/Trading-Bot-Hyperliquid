@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 
 from commons.enums.signal_enum import Signal
@@ -25,29 +27,10 @@ class ExitLogicEmaBased:
         if not current_position or not current_position.side:
             return False
 
-        side = Signal.from_str(current_position.side)
-        current_price = await self.exchange_client.get_entry_price(pair.symbol)
-        entry_price = float(current_position.entry_price)
-
-        # Indicadores
-        indicators = IndicatorsUtils(ohlcv)
-        ema21_values = indicators.ema(21)
-        last_ema = ema21_values[-1]
-
-        atr_values = indicators.atr(period=14)
-        last_atr = atr_values[-1]
-
-        # PnL
-        if side == Signal.BUY:
-            pl = current_price - entry_price
-        else:
-            pl = entry_price - current_price
-
-        # PnL percentual
-        pl_pct = pl / entry_price
-
         aISuperTrendUtils = AISuperTrendUtils(ohlcv)
         ema_cross_signal = aISuperTrendUtils.get_ema_cross_signal()
+
+        logging.info(f"Saída lógica baseado em reversão de tendência sinal: {ema_cross_signal[-1]}")
 
         # 1) Verificar cruzamento contra a tendência
         if ema_cross_signal[-1] == Signal.CLOSE:
