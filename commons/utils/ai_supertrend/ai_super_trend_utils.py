@@ -162,7 +162,7 @@ class AISuperTrendUtils:
         return trend_signal_filtered
     
     
-    def get_ema_cross_signal(self, trailing_n = 2):
+    def get_ema_cross_signal(self, trailing_n = 3):
         closes = self.ohlcv.closes
         opens = self.ohlcv.opens
         highs = self.ohlcv.highs
