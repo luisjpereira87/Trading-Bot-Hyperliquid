@@ -34,7 +34,7 @@ class ExitLogicEmaBased:
         logging.info(f"[DEBUG] Saída lógica baseado em reversão de tendência sinal atual: {ema_cross_signal[-1]}")
 
         # 1) Verificar cruzamento contra a tendência
-        if ema_cross_signal[-1] == Signal.CLOSE:
+        if ema_cross_signal[-2] == Signal.CLOSE:
             await self._exit(pair.symbol, current_position.size, current_position.side)
             return True
         
