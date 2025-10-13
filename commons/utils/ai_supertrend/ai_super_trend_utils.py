@@ -17,113 +17,6 @@ class AISuperTrendUtils:
     def __init__(self, ohlcv: OhlcvWrapper):
         self.ohlcv = ohlcv  # instância de OhlcvWrapper
         self.indicators = IndicatorsUtils(ohlcv)
-
-    def get_supertrend(self,
-                   mode="adaptive",
-                   base_length=10, base_mult=3.0,
-                   min_len=7, max_len=21,
-                   min_mult=2.0, max_mult=4.0,
-                   vol_sensitivity=1.5,
-                   trend_confirmation=1,
-                   smooth_period=3):
-
-        opens, highs, lows, closes, volumes = self.ohlcv.candles_to_arrays()
-        hl2 = (highs + lows) / 2
-        n = len(closes)
-
-        # ATR fixo para medir volatilidade
-        atr_fixed = self.indicators.atr(14)
-        vol_rel = atr_fixed / closes
-
-        # calcular arrays de length e multiplier
-        if mode == "adaptive":
-            atr_len = base_length * (1 / (1 + vol_sensitivity * vol_rel))
-            atr_len = np.clip(atr_len, min_len, max_len)
-            atr_mult = base_mult * (1 + vol_sensitivity * vol_rel)
-            atr_mult = np.clip(atr_mult, min_mult, max_mult)
-
-            # suavizar com numpy (rolling mean simples)
-            def rolling_mean(arr, window=3):
-                if window <= 1:
-                    return arr
-                kernel = np.ones(window) / window
-                return np.convolve(arr, kernel, mode="same")
-
-            atr_len = rolling_mean(atr_len, 3)
-            atr_mult = rolling_mean(atr_mult, 3)
-        else:
-            atr_len = np.full(n, base_length)
-            atr_mult = np.full(n, base_mult)
-
-        # pré-calcular ATRs de todos os comprimentos possíveis
-        atr_cache = {L: self.indicators.atr(L) for L in range(min_len, max_len + 1)}
-
-        supertrend = np.zeros(n)
-        trend = np.ones(n)
-        final_upperband = np.zeros(n)
-        final_lowerband = np.zeros(n)
-        trend_count = 0
-
-        for i in range(n):
-            length = int(round(atr_len[i]))
-            mult = atr_mult[i]
-            atr_curr = atr_cache[length][i]  # usar cache
-
-            if np.isnan(atr_curr):
-                supertrend[i] = np.nan
-                trend[i] = 1
-                final_upperband[i] = np.nan
-                final_lowerband[i] = np.nan
-                continue
-
-            upperband = hl2[i] + mult * atr_curr
-            lowerband = hl2[i] - mult * atr_curr
-
-            if i == 0 or np.isnan(supertrend[i - 1]):
-                supertrend[i] = hl2[i]
-                trend[i] = 1
-                final_upperband[i] = upperband
-                final_lowerband[i] = lowerband
-                trend_count = 1
-                continue
-
-            final_upperband[i] = upperband if (upperband < final_upperband[i - 1] or closes[i - 1] > final_upperband[i - 1]) else final_upperband[i - 1]
-            final_lowerband[i] = lowerband if (lowerband > final_lowerband[i - 1] or closes[i - 1] < final_lowerband[i - 1]) else final_lowerband[i - 1]
-
-            prev_trend = trend[i - 1]
-            if prev_trend == 1:
-                if closes[i] <= final_upperband[i]:
-                    trend_count += 1
-                    if trend_count >= trend_confirmation:
-                        trend[i] = -1
-                        supertrend[i] = final_upperband[i]
-                        trend_count = 0
-                    else:
-                        trend[i] = prev_trend
-                        supertrend[i] = supertrend[i - 1]
-                else:
-                    trend[i] = 1
-                    supertrend[i] = final_lowerband[i]
-                    trend_count = 0
-            else:
-                if closes[i] >= final_lowerband[i]:
-                    trend_count += 1
-                    if trend_count >= trend_confirmation:
-                        trend[i] = 1
-                        supertrend[i] = final_lowerband[i]
-                        trend_count = 0
-                    else:
-                        trend[i] = prev_trend
-                        supertrend[i] = supertrend[i - 1]
-                else:
-                    trend[i] = -1
-                    supertrend[i] = final_upperband[i]
-                    trend_count = 0
-       
-
-        supertrend_smooth = self.indicators.ema_array(supertrend, smooth_period)
-
-        return supertrend, trend, final_upperband, final_lowerband, supertrend_smooth
     
     def get_trend_signal(self):
 
@@ -132,7 +25,7 @@ class AISuperTrendUtils:
         n = len(closes)
         trend_signal = [Signal.HOLD] * n
 
-        _, _, final_upperband, final_lowerband, _ = self.get_supertrend()
+        _, _, final_upperband, final_lowerband, _ = self.indicators.supertrend()
 
         for i in range(2, n):
             # BUY: o candle fecha acima da banda superior, indicando mudança de tendência para alta
@@ -147,7 +40,7 @@ class AISuperTrendUtils:
     
     def get_bands_cross_signal(self):
 
-        _, trend, final_upperband, final_lowerband, _ = self.get_supertrend()
+        _, trend, final_upperband, final_lowerband, _ = self.indicators.supertrend()
 
         n = len(self.ohlcv.closes)
         trend_signal_filtered = [Signal.HOLD] * n
@@ -173,13 +66,16 @@ class AISuperTrendUtils:
 
         last_signal = None
         bands_cross_signal = self.get_bands_cross_signal()
-        _, trend, final_upperband, final_lowerband, _ = self.get_supertrend()
+        _, trend, final_upperband, final_lowerband, _ = self.indicators.supertrend()
         active_trend = None
         active_supertrend = None
         ema200 = self.indicators.ema(200)
         ema50 = self.indicators.ema(50)
         ema21 = self.indicators.ema(21)
+        ema9 = self.indicators.ema(9)
         psar = self.indicators.psar()
+        atr = self.indicators.atr()
+        macd_line, signal_line = self.indicators.macd(3,10,16)
         entry_price = 0
         profits = []
         fee_rate = 0.0004  # 0.04% Hyperliquid round trip
@@ -219,6 +115,11 @@ class AISuperTrendUtils:
             spread = abs(ema21[i] - ema50[i])
             spread_pct = spread / closes[i]
 
+            spread_fast = abs(ema9[i] - ema21[i])
+            spread_fast_pct = spread_fast / closes[i]
+
+            #print("AQUIII", i, spread_pct, spread_fast_pct, abs(spread_pct-spread_fast_pct))
+
             if ema_dist_prev <= 0 and ema_dist > 0:
                 active_trend = Signal.BUY
             elif ema_dist_prev >= 0 and ema_dist < 0:
@@ -229,15 +130,29 @@ class AISuperTrendUtils:
                 active_supertrend = Signal.BUY
             elif bands_cross_signal[i] == Signal.SELL and ema21[i] < ema50[i]:
                 active_supertrend = Signal.SELL
+
+            
+            _, profile, ema_spread  = self.get_volatility_profile(atr)
+
+            fast_trigger_signal = self.fast_trigger_signal(i, macd_line, signal_line, closes[i],ema21[i], ema50[i], ema200[i])
+
+            reforce_buy_signal = spread_pct > ema_spread and closes[i] > ema200[i] and closes[i] > psar[i]
+            reforce_sell_signal = spread_pct > ema_spread and closes[i] < ema200[i] and closes[i] < psar[i]
+
+            
              
-            if (active_trend == Signal.BUY or active_supertrend == Signal.BUY) and spread_pct > 0.002 and closes[i] > ema200[i] and closes[i] > psar[i]: 
+            if (active_trend == Signal.BUY or fast_trigger_signal == Signal.BUY) and reforce_buy_signal: 
                 current_signal = Signal.BUY
-            elif (active_trend == Signal.SELL or active_supertrend == Signal.SELL) and spread_pct > 0.002 and closes[i] < ema200[i] and closes[i] < psar[i]:
+            elif(active_trend == Signal.SELL or fast_trigger_signal == Signal.SELL) and reforce_sell_signal:
                 current_signal = Signal.SELL
 
             active_supertrend = None
             # --- Regista sinal apenas se diferente do último ---
-            if current_signal is not None and current_signal != last_signal :
+            if current_signal is not None and current_signal != last_signal:
+
+                if trend_signal[i-1] == Signal.CLOSE:
+                    last_signal = None
+
                 trend_signal[i] = current_signal
                 last_signal = current_signal
                 entry_price = closes[i]
@@ -245,6 +160,104 @@ class AISuperTrendUtils:
                 profits = []
 
         return trend_signal
+    
+    def get_macro_trend(
+        self, 
+        close: float, 
+        ema21: float, 
+        ema50: float, 
+        ema200: float, 
+        is_conservative=True):
+
+        if not is_conservative:
+            return Signal.BUY if close > ema200 else Signal.SELL
+        else:
+            if ema21 > ema50 > ema200:
+                return Signal.BUY
+            elif ema21 < ema50 < ema200:
+                return Signal.SELL
+            else:
+                return Signal.HOLD
+    
+    def fast_trigger_signal(
+        self, 
+        index: int,
+        macd_line: list[float], 
+        signal_line: list[float], 
+        close: float, 
+        ema21: float, 
+        ema50: float, 
+        ema200: float, 
+        is_conservative=True, 
+        hist_absolute_threshold=0.0, 
+        hist_strength_window=5
+    ) -> Signal:
+        """
+        Retorna sinal de buy/sell baseado em cruzamento MACD, tendência macro e força do histograma.
+        """
+    
+        # Calcula histograma
+        hist = macd_line[index] - signal_line[index]
+
+        # Calcula histograma médio dos últimos candles
+        if index >= hist_strength_window:
+            recent_hist = [macd_line[i] - signal_line[i] for i in range(index - hist_strength_window + 1, index + 1)]
+            hist_avg = sum(abs(h) for h in recent_hist) / hist_strength_window
+        else:
+            hist_avg = abs(hist)
+        #print("AQUIII", index,   macd_line[index-1] < macd_line[index] and signal_line[index-1] < signal_line[index])
+        # Ignora sinais muito fracos
+        if abs(hist) < max(hist_avg * 0.3, hist_absolute_threshold):
+            return Signal.HOLD
+
+        # Determina a tendência macro
+        if not is_conservative:
+            trend_signal = Signal.BUY if close > ema200 else Signal.SELL
+        else:
+            if ema21 > ema50 > ema200:
+                trend_signal = Signal.BUY
+            elif ema21 < ema50 < ema200:
+                trend_signal = Signal.SELL
+            else:
+                trend_signal = Signal.HOLD
+
+        # Cruzamento MACD alinhado com a tendência
+        if trend_signal == Signal.BUY and macd_line[index-1] < signal_line[index-1] and macd_line[index] > signal_line[index]:
+            return Signal.BUY
+        elif trend_signal == Signal.SELL and macd_line[index-1] > signal_line[index-1] and macd_line[index] < signal_line[index]:
+            return Signal.SELL
+
+        return Signal.HOLD
+    
+    def get_volatility_profile(self, atr: list[float], lookback: int = 50):
+        """
+        Mede a volatilidade média do ativo com base no ATR relativo.
+        Retorna:
+        - atr_rel (float): média do ATR/preço (ex: 0.018 = 1.8%)
+        - profile (str): classificação qualitativa ("low", "medium", "high")
+        """
+        closes = np.array(self.ohlcv.closes)
+        #atr = np.array(self.indicators.atr(atr_period))
+
+        # evitar erro se houver poucos dados
+        if len(closes) < lookback or len(atr) < lookback:
+            atr_rel = atr[-1] / closes[-1] if len(atr) > 0 else 0
+        else:
+            atr_rel = np.mean(atr[-lookback:]) / closes[-1]
+
+        # classificação qualitativa (ajusta conforme teu mercado)
+        if atr_rel < 0.012:
+            profile = "low"     # ex: BTC, ETH
+            ema_spread = 0.002 
+        elif atr_rel < 0.025:
+            profile = "medium"  # ex: BNB, AVAX
+            ema_spread = 0.003
+        else:
+            profile = "high"    # ex: SOL, meme coins
+            ema_spread = 0.004
+
+        return atr_rel, profile, ema_spread
+        
 
     
 

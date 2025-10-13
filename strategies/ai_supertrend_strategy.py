@@ -41,13 +41,14 @@ class AISuperTrendStrategy(StrategyBase):
 
         last_closed_candle = self.ohlcv.get_last_closed_candle()
         aISuperTrendUtils = AISuperTrendUtils(self.ohlcv)
-        supertrend, trend, upperband, lowerband, supertrend_smooth = aISuperTrendUtils.get_supertrend()
+        indicators = IndicatorsUtils(self.ohlcv)
+        supertrend, trend, upperband, lowerband, supertrend_smooth = indicators.supertrend()
         ema_cross_signal = aISuperTrendUtils.get_ema_cross_signal()
 
         signal = ema_cross_signal[-2]
         close = last_closed_candle.close
 
-        lookback = 10
+        lookback = 20
         if signal == Signal.BUY:
             sl = min(lowerband[-lookback:])  # SL no ponto mais baixo da banda
             tp = max(upperband[-lookback:]) + (max(upperband[-lookback:]) - sl) * 0.5
@@ -65,7 +66,7 @@ class AISuperTrendStrategy(StrategyBase):
         reward = abs(tp - close)
 
         if (signal == Signal.BUY or signal == Signal.SELL) and  reward < risk:
-            return SignalResult(Signal.CLOSE, None, None, None, 0)  # não abre trade
+            return SignalResult(Signal.HOLD, None, None, None, 0)  # não abre trade
         
 
 

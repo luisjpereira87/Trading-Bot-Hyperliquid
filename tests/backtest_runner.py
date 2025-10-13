@@ -461,7 +461,7 @@ class BacktestRunner:
         exchange =  hyperliquid({
                 "enableRateLimit": True,
                 "testnet": False,
-            })
+            }) # type: ignore
 
         try:
             # Busca candles OHLCV históricos (timestamp, open, high, low, close, volume)
@@ -487,7 +487,7 @@ class BacktestRunner:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("SOL/USDC:USDC")
+    pair = get_pair_by_symbol("BTC/USDC:USDC")
 
     if pair != None:
 

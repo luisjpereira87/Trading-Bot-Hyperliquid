@@ -158,7 +158,7 @@ class PlotTrades:
 
         # Obter todos os arrays do SuperTrend
         aISuperTrendUtils = AISuperTrendUtils(ohlcv)
-        supertrend, trend, upperband, lowerband, supertrend_smooth = aISuperTrendUtils.get_supertrend()
+        supertrend, trend, upperband, lowerband, supertrend_smooth = aISuperTrendUtils.indicators.supertrend()
         ema_cross_signal = aISuperTrendUtils.get_ema_cross_signal()
 
         fig, ax = plt.subplots(figsize=(15, 7))
@@ -211,7 +211,7 @@ class PlotTrades:
 
         # Obter todos os arrays do SuperTrend
         aISuperTrendUtils = AISuperTrendUtils(ohlcv)
-        supertrend, trend, upperband, lowerband, supertrend_smooth = aISuperTrendUtils.get_supertrend()
+        supertrend, trend, upperband, lowerband, supertrend_smooth = AISuperTrendUtils(ohlcv).indicators.supertrend()
         ema_cross_signal = aISuperTrendUtils.get_ema_cross_signal()
         trend_signal = aISuperTrendUtils.get_trend_signal()
 
@@ -295,6 +295,10 @@ class PlotTrades:
         ax.plot(dates, upperband, color='purple', linestyle='--', label='Upper Band', alpha=0.7)
         ax.plot(dates, lowerband, color='brown', linestyle='--', label='Lower Band', alpha=0.7)
 
+        # EMA 9
+        ema9 = AISuperTrendUtils(ohlcv).indicators.ema(9)
+        ax.plot(dates, ema9, color='orange', linestyle='-', linewidth=1.5, label='EMA 9')
+
         # EMA 21
         ema21 = AISuperTrendUtils(ohlcv).indicators.ema(21)
         ax.plot(dates, ema21, color='black', linestyle='-', linewidth=1.5, label='EMA 21')
@@ -361,7 +365,7 @@ class PlotTrades:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("SOL/USDC:USDC")
+    pair = get_pair_by_symbol("ETH/USDC:USDC")
 
     if pair:
 
