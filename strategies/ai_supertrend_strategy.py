@@ -47,8 +47,9 @@ class AISuperTrendStrategy(StrategyBase):
 
         signal = ema_cross_signal[-2]
         close = last_closed_candle.close
+        closes = self.ohlcv.closes
 
-        lookback = 20
+        lookback = 10
         if signal == Signal.BUY:
             sl = min(lowerband[-lookback:])  # SL no ponto mais baixo da banda
             tp = max(upperband[-lookback:]) + (max(upperband[-lookback:]) - sl) * 0.5

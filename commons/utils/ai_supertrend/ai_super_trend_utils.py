@@ -53,6 +53,7 @@ class AISuperTrendUtils:
                 trend_signal_filtered[i] = Signal.SELL
 
         return trend_signal_filtered
+
     
     
     def get_ema_cross_signal(self, trailing_n = 3):
@@ -66,7 +67,7 @@ class AISuperTrendUtils:
 
         last_signal = None
         bands_cross_signal = self.get_bands_cross_signal()
-        _, trend, final_upperband, final_lowerband, _ = self.indicators.supertrend()
+        supertrend, trend, final_upperband, final_lowerband, _ = self.indicators.supertrend()
         active_trend = None
         active_supertrend = None
         ema200 = self.indicators.ema(200)
@@ -75,17 +76,23 @@ class AISuperTrendUtils:
         ema9 = self.indicators.ema(9)
         psar = self.indicators.psar()
         atr = self.indicators.atr()
-        macd_line, signal_line = self.indicators.macd(3,10,16)
+        #macd_line, signal_line = self.indicators.macd(3,10,16)
         entry_price = 0
         profits = []
         fee_rate = 0.0004  # 0.04% Hyperliquid round trip
         min_profit_threshold = 0.001
+        cross_index = None
+        cross_age = 0
+        lookback = 10
         for i in range(1, n):
 
             current_signal = None
             ema_dist_prev = ema21[i-1] - ema50[i-1]
             ema_dist = ema21[i] - ema50[i]
             fees_min = entry_price * fee_rate
+
+            ema_dist_prev_fast = ema9[i-1] - ema21[i-1]
+            ema_dist_fast = ema9[i] - ema21[i]
 
             # Calcula lucro atual
             if last_signal == Signal.BUY:
@@ -105,12 +112,6 @@ class AISuperTrendUtils:
                     (psar[i] > closes[i] and last_signal == Signal.BUY):
                         current_signal = Signal.CLOSE
             
-            # --- Saída por cruzamento de bandas ---
-            if last_signal == Signal.BUY and bands_cross_signal[i] != Signal.BUY and closes[i] >= final_upperband[i] and current_profit_pct > min_profit_threshold:
-                current_signal = Signal.CLOSE
-            elif last_signal == Signal.SELL and bands_cross_signal[i] != Signal.SELL and closes[i] <= final_lowerband[i] and current_profit_pct > min_profit_threshold:
-                current_signal = Signal.CLOSE
-            
             # --- Detecção de tendência via EMA ---
             spread = abs(ema21[i] - ema50[i])
             spread_pct = spread / closes[i]
@@ -120,34 +121,46 @@ class AISuperTrendUtils:
 
             #print("AQUIII", i, spread_pct, spread_fast_pct, abs(spread_pct-spread_fast_pct))
 
+            """
             if ema_dist_prev <= 0 and ema_dist > 0:
                 active_trend = Signal.BUY
+                cross_index = i
+                diff_cross = 0
+                #print("AQUIII", "buy", i)
             elif ema_dist_prev >= 0 and ema_dist < 0:
                 active_trend = Signal.SELL
+                cross_index = i
+                diff_cross = 0
+                #print("AQUIII", "sell", i)
+            """
+            if ema_dist_prev_fast <= 0 and ema_dist_fast > 0:
+                active_trend = Signal.BUY
+                cross_index = i
+                cross_age = 0
+            elif ema_dist_prev_fast >= 0 and ema_dist_fast < 0:
+                active_trend = Signal.SELL
+                cross_index = i
+                cross_age = 0
 
-            
-            if bands_cross_signal[i] == Signal.BUY and ema21[i] > ema50[i]:
-                active_supertrend = Signal.BUY
-            elif bands_cross_signal[i] == Signal.SELL and ema21[i] < ema50[i]:
-                active_supertrend = Signal.SELL
-
+            if cross_index is not None:
+                cross_age += 1
             
             _, profile, ema_spread  = self.get_volatility_profile(atr)
 
-            fast_trigger_signal = self.fast_trigger_signal(i, macd_line, signal_line, closes[i],ema21[i], ema50[i], ema200[i])
 
+            """
             reforce_buy_signal = spread_pct > ema_spread and closes[i] > ema200[i] and closes[i] > psar[i]
             reforce_sell_signal = spread_pct > ema_spread and closes[i] < ema200[i] and closes[i] < psar[i]
+            """
+            reforce_buy_signal = spread_fast_pct > ema_spread and closes[i] > ema50[i] and closes[i] > psar[i]
+            reforce_sell_signal = spread_fast_pct > ema_spread and closes[i] < ema50[i] and closes[i] < psar[i]
 
-            
-             
-            if (active_trend == Signal.BUY or fast_trigger_signal == Signal.BUY) and reforce_buy_signal: 
+
+            if active_trend == Signal.BUY  and reforce_buy_signal and cross_age <= 10: 
                 current_signal = Signal.BUY
-            elif(active_trend == Signal.SELL or fast_trigger_signal == Signal.SELL) and reforce_sell_signal:
+            elif active_trend == Signal.SELL and reforce_sell_signal and cross_age <= 10:
                 current_signal = Signal.SELL
 
-            active_supertrend = None
-            # --- Regista sinal apenas se diferente do último ---
             if current_signal is not None and current_signal != last_signal:
 
                 if trend_signal[i-1] == Signal.CLOSE:
@@ -160,75 +173,7 @@ class AISuperTrendUtils:
                 profits = []
 
         return trend_signal
-    
-    def get_macro_trend(
-        self, 
-        close: float, 
-        ema21: float, 
-        ema50: float, 
-        ema200: float, 
-        is_conservative=True):
 
-        if not is_conservative:
-            return Signal.BUY if close > ema200 else Signal.SELL
-        else:
-            if ema21 > ema50 > ema200:
-                return Signal.BUY
-            elif ema21 < ema50 < ema200:
-                return Signal.SELL
-            else:
-                return Signal.HOLD
-    
-    def fast_trigger_signal(
-        self, 
-        index: int,
-        macd_line: list[float], 
-        signal_line: list[float], 
-        close: float, 
-        ema21: float, 
-        ema50: float, 
-        ema200: float, 
-        is_conservative=True, 
-        hist_absolute_threshold=0.0, 
-        hist_strength_window=5
-    ) -> Signal:
-        """
-        Retorna sinal de buy/sell baseado em cruzamento MACD, tendência macro e força do histograma.
-        """
-    
-        # Calcula histograma
-        hist = macd_line[index] - signal_line[index]
-
-        # Calcula histograma médio dos últimos candles
-        if index >= hist_strength_window:
-            recent_hist = [macd_line[i] - signal_line[i] for i in range(index - hist_strength_window + 1, index + 1)]
-            hist_avg = sum(abs(h) for h in recent_hist) / hist_strength_window
-        else:
-            hist_avg = abs(hist)
-        #print("AQUIII", index,   macd_line[index-1] < macd_line[index] and signal_line[index-1] < signal_line[index])
-        # Ignora sinais muito fracos
-        if abs(hist) < max(hist_avg * 0.3, hist_absolute_threshold):
-            return Signal.HOLD
-
-        # Determina a tendência macro
-        if not is_conservative:
-            trend_signal = Signal.BUY if close > ema200 else Signal.SELL
-        else:
-            if ema21 > ema50 > ema200:
-                trend_signal = Signal.BUY
-            elif ema21 < ema50 < ema200:
-                trend_signal = Signal.SELL
-            else:
-                trend_signal = Signal.HOLD
-
-        # Cruzamento MACD alinhado com a tendência
-        if trend_signal == Signal.BUY and macd_line[index-1] < signal_line[index-1] and macd_line[index] > signal_line[index]:
-            return Signal.BUY
-        elif trend_signal == Signal.SELL and macd_line[index-1] > signal_line[index-1] and macd_line[index] < signal_line[index]:
-            return Signal.SELL
-
-        return Signal.HOLD
-    
     def get_volatility_profile(self, atr: list[float], lookback: int = 50):
         """
         Mede a volatilidade média do ativo com base no ATR relativo.

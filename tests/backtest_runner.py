@@ -487,7 +487,7 @@ class BacktestRunner:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("BTC/USDC:USDC")
+    pair = get_pair_by_symbol("ETH/USDC:USDC")
 
     if pair != None:
 
