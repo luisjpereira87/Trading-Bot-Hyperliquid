@@ -67,7 +67,12 @@ class AISuperTrendStrategy(StrategyBase):
         reward = abs(tp - close)
 
         if (signal == Signal.BUY or signal == Signal.SELL) and  reward < risk:
-            return SignalResult(Signal.HOLD, None, None, None, 0)  # não abre trade
+            # ajusta SL e TP dinamicamente
+            sl_adjusted = close - (risk * 0.5) if signal == Signal.BUY else close + (risk * 0.5)
+            tp_adjusted = close + (reward * 1.5) if signal == Signal.BUY else close - (reward * 1.5)
+
+            return SignalResult(signal, sl, tp_adjusted, None, 0)
+            #return SignalResult(Signal.HOLD, None, None, None, 0)  # não abre trade
         
 
 

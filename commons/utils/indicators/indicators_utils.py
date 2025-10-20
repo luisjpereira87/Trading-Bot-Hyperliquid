@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 
+from commons.enums.signal_enum import Signal
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 
 
@@ -454,3 +455,235 @@ class IndicatorsUtils:
         supertrend_smooth = self.ema_array(supertrend, smooth_period)
 
         return supertrend, trend, final_upperband, final_lowerband, supertrend_smooth
+    
+    def detect_low_volatility(
+        self,
+        lookback=20,
+        hist_window=200,
+        adx_dynamic_factor=0.8,
+        slope_threshold=0.015
+    ):
+        """
+        Retorna um array booleano indicando regiões de baixa volatilidade / lateralidade.
+        Usa ATR, ADX e inclinação das linhas da SuperTrend.
+        """
+        closes = np.array(self.ohlcv.closes)
+        n = len(closes)
+        if n < max(lookback, hist_window):
+            return np.zeros(n, dtype=bool)
+
+        # obtém indicadores (usa cache se já calculados)
+        atr = self.atr()
+        adx = self.adx()
+        _, _, upperband, lowerband, _ = self.supertrend()
+
+        low_vol = np.zeros(n, dtype=bool)
+
+        for i in range(max(lookback, hist_window), n):
+            closes_window = closes[i - hist_window : i]
+            atr_window = atr[i - hist_window : i]
+            adx_window = adx[i - hist_window : i]
+            upperband_window = upperband[i - lookback : i]
+            lowerband_window = lowerband[i - lookback : i]
+
+            # --- ATR/ADX adaptativos ---
+            atr_ratio = atr_window / closes_window
+            avg_atr_recent = np.mean(atr_ratio[-lookback:])
+            avg_atr_hist = np.mean(atr_ratio)
+            avg_adx_recent = np.mean(adx_window[-lookback:])
+            avg_adx_hist = np.mean(adx_window)
+
+            atr_threshold = avg_atr_hist * 0.7
+            adx_threshold = avg_adx_hist * adx_dynamic_factor
+
+            atr_condition = avg_atr_recent < atr_threshold
+            adx_condition = avg_adx_recent < adx_threshold
+
+            # --- Inclinação da SuperTrend ---
+            slope_upper = abs(upperband_window[-1] - upperband_window[0]) / closes_window[-1]
+            slope_lower = abs(lowerband_window[-1] - lowerband_window[0]) / closes_window[-1]
+            band_width = np.mean(upperband_window - lowerband_window) / closes_window[-1]
+
+            supertrend_flat = (
+                slope_upper < slope_threshold
+                and slope_lower < slope_threshold
+                and band_width < slope_threshold * 5
+            )
+
+            # --- Resultado ---
+            low_vol[i] = (atr_condition and adx_condition) or supertrend_flat
+
+        return low_vol
+    
+    def get_stoch_signal(
+        self,
+        k_period=5,
+        d_period=2,
+        lookback=4,
+        lower_thresh=20,
+        upper_thresh=80
+    ) -> tuple[list[Signal], list[float]]:
+        """
+        Retorna dois arrays do tamanho dos candles:
+        - signals: Signal.BUY / Signal.SELL / Signal.HOLD
+        - scores: float entre 0 e 1 indicando confiança do sinal
+        """
+        closes = np.array(self.ohlcv.closes)
+        n = len(closes)
+
+        stoch_k, stoch_d = self.stochastic(k_period=k_period, d_period=d_period)
+
+        signals = np.array([Signal.HOLD] * n)
+        scores = np.ones(n)
+
+        for i in range(lookback, n):
+            recent_k = np.array(stoch_k[i - lookback : i])
+
+            overbought = np.any(recent_k > upper_thresh)
+            oversold = np.any(recent_k < lower_thresh)
+
+            # direção do sinal
+            if overbought:
+                signals[i] = Signal.SELL
+            elif oversold:
+                signals[i] = Signal.BUY
+            else:
+                signals[i] = Signal.HOLD
+
+            # score de confiança
+            if overbought or oversold:
+                # penaliza proporcionalmente ao quão extremo foi o movimento
+                distances = []
+                if overbought:
+                    distances.append(np.max(recent_k) - upper_thresh)
+                if oversold:
+                    distances.append(lower_thresh - np.min(recent_k))
+                max_dist = max(distances)
+                scores[i] = max(0.0, 1 - max_dist / 100)  # normaliza em 0-1
+            else:
+                scores[i] = 1.0
+
+        return signals.tolist(), scores.tolist()
+    
+    def get_rsi_signal(
+        self,
+        period=14,
+        overbought=70,
+        oversold=30,
+        slope_window=3
+    ) -> tuple[list[Signal], list[float]]:
+        """
+        Gera sinais baseados na direção e nível do RSI.
+        Retorna:
+        - signals: lista de Signal.BUY / SELL / HOLD
+        - scores: confiança entre 0 e 1
+        """
+        import numpy as np
+        closes = np.array(self.ohlcv.closes)
+        rsi = np.array(self.rsi(period=period))
+        n = len(rsi)
+
+        signals = np.array([Signal.HOLD] * n)
+        scores = np.zeros(n)
+
+        # cálculo da inclinação (derivada simples)
+        rsi_diff = np.zeros(n)
+        for i in range(slope_window, n):
+            rsi_diff[i] = rsi[i] - np.mean(rsi[i - slope_window : i])
+
+        for i in range(slope_window, n):
+            if rsi[i] > overbought and rsi_diff[i] < 0:
+                signals[i] = Signal.SELL
+                # quanto mais longe de 70 e mais negativa a inclinação → maior score
+                scores[i] = min(1.0, ((rsi[i] - overbought) / 30) + abs(rsi_diff[i]) / 10)
+
+            elif rsi[i] < oversold and rsi_diff[i] > 0:
+                signals[i] = Signal.BUY
+                # quanto mais longe de 30 e mais positiva a inclinação → maior score
+                scores[i] = min(1.0, ((oversold - rsi[i]) / 30) + abs(rsi_diff[i]) / 10)
+
+            else:
+                signals[i] = Signal.HOLD
+                # score mais alto se estiver no meio do canal (mercado estável)
+                scores[i] = 1.0 - abs(rsi[i] - 50) / 50
+
+        return signals.tolist(), scores.tolist()
+    
+    def get_rsi_reversal_signal(
+        self,
+        rsi_period=14,
+        lower_thresh=30,
+        upper_thresh=70,
+        lookback=3
+    ) -> tuple[list[Signal], list[float], list[str]]:
+        """
+        Combina RSI + candle de reversão (Pinbar, Engulfing, Hammer) para gerar sinais de BUY/SELL.
+        Retorna:
+            - signals: lista com Signal.BUY / Signal.SELL / Signal.HOLD
+            - scores: lista de floats (0–1) com força do sinal
+            - patterns: nome do candle de reversão detetado ou ""
+        """
+        closes = np.array(self.ohlcv.closes)
+        opens = np.array(self.ohlcv.opens)
+        highs = np.array(self.ohlcv.highs)
+        lows = np.array(self.ohlcv.lows)
+        n = len(closes)
+
+        rsi = np.array(self.rsi(rsi_period))
+        signals = np.array([Signal.HOLD] * n)
+        scores = np.zeros(n)
+        patterns = [""] * n
+
+        for i in range(lookback, n):
+            recent_rsi = rsi[i - lookback : i]
+            rsi_now = rsi[i]
+
+            # --- RSI condições ---
+            is_overbought = np.any(recent_rsi > upper_thresh)
+            is_oversold = np.any(recent_rsi < lower_thresh)
+
+            # --- Candle de reversão ---
+            body = abs(closes[i] - opens[i])
+            upper_wick = highs[i] - max(closes[i], opens[i])
+            lower_wick = min(closes[i], opens[i]) - lows[i]
+
+            # evita divisão por zero
+            if body == 0:
+                continue
+
+            upper_ratio = upper_wick / body
+            lower_ratio = lower_wick / body
+
+            candle_pattern = ""
+
+            # bullish reversal
+            if lower_ratio > 2 and closes[i] > opens[i]:
+                candle_pattern = "Hammer"
+                candle_signal = Signal.BUY
+            elif closes[i] > opens[i] and closes[i] > highs[i - 1] and opens[i] < lows[i - 1]:
+                candle_pattern = "Bullish Engulfing"
+                candle_signal = Signal.BUY
+            # bearish reversal
+            elif upper_ratio > 2 and closes[i] < opens[i]:
+                candle_pattern = "Shooting Star"
+                candle_signal = Signal.SELL
+            elif closes[i] < opens[i] and closes[i] < lows[i - 1] and opens[i] > highs[i - 1]:
+                candle_pattern = "Bearish Engulfing"
+                candle_signal = Signal.SELL
+            else:
+                candle_signal = Signal.HOLD
+
+            # --- Combinação RSI + Candle ---
+            if is_oversold and candle_signal == Signal.BUY:
+                signals[i] = Signal.BUY
+                patterns[i] = candle_pattern
+                scores[i] = min(1.0, (lower_thresh - rsi_now) / lower_thresh)
+            elif is_overbought and candle_signal == Signal.SELL:
+                signals[i] = Signal.SELL
+                patterns[i] = candle_pattern
+                scores[i] = min(1.0, (rsi_now - upper_thresh) / (100 - upper_thresh))
+            else:
+                signals[i] = Signal.HOLD
+                scores[i] = 0.0
+
+        return signals.tolist(), scores.tolist(), patterns

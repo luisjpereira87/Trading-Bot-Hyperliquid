@@ -58,24 +58,29 @@ class AISuperTrendUtils:
     
     def get_ema_cross_signal(self, trailing_n = 3):
         closes = self.ohlcv.closes
-        opens = self.ohlcv.opens
-        highs = self.ohlcv.highs
-        lows = self.ohlcv.lows
+        #opens = self.ohlcv.opens
+        #highs = self.ohlcv.highs
+        #lows = self.ohlcv.lows
         n = len(closes)
 
         trend_signal = [Signal.HOLD] * n
 
         last_signal = None
-        bands_cross_signal = self.get_bands_cross_signal()
-        supertrend, trend, final_upperband, final_lowerband, _ = self.indicators.supertrend()
+        #bands_cross_signal = self.get_bands_cross_signal()
+        #supertrend, trend, final_upperband, final_lowerband, _ = self.indicators.supertrend()
         active_trend = None
-        active_supertrend = None
+        active_fast_trend = None
+        #active_supertrend = None
         ema200 = self.indicators.ema(200)
         ema50 = self.indicators.ema(50)
         ema21 = self.indicators.ema(21)
         ema9 = self.indicators.ema(9)
         psar = self.indicators.psar()
         atr = self.indicators.atr()
+        lateral = self.indicators.detect_low_volatility()
+        #signal, stoch_score = self.indicators.get_stoch_signal(k_period=5, d_period=2, lookback=4)
+        #rsi_signal, rsi_score, patterns = self.indicators.get_rsi_reversal_signal()
+        
         #macd_line, signal_line = self.indicators.macd(3,10,16)
         entry_price = 0
         profits = []
@@ -83,7 +88,7 @@ class AISuperTrendUtils:
         min_profit_threshold = 0.001
         cross_index = None
         cross_age = 0
-        lookback = 10
+        #lookback = 10
         for i in range(1, n):
 
             current_signal = None
@@ -93,6 +98,7 @@ class AISuperTrendUtils:
 
             ema_dist_prev_fast = ema9[i-1] - ema21[i-1]
             ema_dist_fast = ema9[i] - ema21[i]
+            
 
             # Calcula lucro atual
             if last_signal == Signal.BUY:
@@ -119,47 +125,49 @@ class AISuperTrendUtils:
             spread_fast = abs(ema9[i] - ema21[i])
             spread_fast_pct = spread_fast / closes[i]
 
-            #print("AQUIII", i, spread_pct, spread_fast_pct, abs(spread_pct-spread_fast_pct))
-
-            """
             if ema_dist_prev <= 0 and ema_dist > 0:
                 active_trend = Signal.BUY
                 cross_index = i
-                diff_cross = 0
-                #print("AQUIII", "buy", i)
+                cross_age = 0
             elif ema_dist_prev >= 0 and ema_dist < 0:
                 active_trend = Signal.SELL
                 cross_index = i
-                diff_cross = 0
-                #print("AQUIII", "sell", i)
-            """
+                cross_age = 0
+        
             if ema_dist_prev_fast <= 0 and ema_dist_fast > 0:
-                active_trend = Signal.BUY
+                active_fast_trend = Signal.BUY
                 cross_index = i
                 cross_age = 0
             elif ema_dist_prev_fast >= 0 and ema_dist_fast < 0:
-                active_trend = Signal.SELL
+                active_fast_trend = Signal.SELL
                 cross_index = i
                 cross_age = 0
-
+            
             if cross_index is not None:
                 cross_age += 1
             
             _, profile, ema_spread  = self.get_volatility_profile(atr)
 
+            mid_ema_buy_signal = active_trend == Signal.BUY and spread_pct > ema_spread and ema21[i] > ema50[i] > ema200[i] and closes[i] > psar[i]
+            mid_ema_sell_signal = active_trend == Signal.SELL and spread_pct > ema_spread and ema21[i] < ema50[i] < ema200[i] and closes[i] < psar[i]
 
-            """
-            reforce_buy_signal = spread_pct > ema_spread and closes[i] > ema200[i] and closes[i] > psar[i]
-            reforce_sell_signal = spread_pct > ema_spread and closes[i] < ema200[i] and closes[i] < psar[i]
+
+            fast_ema_buy_signal = active_fast_trend == Signal.BUY and spread_fast_pct > ema_spread and ema9[i] > ema21[i] > ema50[i] > ema200[i] and closes[i] > psar[i] and cross_age < 10
+            fast_ema_sell_signal = active_fast_trend == Signal.SELL and spread_fast_pct > ema_spread and ema9[i] < ema21[i] < ema50[i] < ema200[i] and closes[i] < psar[i] and cross_age < 10
             """
             reforce_buy_signal = spread_fast_pct > ema_spread and closes[i] > ema50[i] and closes[i] > psar[i]
             reforce_sell_signal = spread_fast_pct > ema_spread and closes[i] < ema50[i] and closes[i] < psar[i]
+            """
+            #reforce_stoch = stoch_score[i] > 0.5 and signal[i] == active_trend
 
-
-            if active_trend == Signal.BUY  and reforce_buy_signal and cross_age <= 10: 
+            #print("AQUIII", i, rsi_signal[i], rsi_score[i])
+            if (mid_ema_buy_signal or fast_ema_buy_signal):  
                 current_signal = Signal.BUY
-            elif active_trend == Signal.SELL and reforce_sell_signal and cross_age <= 10:
+            elif (mid_ema_sell_signal or fast_ema_sell_signal):
                 current_signal = Signal.SELL
+
+            if lateral[i]:
+                current_signal = None
 
             if current_signal is not None and current_signal != last_signal:
 
@@ -202,6 +210,7 @@ class AISuperTrendUtils:
             ema_spread = 0.004
 
         return atr_rel, profile, ema_spread
+
         
 
     
