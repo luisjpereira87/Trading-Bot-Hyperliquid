@@ -148,8 +148,8 @@ class AISuperTrendUtils:
             
             _, profile, ema_spread  = self.get_volatility_profile(atr)
 
-            mid_ema_buy_signal = active_trend == Signal.BUY and spread_pct > ema_spread and ema21[i] > ema50[i] > ema200[i] and closes[i] > psar[i]
-            mid_ema_sell_signal = active_trend == Signal.SELL and spread_pct > ema_spread and ema21[i] < ema50[i] < ema200[i] and closes[i] < psar[i]
+            mid_ema_buy_signal = active_trend == Signal.BUY and spread_pct > ema_spread and ema21[i] > ema50[i] > ema200[i] and closes[i] > psar[i] and cross_age < 10
+            mid_ema_sell_signal = active_trend == Signal.SELL and spread_pct > ema_spread and ema21[i] < ema50[i] < ema200[i] and closes[i] < psar[i] and cross_age < 10
 
 
             fast_ema_buy_signal = active_fast_trend == Signal.BUY and spread_fast_pct > ema_spread and ema9[i] > ema21[i] > ema50[i] > ema200[i] and closes[i] > psar[i] and cross_age < 10
