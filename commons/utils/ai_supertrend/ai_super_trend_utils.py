@@ -118,6 +118,13 @@ class AISuperTrendUtils:
                     (psar[i] > closes[i] and last_signal == Signal.BUY):
                         current_signal = Signal.CLOSE
             
+            # --- Saida antecipada caso o mercado não tenha direção e aproveita o lucro para sair ---
+            profit_pos = sum(1 for x in profits if x > 0)
+            profit_neg = sum(1 for x in profits if x < 0)
+
+            if len(profits) >= trailing_n and profit_neg >= profit_pos and current_profit_pct > min_profit_threshold:
+                return Signal.CLOSE
+            
             # --- Detecção de tendência via EMA ---
             spread = abs(ema21[i] - ema50[i])
             spread_pct = spread / closes[i]
@@ -166,7 +173,7 @@ class AISuperTrendUtils:
             elif (mid_ema_sell_signal or fast_ema_sell_signal):
                 current_signal = Signal.SELL
 
-            if lateral[i]:
+            if lateral[i] and current_signal != Signal.CLOSE:
                 current_signal = None
 
             if current_signal is not None and current_signal != last_signal:
