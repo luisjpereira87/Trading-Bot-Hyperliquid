@@ -123,7 +123,7 @@ class AISuperTrendUtils:
             profit_neg = sum(1 for x in profits if x < 0)
 
             if len(profits) >= trailing_n and profit_neg >= profit_pos and current_profit_pct > min_profit_threshold:
-                return Signal.CLOSE
+                current_signal = Signal.CLOSE
             
             # --- Detecção de tendência via EMA ---
             spread = abs(ema21[i] - ema50[i])
