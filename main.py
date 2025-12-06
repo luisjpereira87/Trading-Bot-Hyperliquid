@@ -48,11 +48,11 @@ async def run_bot():
             "testnet": False,
             "enableRateLimit": True,
             "options": {"defaultSlippage": 0.01},
-        }
+        } # type: ignore
     )
     helpers = TradingHelpers()
     exchange_client = ExchangeClient(exchange, wallet_address)
-    strategy = StrategyManager(exchange_client, StrategyEnum.AI_SUPERTREND)
+    strategy = StrategyManager(exchange_client, StrategyEnum.CROSS_EMA)
     bot = TradingBot(exchange_client, strategy, helpers, pairs, timeframe)
 
     await bot.start() 

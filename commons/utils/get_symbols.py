@@ -7,7 +7,7 @@ async def get_symbols():
     exchange = ccxt.hyperliquid({
         "testnet": True,
         'enableRateLimit': True
-    })
+    }) # type: ignore
     await exchange.load_markets()
     print("Símbolos disponíveis:")
     for symbol in exchange.symbols: # type: ignore

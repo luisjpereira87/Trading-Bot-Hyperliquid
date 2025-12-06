@@ -13,3 +13,4 @@ class OpenPosition:
     notional: float
     sl: (float | None)
     tp: (float | None)
+    unrealizedPnl: (float | None)

@@ -16,10 +16,6 @@ class StrategyBase(ABC):
         pass
 
     @abstractmethod
-    def set_params(self, params: StrategyParams):
-        pass
-
-    @abstractmethod
     def set_candles(self, candles: List[list]):
         pass
 

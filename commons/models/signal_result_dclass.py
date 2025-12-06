@@ -4,7 +4,6 @@ from typing import Optional, Union
 import numpy as np
 
 from commons.enums.signal_enum import Signal
-from commons.models.trade_snapashot_dclass import TradeSnapshot
 
 
 @dataclass
@@ -14,10 +13,6 @@ class SignalResult:
     tp: Optional[Union[float, None]] = field(default=None)
     confidence: Optional[Union[float, None]] = field(default=None)
     score: float = 0
-    buy_score: float = 0
-    sell_score: float = 0
-    hold_score:float = 0
-    trade_snapshot: Optional[Union[TradeSnapshot, None]] = field(default=None)
 
     def __post_init__(self):
         # Converte sl e tp para float nativo, se forem np.generic (ex: np.float64)

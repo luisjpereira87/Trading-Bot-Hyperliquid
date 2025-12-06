@@ -25,7 +25,6 @@ from commons.models.open_position_dclass import OpenPosition
 from commons.models.opened_order_dclass import OpenedOrder
 from commons.utils.config_loader import (PairConfig, get_pair_by_symbol,
                                          load_pair_configs)
-from commons.utils.load_params import LoadParams
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from strategies.strategy_manager import StrategyManager
 from tests.plot_trades import PlotTrades
@@ -45,7 +44,6 @@ class ExchangeClientMock(ExchangeClient):
         self.total_pnl = 0.0  # USDC
         self.num_wins = 0
         self.num_losses = 0
-        #self.current_candle = []
         self.pair = pair
         self.trades = []
         self.id = 0
@@ -53,6 +51,7 @@ class ExchangeClientMock(ExchangeClient):
         self.closed_orders:List[ClosedOrder] = []
         self.current_candle:Ohlcv
         self.last_closed_candle:Ohlcv
+        self.unrealizedPnl = 0
 
     def update_candles(self, symbol, current_candle, index):
         self.current_index[symbol] = index
@@ -178,6 +177,37 @@ class ExchangeClientMock(ExchangeClient):
         logging.info(f"OPEN {signal.value} {symbol} entry_amount={entry_amount} idx={idx} size={size:.4f} price={price:.2f}, sl={sl} tp={tp}")
         
         return OpenedOrder(str(idx), None, None, None, symbol, "entry", signal.value, price, size, False, None)
+    
+    def __calculate_profit(self, pair):
+        pos = self.positions.get(pair)
+        if not pos:
+            logging.warning(f"Tentou obter uma posição que não existe: {pair}")
+            return 0
+
+        close_price = self.last_closed_candle.close
+
+        entry_price = pos['entryPrice']
+        position_side = pos['side']
+
+        fee_rate = 0.00035  # 0.035% por operação (taker fee)
+
+        if position_side == 'buy':
+            gross_pnl = (close_price - entry_price) * pos['size']
+        elif position_side == 'sell':
+            gross_pnl = (entry_price - close_price) * pos['size']
+        else:
+            gross_pnl = 0
+
+        # Calcular taxas
+        entry_fee = entry_price * pos['size'] * fee_rate
+        exit_fee = close_price * pos['size'] * fee_rate
+        total_fees = entry_fee + exit_fee
+
+        # Calcular PnL líquido
+        pnl = gross_pnl - total_fees
+
+        return pnl
+
 
     async def __close_position(self, candle: Ohlcv, pair, size, side: Signal):
         pos = self.positions.get(pair)
@@ -207,6 +237,7 @@ class ExchangeClientMock(ExchangeClient):
 
         # Calcular PnL líquido
         pnl = gross_pnl - total_fees
+        self.unrealizedPnl = pnl
 
         self.trades.append({
             "type": "exit",
@@ -236,9 +267,6 @@ class ExchangeClientMock(ExchangeClient):
     async def close_position(self, pair, size, side: Signal):
        return await self.__close_position(self.last_closed_candle, pair, size, side)
     
-    async def fetch_closed_orders(self, symbol=None, limit=50) -> List[ClosedOrder]:
-        return self.closed_orders
-    
     async def get_total_balance(self):
         return float(self.balance)
     
@@ -246,7 +274,7 @@ class ExchangeClientMock(ExchangeClient):
         # Simula uma posição aberta se existir para o símbolo
         pos = self.positions.get(symbol)
         if pos:
-            return OpenPosition(pos['side'], pos['size'], pos['entryPrice'], '', pos['size'] * pos['entryPrice'], pos['sl'], pos['tp'])
+            return OpenPosition(pos['side'], pos['size'], pos['entryPrice'], '', pos['size'] * pos['entryPrice'], pos['sl'], pos['tp'], self.__calculate_profit(symbol))
         return None
 
     async def modify_stop_loss_order(self, symbol: str, entry_id: str, new_stop_price: float):
@@ -412,7 +440,7 @@ class BacktestRunner:
         self.ohlcv = []
 
 
-    async def run(self, params=None, is_plot = False, train = False):
+    async def run(self, is_plot = False, train = False):
         logging.info(f"🔁 Starting backtest for {self.pair.symbol}")
 
         self.ohlcv = await self.get_historical_ohlcv(self.timeframe, self.limit, train)
@@ -424,9 +452,6 @@ class BacktestRunner:
 
         bot = TradingBot(exchange_client, strategy, helpers, load_pair_configs(), self.timeframe)
         signals = []
-
-        if params is not None:
-            strategy.set_params(params)
 
         for i in range(strategy.MIN_REQUIRED_CANDLES, len(self.ohlcv)):
             #candles_slice = self.ohlcv[:i]  # candles até i-1 fechados
@@ -440,7 +465,7 @@ class BacktestRunner:
             signals.append({'signal': signal, 'index': i - 1, 'candle': current_candle})
             
 
-            #if i == 305:
+            #if i == 350:
             #   break
 
         #print(signals)
@@ -487,13 +512,13 @@ class BacktestRunner:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("SOL/USDC:USDC")
+    pair = get_pair_by_symbol("ETH/USDC:USDC")
 
     if pair != None:
 
-        runner = BacktestRunner(StrategyEnum.AI_SUPERTREND, TimeframeEnum.M15, pair, 450, 1000)
+        runner = BacktestRunner(StrategyEnum.CROSS_EMA, TimeframeEnum.M15, pair, 750, 1000)
         
-        await runner.run(LoadParams.load_best_params_with_weights(pair.symbol), True)
+        await runner.run(True)
     #print(LoadParams.load_best_params_with_weights())
 
 if __name__ == "__main__":

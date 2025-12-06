@@ -17,9 +17,10 @@ if ROOT_PATH not in sys.path:
 
 from commons.enums.signal_enum import Signal
 from commons.enums.timeframe_enum import TimeframeEnum
-from commons.utils.ai_supertrend.ai_super_trend_utils import AISuperTrendUtils
 from commons.utils.config_loader import PairConfig, get_pair_by_symbol
+from commons.utils.indicators.indicators_utils import IndicatorsUtils
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
+from strategies.cross_ema_strategy import CrossEmaStrategy
 
 
 class PlotTrades:
@@ -157,9 +158,9 @@ class PlotTrades:
         closes = ohlcv.closes
 
         # Obter todos os arrays do SuperTrend
-        aISuperTrendUtils = AISuperTrendUtils(ohlcv)
-        supertrend, trend, upperband, lowerband, supertrend_smooth = aISuperTrendUtils.indicators.supertrend()
-        ema_cross_signal = aISuperTrendUtils.get_ema_cross_signal()
+        indicatorsUtils = IndicatorsUtils(ohlcv)
+        supertrend, trend, upperband, lowerband, supertrend_smooth = indicatorsUtils.supertrend()
+        ema_cross_signal = CrossEmaStrategy.build_signal(indicatorsUtils, ohlcv)
 
         fig, ax = plt.subplots(figsize=(15, 7))
         ax.set_title(f"Backtest Trades - {symbol}")
@@ -210,16 +211,20 @@ class PlotTrades:
         closes = ohlcv.closes
 
         # Obter todos os arrays do SuperTrend
-        aISuperTrendUtils = AISuperTrendUtils(ohlcv)
-        supertrend, trend, upperband, lowerband, supertrend_smooth = AISuperTrendUtils(ohlcv).indicators.supertrend()
-        ema_cross_signal = aISuperTrendUtils.get_ema_cross_signal()
-        trend_signal = aISuperTrendUtils.get_trend_signal()
+        indicatorsUtils = IndicatorsUtils(ohlcv)
+        stop_line, trend_stop_atr  = indicatorsUtils.stop_atr_tradingview()
+        supertrend, trend, upperband, lowerband, supertrend_smooth = indicatorsUtils.supertrend()
+        ema_cross_signal = CrossEmaStrategy.build_signal(indicatorsUtils, ohlcv)
+
+        
+        
+        psar = indicatorsUtils.psar()
+        #upper, mid, lower = AISuperTrendUtils(ohlcv).indicators.bollinger_bands(period=20, std_dev=2)
+
+        
 
         fig, ax = plt.subplots(figsize=(18, 7))
         ax.set_title(f"Backtest Trades - {symbol}")
-        
-        psar = AISuperTrendUtils(ohlcv).indicators.psar()
-        upper, mid, lower = AISuperTrendUtils(ohlcv).indicators.bollinger_bands(period=20, std_dev=2)
 
         for i in range(len(closes)):
             # Cor da vela pela tendência
@@ -296,26 +301,43 @@ class PlotTrades:
         ax.plot(dates, lowerband, color='brown', linestyle='--', label='Lower Band', alpha=0.7)
 
         # EMA 9
-        ema9 = AISuperTrendUtils(ohlcv).indicators.ema(9)
+        ema9 = indicatorsUtils.ema(9)
         ax.plot(dates, ema9, color='orange', linestyle='-', linewidth=1.5, label='EMA 9')
 
         # EMA 21
-        ema21 = AISuperTrendUtils(ohlcv).indicators.ema(21)
+        ema21 = indicatorsUtils.ema(21)
         ax.plot(dates, ema21, color='black', linestyle='-', linewidth=1.5, label='EMA 21')
 
         # EMA 50
-        ema50 = AISuperTrendUtils(ohlcv).indicators.ema(50)
+        ema50 = indicatorsUtils.ema(50)
         ax.plot(dates, ema50, color='blue', linestyle='-', linewidth=1.5, label='EMA 50')
 
          # EMA 50
-        ema200 = AISuperTrendUtils(ohlcv).indicators.ema(200)
+        ema200 = indicatorsUtils.ema(200)
         ax.plot(dates, ema200, color='grey', linestyle='-', linewidth=1.5, label='EMA 200')
 
         # Plot das Bandas de Bollinger
-        ax.plot(dates, upper, color="purple", linestyle="--", linewidth=1, label="Bollinger Upper")
-        ax.plot(dates, mid, color="gray", linestyle="--", linewidth=1, label="Bollinger Mid")
-        ax.plot(dates, lower, color="purple", linestyle="--", linewidth=1, label="Bollinger Lower")
-    
+        #ax.plot(dates, upper, color="purple", linestyle="--", linewidth=1, label="Bollinger Upper")
+        #ax.plot(dates, mid, color="gray", linestyle="--", linewidth=1, label="Bollinger Mid")
+        #ax.plot(dates, lower, color="purple", linestyle="--", linewidth=1, label="Bollinger Lower")
+
+        # Plot stop atr
+        """
+        ax.plot(dates, stop_line, color='orange', linestyle='--', linewidth=1.5, label='Stop ATR')
+        """
+        up_trend_mask = trend_stop_atr == 1
+        down_trend_mask = trend_stop_atr == -1
+        #ax.plot(dates, stop_line, color='green', linestyle='-', linewidth=1.5, label='Stop ATR (Uptrend)')
+        """
+        ax.plot(
+            [dates[i] for i in range(len(stop_line)) if trend_stop_atr[i] == -1],
+            [stop_line[i] for i in range(len(stop_line)) if trend_stop_atr[i] == -1],
+            color='red',
+            linestyle='-',
+            linewidth=1.5,
+            label='Stop ATR (Downtrend)'
+        )
+        """
         
         # Evitar legendas repetidas
         handles, labels = plt.gca().get_legend_handles_labels()
@@ -326,6 +348,193 @@ class PlotTrades:
         ax.set_ylabel("Price")
         ax.grid(True)
         plt.xticks(rotation=45)
+        plt.tight_layout()
+        plt.show()
+
+    @staticmethod
+    def plot_luxalgo_supertrend_(ohlcv: OhlcvWrapper, symbol: str):
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        dates = ohlcv.dates
+        opens = ohlcv.opens
+        highs = ohlcv.highs
+        lows = ohlcv.lows
+        closes = ohlcv.closes
+
+        # Obter todos os arrays do SuperTrend
+        indicatorsUtils = IndicatorsUtils(ohlcv)
+        res = indicatorsUtils.luxalgo_supertrend_ai()
+        ts = res["ts"]
+        direction = res["direction"]
+        perf_score = res["perf_score"]
+
+        n = len(closes)
+
+        # Inicializar TS long/short separados
+        ts_long = np.zeros(n, dtype=float)
+        ts_short = np.zeros(n, dtype=float)
+        buy_signals = []
+        sell_signals = []
+        trend_change_scores = []
+
+        for i in range(n):
+            if i == 0:
+                ts_long[i] = ts[i] if direction[i] == 1 else np.nan
+                ts_short[i] = ts[i] if direction[i] == 0 else np.nan
+            else:
+                # TS contínuo para plot
+                ts_long[i] = ts[i] if direction[i] == 1 else ts_long[i-1]
+                ts_short[i] = ts[i] if direction[i] == 0 else ts_short[i-1]
+
+                # Detecta mudança de tendência
+                if direction[i-1] == 0 and direction[i] == 1 and closes[i] > ts[i-1]:
+                    buy_signals.append((dates[i], closes[i]))
+                    trend_change_scores.append((dates[i], perf_score[i]))
+                elif direction[i-1] == 1 and direction[i] == 0 and closes[i] < ts[i-1]:
+                    sell_signals.append((dates[i], closes[i]))
+                    trend_change_scores.append((dates[i], perf_score[i]))
+
+        # --- Plot ---
+        fig, ax = plt.subplots(figsize=(18, 7))
+        ax.set_title(f"LuxAlgo SuperTrend - {symbol}")
+
+        # Plot candles simples
+        for i in range(n):
+            color = 'green' if direction[i] == 1 else 'red'
+            ax.plot([dates[i], dates[i]], [lows[i], highs[i]], color='black', linewidth=1)
+            ax.plot([dates[i], dates[i]], [opens[i], closes[i]], color=color, linewidth=5)
+
+        
+        # Plot TS long/short
+        ax.plot(dates, ts_long, color='green', linewidth=2, label='TS Long')
+        ax.plot(dates, ts_short, color='red', linewidth=2, label='TS Short')
+        """
+        # Plot sinais
+        if buy_signals:
+            bx, by = zip(*buy_signals)
+            ax.scatter(bx, by, marker='^', color='lime', s=100, label='BUY')
+        if sell_signals:
+            sx, sy = zip(*sell_signals)
+            ax.scatter(sx, sy, marker='v', color='orange', s=100, label='SELL')
+
+        # Plot pontuação na mudança de tendência
+        for dt, score in trend_change_scores:
+            ax.text(dt, score, str(score), color='blue', fontsize=10, ha='center', va='bottom')
+        """
+        ax.set_xlabel("Date")
+        ax.set_ylabel("Price")
+        ax.grid(True)
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        plt.show()
+
+    @staticmethod
+    def plot_luxalgo_supertrend(ohlcv: OhlcvWrapper, symbol: str):
+        dates = ohlcv.dates
+        opens = ohlcv.opens
+        highs = ohlcv.highs
+        lows = ohlcv.lows
+        closes = ohlcv.closes
+
+        # --- Obter arrays do SuperTrend AI ---
+        indicatorsUtils = IndicatorsUtils(ohlcv)
+        res = indicatorsUtils.luxalgo_supertrend_ai()
+        ts = res["ts"]
+        direction = res["direction"]  # 1 bullish, 0 bearish
+        perf_score = res["perf_score"]
+        #print("AQUIII", res)
+        n = len(closes)
+
+        # --- Inicializar arrays para TS colorido ---
+        ts_long = np.full(n, np.nan)
+        ts_short = np.full(n, np.nan)
+
+        # --- Identificar sinais de BUY/SELL ---
+        buy_signals = []
+        sell_signals = []
+        trend_change_scores = []  # para armazenar (data, score)
+
+        # --- Plot ---
+        fig, ax = plt.subplots(figsize=(18, 7))
+        ax.set_title(f"SuperTrend AI - {symbol}")
+
+        for i in range(1, n):
+            dates_num = mdates.date2num(dates[i])
+
+            # BUY: direção muda de 0 -> 1 e fechamento acima do TS anterior
+            if direction[i-1] == 0 and direction[i] == 1 and closes[i] > ts[i-1]:
+
+                ax.scatter(dates_num, (0.985*lows[i]), color='green', s=100, zorder=5)
+                ax.vlines(dates_num, ymin=lows[i], ymax=(0.985*lows[i]), linestyles='dashed', color='green', linewidth=1.2, zorder=5)
+               
+                ax.text(
+                        dates_num,
+                        (0.985*lows[i]),    # ligeiramente abaixo do círculo
+                        f"Index {i}, {perf_score[i]}",
+                        fontsize=9,
+                        ha='center',
+                        va='top',           # alinhado pelo topo do texto
+                        color='green',
+                        bbox=dict(facecolor='white', alpha=0.6, boxstyle='round,pad=0.2'),
+                        zorder=6
+                    )
+
+                #buy_signals.append((dates[i], closes[i]))
+                trend_change_scores.append((dates[i], perf_score[i]))
+            # SELL: direção muda de 1 -> 0 e fechamento abaixo do TS anterior
+            elif direction[i-1] == 1 and direction[i] == 0 and closes[i] < ts[i-1]:
+                #sell_signals.append((dates[i], closes[i]))
+                trend_change_scores.append((dates[i], perf_score[i]))
+
+                ax.scatter(dates_num, (1.015*highs[i]), color='red', s=100, zorder=5)
+                ax.vlines(dates_num, ymin=highs[i], ymax=(1.015*highs[i]), linestyles='dashed', color='red', linewidth=1.2, zorder=5)
+
+                ax.text(
+                        dates_num,
+                        (1.015*highs[i]),    # ligeiramente abaixo do círculo
+                        f"Index {i}, {perf_score[i]}",
+                        fontsize=9,
+                        ha='center',
+                        va='top',           # alinhado pelo topo do texto
+                        color='red',
+                        bbox=dict(facecolor='white', alpha=0.6, boxstyle='round,pad=0.2'),
+                        zorder=6
+                    )
+            
+            # Trailing stop para plot contínuo
+            ts_long[i] = ts[i] if direction[i] == 1 else ts_long[i-1]
+            ts_short[i] = ts[i] if direction[i] == 0 else ts_short[i-1]
+
+        # Candles
+        for i in range(n):
+            color = 'green' if direction[i] == 1 else 'red'
+            ax.plot([dates[i], dates[i]], [lows[i], highs[i]], color='black', linewidth=1)  # high-low
+            ax.plot([dates[i], dates[i]], [opens[i], closes[i]], color=color, linewidth=5)   # body
+
+        #for dt, score in trend_change_scores:
+        #    ax.text(dt, score, str(score), color='blue', fontsize=10, ha='center', va='bottom')
+
+        # SuperTrend contínuo colorido
+
+        
+        ax.plot(dates, ts_long, color='blue', linewidth=1, label='TS Long')
+        ax.plot(dates, ts_short, color='orange', linewidth=1, label='TS Short')
+
+        # Pontos de sinais
+        """
+        if buy_signals:
+            buy_x, buy_y = zip(*buy_signals)
+            ax.scatter(buy_x, buy_y, marker='^', color='green', s=100, label='BUY')
+        if sell_signals:
+            sell_x, sell_y = zip(*sell_signals)
+            ax.scatter(sell_x, sell_y, marker='v', color='red', s=100, label='SELL')
+        """
+        ax.set_xlabel("Date")
+        ax.set_ylabel("Price")
+        ax.grid(True)
+        plt.xticks(rotation=45)
+        ax.legend()
         plt.tight_layout()
         plt.show()
 
@@ -365,11 +574,11 @@ class PlotTrades:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("SOL/USDC:USDC")
+    pair = get_pair_by_symbol("BTC/USDC:USDC")
 
     if pair:
 
-        ohlcv = await PlotTrades.get_historical_ohlcv(pair, TimeframeEnum.M15, 450)
+        ohlcv = await PlotTrades.get_historical_ohlcv(pair, TimeframeEnum.M15, 750)
 
         PlotTrades.plot_supertrend_with_signals(ohlcv, pair.symbol)
 

@@ -1,16 +1,12 @@
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import List
 
-from commons.enums.exit_type_enum import ExitTypeEnum
 from commons.enums.signal_enum import Signal
 from commons.enums.timeframe_enum import TimeframeEnum
 from commons.helpers.trading_helpers import TradingHelpers
-from commons.models.closed_order_dclass import ClosedOrder
 from commons.models.ohlcv_format_dclass import OhlcvFormat
 from commons.models.open_position_dclass import OpenPosition
 from commons.models.opened_order_dclass import OpenedOrder
-from commons.models.trade_closure_dclass import TradeClosureInfo
 from commons.utils.config_loader import PairConfig
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 
@@ -19,8 +15,6 @@ class ExchangeClient:
     def __init__(self, exchange, wallet_address):
         self.exchange = exchange
         self.wallet_address = wallet_address
-        #self.symbol = symbol
-        #self.leverage = leverage
         self.helpers = TradingHelpers()
 
     async def fetch_ohlcv(
@@ -180,8 +174,9 @@ class ExchangeClient:
                     size = float(pos['contracts'])
                     entry_price = pos.get('entryPrice') or pos.get('entry_price') or pos.get('averagePrice') or 0.0
                     id = pos.get('id') or pos.get('info', {}).get('order', {}).get('oid')
+                    unrealizedPnl = pos.get('unrealizedPnl') or pos.get('unrealizedPnl')
                     
-                    return OpenPosition(self.helpers.position_side_to_signal_side(pos['side']), size, entry_price, id, size * entry_price, None, None)
+                    return OpenPosition(self.helpers.position_side_to_signal_side(pos['side']), size, entry_price, id, size * entry_price, None, None, unrealizedPnl)
 
         except Exception as e:
             logging.error(f"Erro ao obter posições abertas: {e}")
@@ -324,7 +319,6 @@ class ExchangeClient:
         """
         Fecha posição com ordem de mercado. Usa 'side' atual para calcular o lado oposto (close_side).
         """
-        #close_side = 'sell' if side == 'buy' else 'buy'
 
         logging.info(f"[DEBUG] Tentando fechar posição: symbol={symbol}, side={side.value}, amount={amount}")
 
@@ -355,136 +349,5 @@ class ExchangeClient:
         except Exception as e:
             logging.error(f"❌ Erro ao fechar posição: {e}")
             raise
-    
-    async def fetch_closed_orders(self, symbol=None, limit=50) -> List[ClosedOrder]:
-        try:
-            # O símbolo pode ser None para pegar todas
-            params = {}
-            if symbol:
-                params['symbol'] = symbol
 
-            closed_orders = await self.exchange.fetch_closed_orders(symbol=symbol, limit=limit, params=params)
-
-            closed_orders_list: List[ClosedOrder] = []
-            for closed_order in closed_orders:
-                order_info = closed_order.get('info', {}).get('order', {})
-                id = order_info.get('id') or closed_order.get('id')
-                clientOrderId = order_info.get('clientOrderId') or closed_order.get('clientOrderId')
-                timestamp = order_info.get('timestamp') or closed_order.get('timestamp')
-                datetime = order_info.get('datetime') or closed_order.get('datetime')
-                symbol1 = order_info.get('symbol') or closed_order.get('symbol')
-                type = order_info.get('type') or closed_order.get('type')
-                side = order_info.get('side') or closed_order.get('side')
-                price = order_info.get('price') or closed_order.get('price')
-                amount = order_info.get('amount') or closed_order.get('amount')
-                reduceOnly = order_info.get('reduceOnly') or closed_order.get('reduceOnly')
-                orderType = order_info.get('orderType') or closed_order.get('orderType')
-
-                closed_orders_list.append(ClosedOrder(id, clientOrderId, timestamp, datetime, symbol1, type, side, price, amount, reduceOnly, orderType))
-
-            return closed_orders_list
-        except Exception as e:
-            logging.error(f"❌ Erro ao obter ordens fechadas: {e}")
-            raise
-
-    async def find_exit_orders_by_entry_id(self, symbol, entry_order_id) -> (ClosedOrder | None):
-        """
-        Filtra as ordens fechadas que são relacionadas à ordem de entrada pelo ID.
-
-        Args:
-            closed_orders: lista de ordens fechadas (dicts)
-            entry_order_id: id da ordem de entrada (string)
-
-        Returns:
-            lista de ordens fechadas relacionadas à entrada (normalmente reduceOnly=True)
-        """
-
-        closed_orders: List[ClosedOrder] = await self.fetch_closed_orders(symbol, 2)
-
-        return next((o for o in closed_orders if o.id == entry_order_id), None)
-    
-    def calculate_pnl_and_exit_type(self, signal: Signal, size: float, entry_price: float, exit_price: float, tp: float, sl: float):
-
-        if signal == Signal.BUY:
-            pnl = (exit_price - entry_price) * size
-            if exit_price >= tp and tp > 0:
-                exit_type = ExitTypeEnum.TP
-            elif exit_price <= sl and sl > 0:
-                exit_type = ExitTypeEnum.SL
-            else:
-                exit_type = ExitTypeEnum.MANUAL
-        else:  # SELL
-            pnl = (entry_price - exit_price) * size
-            if exit_price <= tp and tp > 0:
-                exit_type = ExitTypeEnum.TP
-            elif exit_price >= sl and sl > 0:
-                exit_type = ExitTypeEnum.SL
-            else:
-                exit_type = ExitTypeEnum.MANUAL
-
-        return pnl, exit_type
-    
-    """
-    async def get_trade_closure_info(self, symbol, entry_order):
-
-        print(entry_order)
-        entry_order_id = entry_order.get('id') or entry_order.get('info', {}).get('order', {}).get('oid')
-
-        exit_orders = await self.find_exit_orders_by_entry_id(symbol, entry_order_id)
-
-        if not exit_orders:
-            return None
-
-        # Pega só o primeiro fechamento
-        exit_order = exit_orders[0]
-        pnl, exit_type = self.calculate_pnl_and_exit_type(entry_order, exit_order)
-
-        return TradeClosureInfo(exit_order, pnl, exit_type)
-    """
-    async def modify_stop_loss_order(self, symbol: str, position: OpenPosition, new_stop_loss_price: float):
-        # Buscar ordens abertas do símbolo
-        open_orders = await self.exchange.fetch_open_orders(symbol)
-        
-        # Filtrar ordens do tipo stop loss relacionadas à posição
-        stop_loss_orders = [
-            order for order in open_orders
-            if order.get('type') == 'stop' and order.get('side') != position.side  # lado oposto da posição
-        ]
-
-        if not stop_loss_orders:
-            # Se não existir ordem SL, cria uma nova
-            print(f"Não existe ordem stop loss para modificar no {symbol}. Criando nova...")
-            await self.create_stop_loss_order(symbol, position, new_stop_loss_price)
-            return
-
-        # Cancelar a ordem stop loss antiga
-        sl_order = stop_loss_orders[0]
-        await self.exchange.cancel_order(sl_order['id'], symbol)
-        print(f"Ordem stop loss antiga cancelada: {sl_order['id']}")
-
-        # Criar nova ordem stop loss
-        await self.create_stop_loss_order(symbol, position, new_stop_loss_price)
-        print(f"Nova ordem stop loss criada no preço {new_stop_loss_price:.4f}")
-
-    async def create_stop_loss_order(self, symbol: str, position, stop_loss_price: float):
-        side = position.side.lower()
-        amount = abs(float(position.size))  # quantidade absoluta
-
-        if side == 'buy':
-            order_side = 'sell'  # para fechar long, stop sell
-        else:
-            order_side = 'buy'   # para fechar short, stop buy
-
-        params = {
-            'stopPrice': stop_loss_price,
-            'type': 'stop',   # tipo de ordem stop em Hyperliquid
-            'reduceOnly': True  # só fecha a posição
-        }
-
-        try:
-            order = await self.exchange.create_order(symbol, 'stop', order_side, amount, None, params)
-            print(f"Ordem stop loss criada: {order}")
-            return order
-        except Exception as e:
-            print(f"Erro ao criar ordem stop loss: {e}")
-            raise
+   
