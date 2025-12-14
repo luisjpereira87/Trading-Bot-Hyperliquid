@@ -7,6 +7,7 @@ from commons.models.strategy_base_dclass import StrategyBase
 from commons.models.strategy_params_dclass import StrategyParams
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from strategies.cross_ema_strategy import CrossEmaStrategy
+from strategies.luxalgo_supertrend_strategy import LuxAlgoSupertrendStrategy
 from strategies.ml_strategy import MLModelType, MLStrategy
 from trading_bot.exchange_client import ExchangeClient
 
@@ -27,6 +28,8 @@ class StrategyManager(StrategyBase):
     def _load_strategy(self):
         if self.name == StrategyEnum.CROSS_EMA:
             self.strategy = CrossEmaStrategy(self.exchange)
+        elif self.name == StrategyEnum.LUXALGO_SUPERTREND:
+            self.strategy = LuxAlgoSupertrendStrategy(self.exchange)
         elif self.name == StrategyEnum.ML_XGBOOST:
             self.strategy = MLStrategy(self.exchange, MLModelType.XGBOOST)
         elif self.name == StrategyEnum.ML_MLP:

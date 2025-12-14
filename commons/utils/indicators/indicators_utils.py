@@ -617,10 +617,11 @@ class IndicatorsUtils:
         atr_std = np.std(atr)
         # se o ATR for muito pequeno ou o fator cluster estiver baixo, amplia ligeiramente
         if target_factor < 2.0:
-            target_factor *= 2.5
+            target_factor *= 1.5
         # estabiliza margens em mercados laterais
         target_factor += (atr_std / atr_mean) * 0.8
         target_factor = np.clip(target_factor, 1.5, 6.0)
+        #target_factor = np.clip(target_factor, 0.5, 1.8)
 
         # --- Perf Index Series corrigido ---
         absdiff = np.abs(np.diff(closes, prepend=closes[0]))
@@ -702,11 +703,12 @@ class IndicatorsUtils:
         perf_score = np.round(10 - perf_idx_series).astype(int)
         perf_score = np.clip(perf_score, 0, 10)
 
+        """
         print("perf_idx_series mean:", np.mean(perf_idx_series))
         print("perf_idx_series min:", np.min(perf_idx_series))
         print("perf_idx_series max:", np.max(perf_idx_series))
         print("unique perf_score:", np.unique(perf_score))
-        
+        """
 
         return {
             "ts": ts,
@@ -719,7 +721,6 @@ class IndicatorsUtils:
             "perf_clusters": clusters_perf,
             "centroids": centroids
         }
-
     
     def get_supertrend_stopatr_signals(self, atr_period=14, multiplier=3.0, lookback_slope=5, min_slope=1e-4):
         """

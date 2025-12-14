@@ -352,84 +352,6 @@ class PlotTrades:
         plt.show()
 
     @staticmethod
-    def plot_luxalgo_supertrend_(ohlcv: OhlcvWrapper, symbol: str):
-        import matplotlib.pyplot as plt
-        import numpy as np
-
-        dates = ohlcv.dates
-        opens = ohlcv.opens
-        highs = ohlcv.highs
-        lows = ohlcv.lows
-        closes = ohlcv.closes
-
-        # Obter todos os arrays do SuperTrend
-        indicatorsUtils = IndicatorsUtils(ohlcv)
-        res = indicatorsUtils.luxalgo_supertrend_ai()
-        ts = res["ts"]
-        direction = res["direction"]
-        perf_score = res["perf_score"]
-
-        n = len(closes)
-
-        # Inicializar TS long/short separados
-        ts_long = np.zeros(n, dtype=float)
-        ts_short = np.zeros(n, dtype=float)
-        buy_signals = []
-        sell_signals = []
-        trend_change_scores = []
-
-        for i in range(n):
-            if i == 0:
-                ts_long[i] = ts[i] if direction[i] == 1 else np.nan
-                ts_short[i] = ts[i] if direction[i] == 0 else np.nan
-            else:
-                # TS contínuo para plot
-                ts_long[i] = ts[i] if direction[i] == 1 else ts_long[i-1]
-                ts_short[i] = ts[i] if direction[i] == 0 else ts_short[i-1]
-
-                # Detecta mudança de tendência
-                if direction[i-1] == 0 and direction[i] == 1 and closes[i] > ts[i-1]:
-                    buy_signals.append((dates[i], closes[i]))
-                    trend_change_scores.append((dates[i], perf_score[i]))
-                elif direction[i-1] == 1 and direction[i] == 0 and closes[i] < ts[i-1]:
-                    sell_signals.append((dates[i], closes[i]))
-                    trend_change_scores.append((dates[i], perf_score[i]))
-
-        # --- Plot ---
-        fig, ax = plt.subplots(figsize=(18, 7))
-        ax.set_title(f"LuxAlgo SuperTrend - {symbol}")
-
-        # Plot candles simples
-        for i in range(n):
-            color = 'green' if direction[i] == 1 else 'red'
-            ax.plot([dates[i], dates[i]], [lows[i], highs[i]], color='black', linewidth=1)
-            ax.plot([dates[i], dates[i]], [opens[i], closes[i]], color=color, linewidth=5)
-
-        
-        # Plot TS long/short
-        ax.plot(dates, ts_long, color='green', linewidth=2, label='TS Long')
-        ax.plot(dates, ts_short, color='red', linewidth=2, label='TS Short')
-        """
-        # Plot sinais
-        if buy_signals:
-            bx, by = zip(*buy_signals)
-            ax.scatter(bx, by, marker='^', color='lime', s=100, label='BUY')
-        if sell_signals:
-            sx, sy = zip(*sell_signals)
-            ax.scatter(sx, sy, marker='v', color='orange', s=100, label='SELL')
-
-        # Plot pontuação na mudança de tendência
-        for dt, score in trend_change_scores:
-            ax.text(dt, score, str(score), color='blue', fontsize=10, ha='center', va='bottom')
-        """
-        ax.set_xlabel("Date")
-        ax.set_ylabel("Price")
-        ax.grid(True)
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        plt.show()
-
-    @staticmethod
     def plot_luxalgo_supertrend(ohlcv: OhlcvWrapper, symbol: str):
         dates = ohlcv.dates
         opens = ohlcv.opens
@@ -574,13 +496,13 @@ class PlotTrades:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("BTC/USDC:USDC")
+    pair = get_pair_by_symbol("SOL/USDC:USDC")
 
     if pair:
 
         ohlcv = await PlotTrades.get_historical_ohlcv(pair, TimeframeEnum.M15, 750)
 
-        PlotTrades.plot_supertrend_with_signals(ohlcv, pair.symbol)
+        PlotTrades.plot_luxalgo_supertrend(ohlcv, pair.symbol)
 
 if __name__ == "__main__":
     asyncio.run(main())

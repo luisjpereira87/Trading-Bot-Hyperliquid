@@ -1,5 +1,6 @@
 import numpy as np
 
+from commons.enums.mode_enum import ModeEnum
 from commons.enums.signal_enum import Signal
 from commons.models.signal_result_dclass import SignalResult
 from commons.models.strategy_base_dclass import StrategyBase
@@ -91,6 +92,8 @@ class CrossEmaStrategy(StrategyBase):
         psar = indicators.psar()
         atr = indicators.atr()
         lateral = indicators.detect_low_volatility()
+        rsi = indicators.rsi()
+        stoch_k, stoch_d = indicators.stochastic()
 
         entry_price = 0
         profits = []
@@ -165,10 +168,10 @@ class CrossEmaStrategy(StrategyBase):
                 cross_age_macro,
                 i
             )
-
+            
             if fast_signal:
                 current_signal = fast_signal
-            elif mid_signal:
+            if mid_signal:
                 current_signal = mid_signal
             elif macro_signal:
                 current_signal = macro_signal
@@ -197,11 +200,12 @@ class CrossEmaStrategy(StrategyBase):
         psar: list[float],
         closes: list[float],
         atr: list[float],
-        active_trend: Signal,
-        cross_index: float,
-        cross_age: float,
-        i: int
-    ):
+        active_trend: Signal | None,
+        cross_index: int | None,
+        cross_age: int,
+        i: int,
+        mode: ModeEnum = ModeEnum.CONSERVATIVE
+    ) -> tuple[Signal | None, int | None, int, Signal | None]:
         
         fast = emas[0]
         slow = emas[1]
@@ -230,10 +234,14 @@ class CrossEmaStrategy(StrategyBase):
         # 4. Volatilidade mínima necessária
         _, _, ema_spread = indicators.get_volatility_profile(atr)
 
+        spread_pct_aux = spread_pct > ema_spread
+        if mode == ModeEnum.AGGRESSIVE:
+            spread_pct_aux = True
+
         # 5. Criar sinal
         buy_signal = (
             active_trend == Signal.BUY
-            and spread_pct > ema_spread
+            and spread_pct_aux
             and CrossEmaStrategy.are_emas_ordered(emas, i, Signal.BUY)
             and closes[i] > psar[i]
             and cross_age < 10
@@ -241,7 +249,7 @@ class CrossEmaStrategy(StrategyBase):
 
         sell_signal = (
             active_trend == Signal.SELL
-            and spread_pct > ema_spread
+            and spread_pct_aux
             and CrossEmaStrategy.are_emas_ordered(emas, i, Signal.SELL)
             and closes[i] < psar[i]
             and cross_age < 10
@@ -317,5 +325,46 @@ class CrossEmaStrategy(StrategyBase):
 
         if len(profits) >= trailing_n and profit_neg >= profit_pos and current_profit_pct > min_profit_threshold:
             return Signal.CLOSE
+
+        return None
+    
+    @staticmethod
+    def get_rsi_stoch_signal(rsi: list[float], stoch_k: list[float], stoch_d: list[float], i: int, stoch_oversold=20, stoch_overbought=80, rsi_oversold=30, rsi_overbought=70):
+        """
+        Gera sinal baseado na lógica:
+        - VENDA: RSI > 50 e Stoch K cruza para baixo D
+        - COMPRA: RSI < 50 e Stoch K cruza para cima D
+        
+        Os arrays devem ter o mesmo tamanho.
+        Retorna Signal.BUY, Signal.SELL ou None.
+        """
+
+        # Últimos valores
+        rsi_now = rsi[i]
+        k_now = stoch_k[i]
+        d_now = stoch_d[i]
+
+        # Valores anteriores (para detectar cruzamento)
+        k_prev = stoch_k[i - 1]
+        d_prev = stoch_d[i - 1]
+        rsi_prev = rsi[i - 1]
+
+        # ----------------------------
+        #  COMPRA
+        # ----------------------------
+        # RSI < 50 → mercado já está fraco/baixo
+        # K cruza para cima de D → momentum a inverter para cima
+        if k_prev < d_prev and k_now > d_now:
+            if k_now < stoch_oversold and rsi_now < rsi_oversold:
+                return Signal.BUY
+
+        # ----------------------------
+        #  VENDA
+        # ----------------------------
+        # RSI > 50 → mercado esticado para cima
+        # K cruza para baixo de D → momentum a inverter para baixo
+        if k_prev > d_prev and k_now < d_now:
+            if k_now > stoch_overbought and rsi_now > rsi_overbought:
+                return Signal.SELL
 
         return None

@@ -44,6 +44,21 @@
     "atr_multiplier": 2.0,
     "atr_momentum_drop": 0.90,
     "psar_tolerance": 0.002
+  },
+    {
+    "symbol": "AAVE/USDC:USDC",
+    "leverage": 10,
+    "capital": 0.3,
+    "min_profit_abs": 10.0,
+    "min_profit_pct": 0.005,
+    "max_hold_candles": 2,
+    "trailing_stop_multiplier": 1.5,
+    "stop_loss_atr_multiplier": 1.5,
+    "partial_take_profit_pct": 0.03,
+    "partial_close_pct": 0.5,
+    "atr_multiplier": 2.0,
+    "atr_momentum_drop": 0.90,
+    "psar_tolerance": 0.002
   }
   
 ]

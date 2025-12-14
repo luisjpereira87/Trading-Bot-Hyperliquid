@@ -52,10 +52,23 @@ async def run_bot():
     )
     helpers = TradingHelpers()
     exchange_client = ExchangeClient(exchange, wallet_address)
-    strategy = StrategyManager(exchange_client, StrategyEnum.CROSS_EMA)
+    strategy = StrategyManager(exchange_client, StrategyEnum.LUXALGO_SUPERTREND)
     bot = TradingBot(exchange_client, strategy, helpers, pairs, timeframe)
 
     await bot.start() 
+
+async def alpaca_test():
+    alpaca = ccxt.alpaca({
+        "apiKey": "PK34OT2XTSYU3YE6LAPEW5MD7I",
+        "secret": "EtihUMrXTfPXRb5XTAo5kCR2YrZfmU52k2EJVo7opgxC"
+    }) # type: ignore
+
+    # If we want to use paper api keys, enable sandbox mode
+    alpaca.set_sandbox_mode(True)
+
+    markets = await alpaca.fetch_markets()
+
+    logging.info(f"Markets: {markets}")
 
 async def run_train():
     print("🤖 A treinar o modelo ML...")
@@ -83,6 +96,8 @@ if __name__ == "__main__":
         comando = sys.argv[1].lower()
         if comando == "train":
             asyncio.run(run_train())
+        elif comando == "alpaca":
+            asyncio.run(alpaca_test())
         else:
             print(f"❌ Comando desconhecido: {comando}")
             print("Usa: python main.py [treino | backtest]")

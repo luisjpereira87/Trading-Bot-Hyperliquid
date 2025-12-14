@@ -9,3 +9,4 @@ class StrategyEnum(Enum):
     ML_MLP = 'ml_mlp'
     ML_LSTM = 'ml_lsmt'
     CROSS_EMA = 'cross_ema'
+    LUXALGO_SUPERTREND = 'luxalgo_supertrend'
