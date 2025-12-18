@@ -39,9 +39,12 @@ class LuxAlgoSupertrendStrategy(StrategyBase):
 
     async def get_signal(self) -> SignalResult:
 
+        if self.symbol is None:
+            return SignalResult(Signal.HOLD, None, None)
+
         last_closed_candle = self.ohlcv.get_last_closed_candle()
         supertrend, trend, upperband, lowerband, supertrend_smooth = self.indicators.supertrend()
-        ema_cross_signal = LuxAlgoSupertrendStrategy.build_signal(self.indicators, self.ohlcv)
+        ema_cross_signal = LuxAlgoSupertrendStrategy.build_signal(self.symbol, self.indicators, self.ohlcv)
 
         signal = ema_cross_signal[-2]
         close = last_closed_candle.close
@@ -74,13 +77,14 @@ class LuxAlgoSupertrendStrategy(StrategyBase):
         return SignalResult(signal, sl, tp)
     
     @staticmethod
-    def build_signal(indicators: IndicatorsUtils, ohlcv: OhlcvWrapper, trailing_n = 3):
+    def build_signal(symbol: str , indicators: IndicatorsUtils, ohlcv: OhlcvWrapper, trailing_n = 3):
         closes = ohlcv.closes
         n = len(closes)
         trend_signal = [Signal.HOLD] * n
         last_signal = None
         psar = indicators.psar()
-        res = indicators.luxalgo_supertrend_ai()
+        res = indicators.luxalgo_supertrend_ai(symbol)
+        lateral = indicators.detect_low_volatility()
         ts = res["ts"]
         direction = res["direction"]  # 1 bullish, 0 bearish
         perf_score = res["perf_score"]

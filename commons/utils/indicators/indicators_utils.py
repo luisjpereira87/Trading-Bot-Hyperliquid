@@ -19,6 +19,7 @@ class IndicatorsUtils:
         self.lows = ohlcv.lows
         self.closes = ohlcv.closes
         self.volumes = ohlcv.volumes
+        self._locked_target_factor = {}
 
         if self.mode == 'ta':
             from ta.momentum import RSIIndicator, StochasticOscillator
@@ -502,6 +503,7 @@ class IndicatorsUtils:
     
     def luxalgo_supertrend_ai(
         self,
+        symbol: str = '',
         length: int = 10,
         min_mult: float = 1.0,
         max_mult: float = 5.0,
@@ -613,6 +615,7 @@ class IndicatorsUtils:
         )
 
         # --- Ajuste adaptativo do target_factor ---
+        
         atr_mean = np.mean(atr)
         atr_std = np.std(atr)
         # se o ATR for muito pequeno ou o fator cluster estiver baixo, amplia ligeiramente
@@ -620,8 +623,20 @@ class IndicatorsUtils:
             target_factor *= 1.5
         # estabiliza margens em mercados laterais
         target_factor += (atr_std / atr_mean) * 0.8
-        target_factor = np.clip(target_factor, 1.5, 6.0)
+        #target_factor = np.clip(target_factor, 1.5, 6.0)
         #target_factor = np.clip(target_factor, 0.5, 1.8)
+        key = f"{symbol}"
+
+        if key not in self._locked_target_factor:
+            if target_factor < 2.0:
+                target_factor *= 1.5
+
+            target_factor += (atr_std / atr_mean) * 0.8
+            target_factor = np.clip(target_factor, 1.8, 5.5)  # ligeiramente menos sensível que LuxAlgo
+
+            self._locked_target_factor[key] = target_factor
+        else:
+            target_factor = self._locked_target_factor[key]
 
         # --- Perf Index Series corrigido ---
         absdiff = np.abs(np.diff(closes, prepend=closes[0]))
@@ -710,6 +725,16 @@ class IndicatorsUtils:
         print("unique perf_score:", np.unique(perf_score))
         """
 
+        #for i in range(1, len(ts)):
+        #    print("AQUIIII", i, ts[i], os[i])
+        signal = [Signal.HOLD] * n
+        for i in range(2, len(os)):
+            if os[i-1] == 0 and os[i] == 1:
+                signal[i] = Signal.BUY
+
+            elif os[i-1] == 1 and os[i] == 0:
+                signal[i] = Signal.SELL
+
         return {
             "ts": ts,
             "direction": os,
@@ -719,7 +744,8 @@ class IndicatorsUtils:
             "target_factor": target_factor,
             "factors_clusters": clusters_factors,
             "perf_clusters": clusters_perf,
-            "centroids": centroids
+            "centroids": centroids,
+            "signal": signal
         }
     
     def get_supertrend_stopatr_signals(self, atr_period=14, multiplier=3.0, lookback_slope=5, min_slope=1e-4):
