@@ -19,6 +19,7 @@ class LuxAlgoSupertrendStrategy(StrategyBase):
         self.ohlcv: OhlcvWrapper
         self.ohlcv_higher: OhlcvWrapper
         self.symbol = None
+        self.indicators = None
 
 
     def required_init(self, ohlcv: OhlcvWrapper, ohlcv_higher: OhlcvWrapper, symbol: str, price_ref: float):
@@ -26,7 +27,12 @@ class LuxAlgoSupertrendStrategy(StrategyBase):
         self.ohlcv_higher = ohlcv_higher
         self.symbol = symbol
         self.price_ref = price_ref
-        self.indicators = IndicatorsUtils(self.ohlcv)
+
+        if self.indicators is None:
+            self.indicators = IndicatorsUtils(ohlcv)
+        else:
+            self.indicators.set_ohlcv(ohlcv)
+        
     
     def set_params(self, params: StrategyParams):
         pass
@@ -39,12 +45,12 @@ class LuxAlgoSupertrendStrategy(StrategyBase):
 
     async def get_signal(self) -> SignalResult:
 
-        if self.symbol is None:
+        if self.symbol is None or self.indicators is None:
             return SignalResult(Signal.HOLD, None, None)
 
         last_closed_candle = self.ohlcv.get_last_closed_candle()
         supertrend, trend, upperband, lowerband, supertrend_smooth = self.indicators.supertrend()
-        ema_cross_signal = LuxAlgoSupertrendStrategy.build_signal(self.symbol, self.indicators, self.ohlcv)
+        ema_cross_signal, ts = LuxAlgoSupertrendStrategy.build_signal(self.symbol, self.indicators, self.ohlcv)
 
         signal = ema_cross_signal[-2]
         close = last_closed_candle.close
@@ -73,6 +79,7 @@ class LuxAlgoSupertrendStrategy(StrategyBase):
             tp_adjusted = close + (reward * 1.5) if signal == Signal.BUY else close - (reward * 1.5)
 
             return SignalResult(signal, sl, tp_adjusted)
+        
 
         return SignalResult(signal, sl, tp)
     
@@ -82,9 +89,10 @@ class LuxAlgoSupertrendStrategy(StrategyBase):
         n = len(closes)
         trend_signal = [Signal.HOLD] * n
         last_signal = None
+        last_supertrend_value = None
         psar = indicators.psar()
         res = indicators.luxalgo_supertrend_ai(symbol)
-        lateral = indicators.detect_low_volatility()
+        lateral = indicators.detect_low_volatility(slope_threshold=0.008)
         ts = res["ts"]
         direction = res["direction"]  # 1 bullish, 0 bearish
         perf_score = res["perf_score"]
@@ -118,7 +126,8 @@ class LuxAlgoSupertrendStrategy(StrategyBase):
                 psar_value=psar[i],
                 close_value=closes[i],
                 trailing_n=trailing_n,
-                min_profit_threshold=min_profit_threshold
+                min_profit_threshold=min_profit_threshold,
+                supertrend_value=last_supertrend_value
             )
             
             # --- Detecção de tendência via EMA ---
@@ -128,21 +137,22 @@ class LuxAlgoSupertrendStrategy(StrategyBase):
             elif direction[i-1] == 1 and direction[i] == 0:
                 current_signal = Signal.SELL
 
-            #if lateral[i] and current_signal != Signal.CLOSE:
-            #    current_signal = None
+            if lateral[i] and current_signal != Signal.CLOSE:
+                current_signal = None
 
-            if current_signal is not None and current_signal != last_signal:
+            if current_signal is not None:
 
                 if trend_signal[i-1] == Signal.CLOSE:
                     last_signal = None
 
                 trend_signal[i] = current_signal
                 last_signal = current_signal
+                last_supertrend_value = ts[i-1]
                 entry_price = closes[i]
                 active_trend = None
                 profits = []
 
-        return trend_signal
+        return trend_signal, ts
     
     
     @staticmethod
@@ -153,7 +163,8 @@ class LuxAlgoSupertrendStrategy(StrategyBase):
         psar_value: float,
         close_value: float,
         trailing_n: int,
-        min_profit_threshold: float
+        min_profit_threshold: float,
+        supertrend_value: float | None
     ):
         """
         Avalia se deve sair da posição com base nas condições de exit logic.
@@ -183,5 +194,22 @@ class LuxAlgoSupertrendStrategy(StrategyBase):
 
         if len(profits) >= trailing_n and profit_neg >= profit_pos and current_profit_pct > min_profit_threshold:
             return Signal.CLOSE
+        
+        # --------------------------
+        # 3. EXIT: Falha de rompimento da linha ATR (SuperTrend)
+        # --------------------------
 
+        """
+        # BUY → perdeu a linha que tinha rompido
+        if supertrend_value is not None:
+            if last_signal == Signal.BUY:
+                if close_value < supertrend_value:
+                    return Signal.CLOSE
+
+            # SELL → perdeu a linha que tinha rompido
+            if last_signal == Signal.SELL:
+                print("AQUIIII", last_signal, close_value, supertrend_value, close_value > supertrend_value)
+                if close_value > supertrend_value:
+                    return Signal.CLOSE
+        """
         return None

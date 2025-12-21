@@ -74,7 +74,7 @@ class ExchangeClientMock(ExchangeClient):
         self.current_candle = wrapper.get_current_candle()
         self.last_closed_candle = wrapper.get_last_closed_candle()
         self.current_price = self.current_candle.close
-
+        
         print(f"[DEBUG fetch_ohlcv] idx usado={self.current_index[symbol]} | último close retornado={self.candles[symbol][self.current_index[symbol]][4]}")
         return OhlcvFormat(OhlcvWrapper(window), OhlcvWrapper(window_higher))
     
@@ -460,7 +460,7 @@ class BacktestRunner:
             exchange_client.update_candles(self.pair.symbol, current_candle, i)
             
             await exchange_client.simulate_tp_sl(OhlcvWrapper(self.ohlcv).get_candle(i), self.pair.symbol)
-
+            
             signal = await bot.run_pair(self.pair)
             signals.append({'signal': signal, 'index': i - 1, 'candle': current_candle})
             
@@ -512,7 +512,7 @@ class BacktestRunner:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("BTC/USDC:USDC")
+    pair = get_pair_by_symbol("AAVE/USDC:USDC")
 
     if pair != None:
 

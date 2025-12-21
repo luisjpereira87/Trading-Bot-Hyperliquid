@@ -365,7 +365,6 @@ class PlotTrades:
         ts = res["ts"]
         direction = res["direction"]  # 1 bullish, 0 bearish
         perf_score = res["perf_score"]
-        #print("AQUIII", res)
         n = len(closes)
 
         # --- Inicializar arrays para TS colorido ---
