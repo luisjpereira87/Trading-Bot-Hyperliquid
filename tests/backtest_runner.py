@@ -453,7 +453,7 @@ class BacktestRunner:
         bot = TradingBot(exchange_client, strategy, helpers, load_pair_configs(), self.timeframe)
         signals = []
 
-        for i in range(strategy.MIN_REQUIRED_CANDLES, len(self.ohlcv)):
+        for i in range(strategy.REQUIRED_CANDLES_200, len(self.ohlcv)):
             #candles_slice = self.ohlcv[:i]  # candles até i-1 fechados
             current_candle = self.ohlcv[i]  # vela em que vais abrir posição no início
 
@@ -512,7 +512,7 @@ class BacktestRunner:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("AAVE/USDC:USDC")
+    pair = get_pair_by_symbol("BTC/USDC:USDC")
 
     if pair != None:
 

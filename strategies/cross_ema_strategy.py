@@ -40,7 +40,7 @@ class CrossEmaStrategy(StrategyBase):
     async def get_signal(self) -> SignalResult:
 
         last_closed_candle = self.ohlcv.get_last_closed_candle()
-        supertrend, trend, upperband, lowerband, supertrend_smooth = self.indicators.supertrend()
+        supertrend, trend, upperband, lowerband, supertrend_smooth,_,_ = self.indicators.supertrend()
         ema_cross_signal = CrossEmaStrategy.build_signal(self.indicators, self.ohlcv)
 
         signal = ema_cross_signal[-2]

@@ -1,7 +1,10 @@
 import numpy as np
 import pandas as pd
 
+from commons.enums.candle_type_enum import CandleType
 from commons.enums.signal_enum import Signal
+from commons.models.supertrend_dclass import Supertrend
+from commons.models.volumatic_vidya_dclass import VolumaticVidya
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 
 
@@ -20,6 +23,7 @@ class IndicatorsUtils:
         self.closes = ohlcv.closes
         self.volumes = ohlcv.volumes
         self._locked_target_factor = {}
+        self._last_atr = {}
 
         if self.mode == 'ta':
             from ta.momentum import RSIIndicator, StochasticOscillator
@@ -385,6 +389,13 @@ class IndicatorsUtils:
         atr_fixed = self.atr(14)
         vol_rel = atr_fixed / closes
 
+        atr_mean = np.mean(atr_fixed)
+        atr_std = np.std(atr_fixed)
+
+        # Ajuste dinâmico do range de fatores
+        #min_mult = max(0.5, 1.0 - atr_std / atr_mean)
+        #max_mult = min(3.0, 2.0 + atr_std / atr_mean)
+
         # calcular arrays de length e multiplier
         if mode == "adaptive":
             atr_len = base_length * (1 / (1 + vol_sensitivity * vol_rel))
@@ -412,6 +423,7 @@ class IndicatorsUtils:
         trend = np.ones(n)
         final_upperband = np.zeros(n)
         final_lowerband = np.zeros(n)
+        direction = np.zeros(n, dtype=int) 
         trend_count = 0
 
         for i in range(n):
@@ -436,6 +448,7 @@ class IndicatorsUtils:
                 final_upperband[i] = upperband
                 final_lowerband[i] = lowerband
                 trend_count = 1
+                direction[i] = 1
                 continue
 
             final_upperband[i] = upperband if (upperband < final_upperband[i - 1] or closes[i - 1] > final_upperband[i - 1]) else final_upperband[i - 1]
@@ -470,11 +483,50 @@ class IndicatorsUtils:
                     trend[i] = -1
                     supertrend[i] = final_upperband[i]
                     trend_count = 0
-       
 
+            # --- direção contínua LuxAlgo-like ---
+            if closes[i] > final_upperband[i]:
+                direction[i] = 1
+            elif closes[i] < final_lowerband[i]:
+                direction[i] = -1
+            else:
+                direction[i] = direction[i - 1]  # mantém direção anterior
+       
         supertrend_smooth = self.ema_array(supertrend, smooth_period)
 
-        return supertrend, trend, final_upperband, final_lowerband, supertrend_smooth
+        # perf_score baseado na distância da vela ao supertrend
+        """
+        dist = np.abs(closes - supertrend_smooth)
+        max_dist = np.max(dist) if np.max(dist) > 0 else 1.0
+        perf_score = np.clip((max_dist - dist) / max_dist * 10, 0, 10).astype(int)
+        """
+        # Movimentos relativos
+        perfAlpha=21
+        absdiff = np.abs(np.diff(closes, prepend=closes[0]))
+        alpha = 2 / (perfAlpha + 1)
+        den = np.zeros(n)
+        den[0] = absdiff[0]
+        for i in range(1, n):
+            den[i] = alpha * absdiff[i] + (1 - alpha) * den[i - 1]
+
+        den_safe = np.where(den == 0, 1e-9, den)
+
+        # Normalização por volatilidade
+        avg_perf_norm = np.clip(np.mean(supertrend_smooth - hl2), 0.001, 10)
+        scale_factor = np.clip(np.mean(atr_fixed) / np.mean(absdiff), 0.5, 50)
+        perf_idx_series = (avg_perf_norm * scale_factor) / den_safe
+
+        # Reescalamento para 0-10
+        
+        p5, p95 = np.percentile(perf_idx_series, [5, 95])
+        perf_idx_series = np.clip(perf_idx_series, p5, p95)
+        perf_idx_series = (perf_idx_series - p5) / (p95 - p5)
+        perf_idx_series = np.power(perf_idx_series, 0.5) * 10
+
+        # Finalmente, o perf_score
+        perf_score = np.round(10 - perf_idx_series).astype(int)
+        perf_score = np.clip(perf_score, 0, 10)
+        return supertrend, trend, final_upperband, final_lowerband, supertrend_smooth, direction, perf_score
 
     
     def stop_atr_tradingview(self, period=1, multiplier=3.0):
@@ -544,7 +596,7 @@ class IndicatorsUtils:
         n = len(closes)
         hl2 = (highs + lows) / 2.0
 
-        # --- ATR (Wilder) ---
+        # --- ATR (Wilder) ---       
         atr = np.array(self.atr(length), dtype=float)
         atr = np.nan_to_num(atr, nan=0.0)
 
@@ -632,30 +684,7 @@ class IndicatorsUtils:
             if len(clusters_factors[from_idx]) > 0
             else float(np.mean(factor_vals))
         )
-
-        # --- Ajuste adaptativo do target_factor ---
         
-        atr_mean = np.mean(atr)
-        atr_std = np.std(atr)
-        # se o ATR for muito pequeno ou o fator cluster estiver baixo, amplia ligeiramente
-        #if target_factor < 2.0:
-        #    target_factor *= 1.5
-        # estabiliza margens em mercados laterais
-        #target_factor += (atr_std / atr_mean) * 0.8
-        #target_factor = np.clip(target_factor, 1.5, 6.0)
-        #target_factor = np.clip(target_factor, 0.5, 1.8)
-        #key = f"{symbol}"
-
-        if symbol not in self._locked_target_factor:
-            if target_factor < 2.0:
-                target_factor *= 1.5
-
-            target_factor += (atr_std / atr_mean) * 0.8
-            target_factor = np.clip(target_factor, 1.8, 5.5)  # ligeiramente menos sensível que LuxAlgo
-
-            self._locked_target_factor[symbol] = target_factor
-        else:
-            target_factor = self._locked_target_factor[symbol]
 
         # --- Perf Index Series corrigido ---
         absdiff = np.abs(np.diff(closes, prepend=closes[0]))
@@ -682,8 +711,8 @@ class IndicatorsUtils:
         ts[0] = upper[0]
 
         for i in range(1, n):
-            upper[i] = up[i] if closes[i - 1] > upper[i - 1] else min(up[i], upper[i - 1])
-            lower[i] = dn[i] if closes[i - 1] < lower[i - 1] else max(dn[i], lower[i - 1])
+            upper[i] = up[i] if closes[i-1] > upper[i-1] else min(up[i], upper[i-1])
+            lower[i] = dn[i] if closes[i-1] < lower[i-1] else max(dn[i], lower[i-1])
 
             if closes[i] > upper[i]:
                 os[i] = 1
@@ -694,7 +723,6 @@ class IndicatorsUtils:
 
             ts[i] = lower[i] if os[i] == 1 else upper[i]
 
-        # --- Perf Index Series (equilibrado) ---
         # --- Perf Index Series (EMA smoothing como no Pine) ---
         absdiff = np.abs(np.diff(closes, prepend=closes[0]))
         alpha = 2 / (perfAlpha + 1)
@@ -716,16 +744,6 @@ class IndicatorsUtils:
         scale_factor = np.clip(mean_atr / mean_move, 0.5, 50.0)
         perf_idx_series = (avg_perf_norm * scale_factor) / (den_safe + 1e-6)
 
-        # Corrige compressão com normalização estatística robusta
-        p5, p95 = np.percentile(perf_idx_series, [5, 95])
-        if p95 - p5 < 1e-9:
-            p5, p95 = np.min(perf_idx_series), np.max(perf_idx_series)
-        perf_idx_series = np.clip(perf_idx_series, p5, p95)
-
-        # Reescala para 0–10 com contraste melhorado
-        perf_idx_series = (perf_idx_series - p5) / (p95 - p5)
-        perf_idx_series = np.power(perf_idx_series, 0.5) * 10  # sqrt aumenta contraste
-
         # --- Perf AMA ---
         perf_ama = np.zeros(n)
         perf_ama[0] = ts[0]
@@ -736,14 +754,15 @@ class IndicatorsUtils:
         # --- Perf Score (igual ao PineScript) ---
         perf_score = np.round(10 - perf_idx_series).astype(int)
         perf_score = np.clip(perf_score, 0, 10)
-
+        
         """
         print("perf_idx_series mean:", np.mean(perf_idx_series))
         print("perf_idx_series min:", np.min(perf_idx_series))
         print("perf_idx_series max:", np.max(perf_idx_series))
         print("unique perf_score:", np.unique(perf_score))
+        print("ATR mean:", np.mean(atr), "ATR std:", np.std(atr))
         """
-
+        #print("AQUII", os)
         return {
             "ts": ts,
             "direction": os,
@@ -796,7 +815,7 @@ class IndicatorsUtils:
         # obtém indicadores (usa cache se já calculados)
         atr = self.atr()
         adx = self.adx()
-        _, _, upperband, lowerband, _ = self.supertrend()
+        _, _, upperband, lowerband, _,_,_ = self.supertrend()
 
         low_vol = np.zeros(n, dtype=bool)
 
@@ -864,3 +883,547 @@ class IndicatorsUtils:
 
         return atr_rel, profile, ema_spread
     
+    def supertrend_ai(
+        self,
+        length=10,
+        minMult=1,
+        maxMult=5,
+        step=0.5,
+        perfAlpha=10,
+        fromCluster='Best',
+        maxIter=1000,
+        maxData=10000
+    ) -> Supertrend:
+        """
+        SuperTrend AI (Clustering) fiel ao LuxAlgo PineScript
+        Retorna:
+            ts: trailing stop
+            perf_ama: trailing stop adaptativo
+            signals: 1=BUY, -1=SELL, 0=HOLD
+            score: performance index do cluster selecionado
+        """
+
+        closes = np.array(self.closes)
+        highs = np.array(self.highs)
+        lows = np.array(self.lows)
+        opens = np.array(self.opens)
+        volumes = np.array(self.volumes)
+        hl2 = (highs + lows) / 2
+        n = len(closes)
+
+        atr = np.array(self.atr(length))
+
+        # ----------------------------
+        # Classe SuperTrend
+        # ----------------------------
+        class ST:
+            def __init__(self):
+                self.upper = 0.0
+                self.lower = 0.0
+                self.output = 0.0
+                self.perf = 0.0
+                self.factor = 0.0
+                self.trend = 1
+
+        # ----------------------------
+        # Inicialização
+        # ----------------------------
+        factors = np.arange(minMult, maxMult + step, step)
+        holders = [ST() for _ in factors]
+        st_final = ST()
+
+        ts = np.zeros(n)
+        perf_ama = np.zeros(n)
+        signals = np.zeros(n, dtype=int)
+        score = np.zeros(n)
+
+        perf_idx_den = (
+            pd.Series(np.abs(np.diff(closes, prepend=closes[0])))
+            .ewm(span=perfAlpha)
+            .mean()
+            .to_numpy()
+        )
+
+        target_factor = factors[0]
+        direction = 0            # estado atual
+        direction_arr = np.zeros(n, dtype=int)  # para plot
+        avg_vol_delta = 0
+        up_trend_vol = 0
+        down_trend_vol = 0
+        delta_vol_pct = np.zeros(n)
+
+        # ============================
+        # LOOP PRINCIPAL
+        # ============================
+        for i in range(n):
+
+            # ----------------------------
+            # Atualiza ST por factor
+            # ----------------------------
+            for k, factor in enumerate(factors):
+                st = holders[k]
+
+                up = hl2[i] + atr[i] * factor
+                dn = hl2[i] - atr[i] * factor
+
+                if i == 0:
+                    st.upper = up
+                    st.lower = dn
+                    st.trend = 1
+                else:
+                    st.upper = min(up, st.upper) if closes[i-1] < st.upper else up
+                    st.lower = max(dn, st.lower) if closes[i-1] > st.lower else dn
+
+                    if closes[i] > st.upper:
+                        st.trend = 1
+                    elif closes[i] < st.lower:
+                        st.trend = -1
+
+                diff = np.sign(closes[i-1] - st.output) if i > 0 else 0
+                st.perf += 2 / (perfAlpha + 1) * (
+                    ((closes[i] - closes[i-1]) if i > 0 else 0) * diff - st.perf
+                )
+
+                st.output = st.lower if st.trend == 1 else st.upper
+                st.factor = factor
+
+            # ----------------------------
+            # Clustering (LuxAlgo)
+            # ----------------------------
+            recent = holders if n - i <= maxData else []
+            if len(recent) >= 3:
+                data = np.array([h.perf for h in recent])
+                facs = np.array([h.factor for h in recent])
+
+                centroids = np.percentile(data, [25, 50, 75])
+
+                for _ in range(maxIter):
+                    clusters = {0: [], 1: [], 2: []}
+                    fac_clusters = {0: [], 1: [], 2: []}
+
+                    for v, f in zip(data, facs):
+                        idx = int(np.argmin(np.abs(centroids - v)))
+                        clusters[idx].append(v)
+                        fac_clusters[idx].append(f)
+
+                    new_centroids = np.array([
+                        np.mean(clusters[j]) if clusters[j] else centroids[j]
+                        for j in range(3)
+                    ])
+
+                    if np.allclose(new_centroids, centroids):
+                        break
+                    centroids = new_centroids
+
+                from_map = {'Worst': 0, 'Average': 1, 'Best': 2}
+                sel = from_map[fromCluster]
+
+                target_vals = clusters[sel]
+                target_facs = fac_clusters[sel]
+
+                if target_facs:
+                    target_factor = np.mean(target_facs)
+
+            # ----------------------------
+            # SuperTrend FINAL (o que interessa)
+            # ----------------------------
+            up = hl2[i] + atr[i] * target_factor
+            dn = hl2[i] - atr[i] * target_factor
+
+            if i == 0:
+                st_final.upper = up
+                st_final.lower = dn
+                st_final.trend = 1
+            else:
+                st_final.upper = min(up, st_final.upper) if closes[i-1] < st_final.upper else up
+                st_final.lower = max(dn, st_final.lower) if closes[i-1] > st_final.lower else dn
+
+                if closes[i] > st_final.upper:
+                    st_final.trend = 1
+                elif closes[i] < st_final.lower:
+                    st_final.trend = -1
+
+            ts[i] = st_final.lower if st_final.trend == 1 else st_final.upper
+
+            # ----------------------------
+            # Perf AMA
+            # ----------------------------
+            perf_idx = (
+                np.mean(target_vals) / perf_idx_den[i]
+                if perf_idx_den[i] != 0 and len(target_vals) > 0
+                else 0
+            )
+
+            if i == 0:
+                perf_ama[i] = ts[i]
+            else:
+                perf_ama[i] = perf_ama[i-1] + perf_idx * (ts[i] - perf_ama[i-1])
+                
+
+            # ----------------------------
+            # Signals (cruzamento REAL)
+            # ----------------------------
+            if i > 0:
+                if closes[i] > st_final.upper:
+                    direction = 1
+                elif closes[i] < st_final.lower:
+                    direction = -1
+                # else: mantém
+
+            direction_arr[i] = direction
+            if i > 0:
+                if closes[i-1] <= st_final.upper and closes[i] > st_final.upper:
+                    signals[i] = 1
+                elif closes[i-1] >= st_final.lower and closes[i] < st_final.lower:
+                    signals[i] = -1
+                else:
+                    signals[i] = 0
+
+            score[i] = perf_idx
+
+            # Acumula volumes de tendência
+            if direction == 1:
+                up_trend_vol += volumes[i] if closes[i] > opens[i] else 0
+            elif direction == -1:
+                down_trend_vol += volumes[i] if closes[i] < opens[i] else 0
+
+            # Percentual de delta de volume
+            avg_vol_delta = (up_trend_vol + down_trend_vol) / 2 if (up_trend_vol + down_trend_vol) > 0 else 1e-9
+            delta_vol_pct[i] = (up_trend_vol - down_trend_vol) / avg_vol_delta * 100
+
+        retest = np.zeros(n, dtype=int)
+        for i in range(1, n):
+            if direction_arr[i] == 1:
+                if lows[i] <= ts[i]:
+                    retest[i] = 1
+            elif direction_arr[i] == -1:
+                if highs[i] >= ts[i]:
+                    retest[i] = -1
+
+        return Supertrend(ts.tolist(), perf_ama.tolist(), direction_arr.tolist(), score.tolist(), delta_vol_pct.tolist(), retest.tolist())
+
+    @staticmethod
+    def classify_candle(i, opens, highs, lows, closes):
+        o = opens[i]
+        h = highs[i]
+        l = lows[i]
+        c = closes[i]
+
+        body = abs(c - o)
+        range_candle = h - l
+        if range_candle == 0:
+            return CandleType.NEUTRAL
+
+        upper_wick = h - max(o, c)
+        lower_wick = min(o, c) - l
+
+        body_ratio = body / range_candle
+        upper_ratio = upper_wick / range_candle
+        lower_ratio = lower_wick / range_candle
+
+        # Doji
+        if body_ratio < 0.1:
+            return CandleType.DOJI
+
+        # Top exhaustion (shooting star, gravestone-like)
+        if upper_ratio > 0.6 and body_ratio < 0.3:
+            return CandleType.TOP_EXHAUSTION
+
+        # Bottom exhaustion (hammer / dragonfly-like)
+        if lower_ratio > 0.6 and body_ratio < 0.3:
+            return CandleType.BOTTOM_EXHAUSTION
+
+        # Normal bullish / bearish
+        if c > o:
+            return CandleType.BULL
+        else:
+            return CandleType.BEAR
+        
+    def two_pole_oscillator(self, length=20):
+        import numpy as np
+
+        closes = np.array(self.closes, dtype=float)
+        highs = np.array(self.highs, dtype=float)
+        lows = np.array(self.lows, dtype=float)
+
+        n = len(closes)
+
+        # -------- TRAILING SMA EXACT LIKE ta.sma(close, 25)
+        sma1 = np.full(n, np.nan)
+        for i in range(n):
+            start = max(0, i-24)
+            sma1[i] = np.mean(closes[start:i+1])
+
+        # (close - sma1)
+        diff = closes - sma1
+
+        # -------- TRAILING SMA OF DIFF  (ta.sma(close-sma1, 25))
+        sma_diff = np.full(n, np.nan)
+        for i in range(n):
+            start = max(0, i-24)
+            sma_diff[i] = np.mean(diff[start:i+1])
+
+        # -------- TRAILING STDEV EXACT LIKE ta.stdev(..., 25)
+        stdev_diff = np.full(n, np.nan)
+        for i in range(n):
+            start = max(0, i-24)
+            window = diff[start:i+1]
+            sd = np.std(window, ddof=0)  # population stdev
+            stdev_diff[i] = sd if sd != 0 else 1.0
+
+        # -------- z-score
+        sma_n1 = (diff - sma_diff) / stdev_diff
+
+        # -------- TWO POLE FILTER WITH TRUE VAR BEHAVIOUR
+        alpha = 2.0 / (length + 1.0)
+
+        smooth1 = np.full(n, np.nan)
+        smooth2 = np.full(n, np.nan)
+
+        for i in range(n):
+            if np.isnan(smooth1[i-1]) if i > 0 else True:
+                smooth1[i] = sma_n1[i]
+            else:
+                smooth1[i] = (1 - alpha) * smooth1[i-1] + alpha * sma_n1[i]
+
+            if np.isnan(smooth2[i-1]) if i > 0 else True:
+                smooth2[i] = smooth1[i]
+            else:
+                smooth2[i] = (1 - alpha) * smooth2[i-1] + alpha * smooth1[i]
+
+        two_p = smooth2
+
+        # -------- delay 4 (two_p[4])
+        two_pp = np.concatenate([two_p[:4], two_p[:-4]])
+
+        buy = np.zeros(n, dtype=bool)
+        sell = np.zeros(n, dtype=bool)
+
+        direction = 0            # estado atual
+        direction_arr = np.zeros(n, dtype=int)  # para plot
+        for i in range(1, n):
+            if two_p[i] > two_pp[i] and two_p[i-1] <= two_pp[i-1] and two_p[i] < 0:
+                buy[i] = True
+                direction = 1
+            elif two_p[i] < two_pp[i] and two_p[i-1] >= two_pp[i-1] and two_p[i] > 0:
+                sell[i] = True
+                direction = -1
+
+            direction_arr[i] = direction
+
+        return two_p.tolist(), two_pp.tolist(), buy.tolist(), sell.tolist(), direction_arr.tolist()
+    
+    @staticmethod
+    def pivothigh(high, left=3, right=3):
+        n = len(high)
+        ph = np.full(n, False)
+
+        for i in range(left, n-right):
+            if all(high[i] > high[i-j] for j in range(1, left+1)) and \
+            all(high[i] >= high[i+j] for j in range(1, right+1)):
+                ph[i] = True
+        return ph
+
+    @staticmethod
+    def pivotlow(low, left=3, right=3):
+        n = len(low)
+        pl = np.full(n, False)
+
+        for i in range(left, n-right):
+            if all(low[i] < low[i-j] for j in range(1, left+1)) and \
+            all(low[i] <= low[i+j] for j in range(1, right+1)):
+                pl[i] = True
+        return pl
+
+
+    def volumatic_vidya(
+        self,
+        vidya_length=10,
+        vidya_momentum=20,
+        band_distance=2.0,
+        atr_length=200,
+    ):
+        opens = np.asarray(self.opens)
+        closes = np.asarray(self.closes)
+        highs = np.asarray(self.highs)
+        lows = np.asarray(self.lows)
+        volumes = np.asarray(self.volumes)
+
+        n = len(closes)
+
+        # ---------------- VIDYA ----------------
+        momentum = np.diff(closes, prepend=closes[0])
+
+        pos = np.where(momentum >= 0, momentum, 0.0)
+        neg = np.where(momentum < 0, -momentum, 0.0)
+
+        sum_pos = pd.Series(pos).rolling(vidya_momentum).sum().to_numpy()
+        sum_neg = pd.Series(neg).rolling(vidya_momentum).sum().to_numpy()
+
+        cmo = 100 * (sum_pos - sum_neg) / (sum_pos + sum_neg)
+        cmo = np.nan_to_num(cmo)
+
+        alpha = 2 / (vidya_length + 1)
+
+        vidya = np.zeros(n)
+        vidya[:] = np.nan
+
+        for i in range(1, n):
+            vidya[i] = alpha * (abs(cmo[i]) / 100) * closes[i] + \
+                    (1 - alpha * abs(cmo[i]) / 100) * (vidya[i-1] if not np.isnan(vidya[i-1]) else closes[i])
+
+        # optional smoothing 15 SMA like Pinescript
+        vidya_smooth = pd.Series(vidya).rolling(15).mean().to_numpy()
+
+        # ---------------- ATR bands ----------------
+        if len(closes) < atr_length:
+            # fallback: usar todos os candles disponíveis
+            atr_length = len(closes)
+        atr_val = np.asarray(self.atr(atr_length))
+
+        upper_band = vidya_smooth + atr_val * band_distance
+        lower_band = vidya_smooth - atr_val * band_distance
+
+        # ---------------- Trend direction ----------------
+        is_trend_up = np.full(n, False)
+
+        for i in range(1, n):
+            if closes[i-1] <= upper_band[i-1] and closes[i] > upper_band[i]:
+                is_trend_up[i] = True
+            elif closes[i-1] >= lower_band[i-1] and closes[i] < lower_band[i]:
+                is_trend_up[i] = False
+            else:
+                is_trend_up[i] = is_trend_up[i-1]
+
+        # ---------------- Smoothed value ----------------
+        smoothed = np.full(n, np.nan)
+
+        for i in range(n):
+            if is_trend_up[i]:
+                smoothed[i] = lower_band[i]
+            else:
+                smoothed[i] = upper_band[i]
+
+        # reset on change
+        for i in range(1, n):
+            if is_trend_up[i] != is_trend_up[i-1]:
+                smoothed[i] = np.nan
+
+        # ---------------- Pivots ----------------
+        ph = IndicatorsUtils.pivothigh(highs)
+        pl = IndicatorsUtils.pivotlow(lows)
+
+        # ---------------- Volume accumulation ----------------
+        up_trend_vol = np.zeros(n)
+        down_trend_vol = np.zeros(n)
+
+        u = d = 0.0
+        for i in range(n):
+            # reset on flip
+            if i > 0 and is_trend_up[i] != is_trend_up[i-1]:
+                u, d = 0.0, 0.0
+
+            if closes[i] > self.opens[i]:
+                u += volumes[i]
+            elif closes[i] < self.opens[i]:
+                d += volumes[i]
+
+            up_trend_vol[i] = u
+            down_trend_vol[i] = d
+
+        avg_vol = (up_trend_vol + down_trend_vol) / 2
+        delta_vol_pct = np.where(
+            avg_vol != 0,
+            (up_trend_vol - down_trend_vol) / avg_vol * 100,
+            0.0
+        )
+
+        retest = np.zeros(n)
+        for i in range(1, n):
+            if is_trend_up[i]:
+                if lows[i] <= lower_band[i]:
+                    retest[i] = 1
+            elif not is_trend_up[i]:
+                # Retest próximo da upper_band
+                if highs[i] >= upper_band[i]:
+                    retest[i] = -1
+
+        return VolumaticVidya(
+            vidya_smooth.tolist(),
+            upper_band.tolist(),
+            lower_band.tolist(),
+            is_trend_up.tolist(),
+            smoothed.tolist(),
+            ph.tolist(),
+            pl.tolist(),
+            up_trend_vol.tolist(),
+            down_trend_vol.tolist(),
+            delta_vol_pct.tolist(),
+            retest.tolist()
+            )
+    
+    def squeeze_index(self, length=20, conv=50):
+        """
+        LuxAlgo Squeeze Index (PSI)
+        Parameters
+        ----------
+        close : np.ndarray
+            closing prices
+        length : int
+            correlation window
+        conv : int
+            convergence factor (LuxAlgo default = 50)
+
+        Returns
+        -------
+        psi : np.ndarray
+        """
+
+        closes = np.asarray(self.closes, dtype=float)
+        n = len(closes)
+
+        # adaptive envelopes
+        max_env = np.zeros(n)
+        min_env = np.zeros(n)
+
+        max_env[0] = closes[0]
+        min_env[0] = closes[0]
+
+        for i in range(1, n):
+            # TradingView:
+            # max := max(prev_max - (prev_max - src)/conv, src)
+            # min := min(prev_min + (src - prev_min)/conv, src)
+            max_candidate = max_env[i-1] - (max_env[i-1] - closes[i]) / conv
+            min_candidate = min_env[i-1] + (closes[i] - min_env[i-1]) / conv
+
+            max_env[i] = max(max_candidate, closes[i])
+            min_env[i] = min(min_candidate, closes[i])
+
+        # range width
+        diff = np.log(np.clip(max_env - min_env, 1e-12, None))
+
+        # rolling correlation with time index
+        idx = np.arange(n, dtype=float)
+
+        psi = np.full(n, np.nan)
+
+        for i in range(length - 1, n):
+            x = diff[i-length+1:i+1]
+            t = idx[i-length+1:i+1]
+
+            x_mean = x.mean()
+            t_mean = t.mean()
+
+            cov = np.sum((x - x_mean) * (t - t_mean))
+            var_t = np.sum((t - t_mean) ** 2)
+
+            if var_t == 0:
+                continue
+
+            corr = cov / np.sqrt(var_t * np.sum((x - x_mean) ** 2) + 1e-12)
+
+            psi[i] = -50 * corr + 50
+
+        return psi
+        
+

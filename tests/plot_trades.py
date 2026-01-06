@@ -159,7 +159,7 @@ class PlotTrades:
 
         # Obter todos os arrays do SuperTrend
         indicatorsUtils = IndicatorsUtils(ohlcv)
-        supertrend, trend, upperband, lowerband, supertrend_smooth = indicatorsUtils.supertrend()
+        supertrend, trend, upperband, lowerband, supertrend_smooth, direction,_ = indicatorsUtils.supertrend()
         ema_cross_signal = CrossEmaStrategy.build_signal(indicatorsUtils, ohlcv)
 
         fig, ax = plt.subplots(figsize=(15, 7))
@@ -213,7 +213,7 @@ class PlotTrades:
         # Obter todos os arrays do SuperTrend
         indicatorsUtils = IndicatorsUtils(ohlcv)
         stop_line, trend_stop_atr  = indicatorsUtils.stop_atr_tradingview()
-        supertrend, trend, upperband, lowerband, supertrend_smooth = indicatorsUtils.supertrend()
+        supertrend, trend, upperband, lowerband, supertrend_smooth, direction, perf_score = indicatorsUtils.supertrend()
         ema_cross_signal = CrossEmaStrategy.build_signal(indicatorsUtils, ohlcv)
 
         
@@ -221,12 +221,13 @@ class PlotTrades:
         psar = indicatorsUtils.psar()
         #upper, mid, lower = AISuperTrendUtils(ohlcv).indicators.bollinger_bands(period=20, std_dev=2)
 
-        
+        #print("AQUIII", direction, perf_score)
 
         fig, ax = plt.subplots(figsize=(18, 7))
         ax.set_title(f"Backtest Trades - {symbol}")
 
         for i in range(len(closes)):
+            print("AQUIII",i, perf_score[i])
             # Cor da vela pela tendência
             color = 'green' if trend[i] == 1 else 'red'
             # Linha high-low
@@ -361,11 +362,17 @@ class PlotTrades:
 
         # --- Obter arrays do SuperTrend AI ---
         indicatorsUtils = IndicatorsUtils(ohlcv)
-        res = indicatorsUtils.luxalgo_supertrend_ai()
-        ts = res["ts"]
-        direction = res["direction"]  # 1 bullish, 0 bearish
-        perf_score = res["perf_score"]
+        supertrend = indicatorsUtils.supertrend_ai()
+        ts = supertrend.ts 
+        perf_ama = supertrend.perf_ama
+        direction = supertrend.direction
+        perf_score = supertrend.score
+        #ts = res["ts"]
+        #direction = res["direction"]  # 1 bullish, 0 bearish
+        #perf_score = res["perf_score"]
         n = len(closes)
+
+        #print("AQUIII", direction)
 
         # --- Inicializar arrays para TS colorido ---
         ts_long = np.full(n, np.nan)
@@ -384,7 +391,7 @@ class PlotTrades:
             dates_num = mdates.date2num(dates[i])
 
             # BUY: direção muda de 0 -> 1 e fechamento acima do TS anterior
-            if direction[i-1] == 0 and direction[i] == 1 and closes[i] > ts[i-1]:
+            if direction[i-1] == -1 and direction[i] == 1 and closes[i] > ts[i-1]:
 
                 ax.scatter(dates_num, (0.985*lows[i]), color='green', s=100, zorder=5)
                 ax.vlines(dates_num, ymin=lows[i], ymax=(0.985*lows[i]), linestyles='dashed', color='green', linewidth=1.2, zorder=5)
@@ -404,7 +411,7 @@ class PlotTrades:
                 #buy_signals.append((dates[i], closes[i]))
                 trend_change_scores.append((dates[i], perf_score[i]))
             # SELL: direção muda de 1 -> 0 e fechamento abaixo do TS anterior
-            elif direction[i-1] == 1 and direction[i] == 0 and closes[i] < ts[i-1]:
+            elif direction[i-1] == 1 and direction[i] == -1 and closes[i] < ts[i-1]:
                 #sell_signals.append((dates[i], closes[i]))
                 trend_change_scores.append((dates[i], perf_score[i]))
 
@@ -425,7 +432,7 @@ class PlotTrades:
             
             # Trailing stop para plot contínuo
             ts_long[i] = ts[i] if direction[i] == 1 else ts_long[i-1]
-            ts_short[i] = ts[i] if direction[i] == 0 else ts_short[i-1]
+            ts_short[i] = ts[i] if direction[i] == -1 else ts_short[i-1]
 
         # Candles
         for i in range(n):
@@ -439,8 +446,116 @@ class PlotTrades:
         # SuperTrend contínuo colorido
 
         
-        ax.plot(dates, ts_long, color='blue', linewidth=1, label='TS Long')
-        ax.plot(dates, ts_short, color='orange', linewidth=1, label='TS Short')
+        #ax.plot(dates, ts_long, color='blue', linewidth=1, label='TS Long')
+        ax.plot(dates, ts, color='orange', linewidth=1, label='TS Short')
+
+        # Pontos de sinais
+        """
+        if buy_signals:
+            buy_x, buy_y = zip(*buy_signals)
+            ax.scatter(buy_x, buy_y, marker='^', color='green', s=100, label='BUY')
+        if sell_signals:
+            sell_x, sell_y = zip(*sell_signals)
+            ax.scatter(sell_x, sell_y, marker='v', color='red', s=100, label='SELL')
+        """
+        ax.set_xlabel("Date")
+        ax.set_ylabel("Price")
+        ax.grid(True)
+        plt.xticks(rotation=45)
+        ax.legend()
+        plt.tight_layout()
+        plt.show()
+
+    @staticmethod
+    def plot_custom_supertrend(ohlcv: OhlcvWrapper, symbol: str):
+        dates = ohlcv.dates
+        opens = ohlcv.opens
+        highs = ohlcv.highs
+        lows = ohlcv.lows
+        closes = ohlcv.closes
+
+        # --- Obter arrays do SuperTrend AI ---
+        indicatorsUtils = IndicatorsUtils(ohlcv)
+        supertrend, trend, final_upperband, final_lowerband, supertrend_smooth, direction, perf_score = indicatorsUtils.supertrend()
+        #ts = res["ts"]
+        #direction = res["direction"]  # 1 bullish, 0 bearish
+        #perf_score = res["perf_score"]
+        n = len(closes)
+
+        # --- Inicializar arrays para TS colorido ---
+        ts_long = np.full(n, np.nan)
+        ts_short = np.full(n, np.nan)
+
+        # --- Identificar sinais de BUY/SELL ---
+        buy_signals = []
+        sell_signals = []
+        trend_change_scores = []  # para armazenar (data, score)
+
+        # --- Plot ---
+        fig, ax = plt.subplots(figsize=(18, 7))
+        ax.set_title(f"SuperTrend AI - {symbol}")
+
+        for i in range(1, n):
+            dates_num = mdates.date2num(dates[i])
+
+            # BUY: direção muda de 0 -> 1 e fechamento acima do TS anterior
+            if direction[i-1] == -1 and direction[i] == 1:
+
+                ax.scatter(dates_num, (0.985*lows[i]), color='green', s=100, zorder=5)
+                ax.vlines(dates_num, ymin=lows[i], ymax=(0.985*lows[i]), linestyles='dashed', color='green', linewidth=1.2, zorder=5)
+               
+                ax.text(
+                        dates_num,
+                        (0.985*lows[i]),    # ligeiramente abaixo do círculo
+                        f"Index {i}, {perf_score[i]}",
+                        fontsize=9,
+                        ha='center',
+                        va='top',           # alinhado pelo topo do texto
+                        color='green',
+                        bbox=dict(facecolor='white', alpha=0.6, boxstyle='round,pad=0.2'),
+                        zorder=6
+                    )
+
+                #buy_signals.append((dates[i], closes[i]))
+                trend_change_scores.append((dates[i], perf_score[i]))
+            # SELL: direção muda de 1 -> 0 e fechamento abaixo do TS anterior
+            elif direction[i-1] == 1 and direction[i] == -1:
+                #sell_signals.append((dates[i], closes[i]))
+                trend_change_scores.append((dates[i], perf_score[i]))
+
+                ax.scatter(dates_num, (1.015*highs[i]), color='red', s=100, zorder=5)
+                ax.vlines(dates_num, ymin=highs[i], ymax=(1.015*highs[i]), linestyles='dashed', color='red', linewidth=1.2, zorder=5)
+
+                ax.text(
+                        dates_num,
+                        (1.015*highs[i]),    # ligeiramente abaixo do círculo
+                        f"Index {i}, {perf_score[i]}",
+                        fontsize=9,
+                        ha='center',
+                        va='top',           # alinhado pelo topo do texto
+                        color='red',
+                        bbox=dict(facecolor='white', alpha=0.6, boxstyle='round,pad=0.2'),
+                        zorder=6
+                    )
+            
+            # Trailing stop para plot contínuo
+            #ts_long[i] = ts[i] if direction[i] == 1 else ts_long[i-1]
+            #ts_short[i] = ts[i] if direction[i] == 0 else ts_short[i-1]
+
+        # Candles
+        for i in range(n):
+            color = 'green' if direction[i] == 1 else 'red'
+            ax.plot([dates[i], dates[i]], [lows[i], highs[i]], color='black', linewidth=1)  # high-low
+            ax.plot([dates[i], dates[i]], [opens[i], closes[i]], color=color, linewidth=5)   # body
+
+        #for dt, score in trend_change_scores:
+        #    ax.text(dt, score, str(score), color='blue', fontsize=10, ha='center', va='bottom')
+
+        # SuperTrend contínuo colorido
+
+        
+        ax.plot(dates, final_upperband, color='blue', linewidth=1, label='TS Long')
+        ax.plot(dates, final_lowerband, color='orange', linewidth=1, label='TS Short')
 
         # Pontos de sinais
         """
@@ -472,6 +587,94 @@ class PlotTrades:
 
         lc = LineCollection(segments, colors=colors, linestyles=linestyle, alpha=0.7, linewidths=2)
         ax.add_collection(lc)
+
+    @staticmethod
+    def plot_volumatic_vidya(ohlcv: OhlcvWrapper, symbol: str):
+        import matplotlib.dates as mdates
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        dates = ohlcv.dates
+        opens = ohlcv.opens
+        highs = ohlcv.highs
+        lows = ohlcv.lows
+        closes = ohlcv.closes
+
+        indicatorsUtils = IndicatorsUtils(ohlcv)
+        res = indicatorsUtils.volumatic_vidya()
+
+        vidya = res.vidya
+        upper = res.upper_band
+        lower = res.lower_band
+        smoothed = res.smoothed
+        pivot_high = np.array(res.pivot_high, dtype=float)
+        pivot_low = np.array(res.pivot_low, dtype=float)
+        delta_vol = res.delta_volume_pct
+        is_trend_up = res.is_trend_up
+
+        n = len(closes)
+
+        # ------------- FIGURE -------------
+        fig = plt.subplots(figsize=(18, 9))
+        fig = plt.figure(figsize=(18, 9))
+
+        # --------- PRICE + INDICATOR AX ---------
+        ax1 = fig.add_subplot(2, 1, 1)
+        ax1.set_title(f"Volumatic VIDYA + ATR Bands — {symbol}")
+
+        # ---- CANDLE PLOT (mesmo estilo do teu supertrend) ----
+        for i in range(n):
+            dates_num = mdates.date2num(dates[i])
+            color = "green" if closes[i] >= opens[i] else "red"
+
+            # hilo
+            ax1.plot([dates[i], dates[i]], [lows[i], highs[i]],
+                    color="black", linewidth=1)
+
+            # corpo
+            ax1.plot([dates[i], dates[i]], [opens[i], closes[i]],
+                    color=color, linewidth=4)
+
+        # ----------- VIDYA + BANDS -----------
+        ax1.plot(dates, vidya, label="VIDYA", color="blue", linewidth=1.2)
+        ax1.plot(dates, upper, label="Upper Band", color="orange", linewidth=1)
+        ax1.plot(dates, lower, label="Lower Band", color="purple", linewidth=1)
+
+        # ----------- SMOOTHED SWITCH LINE -----------
+        ax1.plot(dates, smoothed, label="Smoothed Trend Line",
+                color="black", linewidth=1.3, linestyle="--")
+
+        # ----------- PIVOTS -----------
+        ph_y = np.where(pivot_high == 1, highs, np.nan)
+        pl_y = np.where(pivot_low == 1, lows, np.nan)
+
+        ax1.scatter(dates, ph_y, color="red", s=60, label="Pivot High", zorder=5)
+        ax1.scatter(dates, pl_y, color="green", s=60, label="Pivot Low", zorder=5)
+
+        # ----------- TREND BACKGROUND COLOR -----------
+        for i in range(1, n):
+            if is_trend_up[i]:
+                ax1.axvspan(dates[i-1], dates[i], color="green", alpha=0.03)
+            else:
+                ax1.axvspan(dates[i-1], dates[i], color="red", alpha=0.03)
+
+        ax1.grid(True)
+        ax1.legend()
+        ax1.set_ylabel("Price")
+        plt.xticks(rotation=45)
+
+        # ----------- DELTA VOLUME SUBPLOT -----------
+        ax2 = fig.add_subplot(2, 1, 2, sharex=ax1)
+        ax2.set_title("Delta Volume % (buyers - sellers)")
+        ax2.plot(dates, delta_vol, linewidth=1.2)
+
+        ax2.axhline(0, linestyle="--", linewidth=1)
+        ax2.set_ylabel("%")
+        ax2.grid(True)
+
+        plt.tight_layout()
+        plt.show()
+
     
 
     @staticmethod
@@ -495,13 +698,18 @@ class PlotTrades:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("SOL/USDC:USDC")
+    pair = get_pair_by_symbol("BTC/USDC:USDC")
 
     if pair:
 
         ohlcv = await PlotTrades.get_historical_ohlcv(pair, TimeframeEnum.M15, 750)
 
+        #PlotTrades.plot_supertrend_with_signals(ohlcv, pair.symbol)
         PlotTrades.plot_luxalgo_supertrend(ohlcv, pair.symbol)
+        #PlotTrades.plot_custom_supertrend(ohlcv, pair.symbol)
+        #PlotTrades.plot_volumatic_vidya(ohlcv, pair.symbol)
+        
+        
 
 if __name__ == "__main__":
     asyncio.run(main())
