@@ -65,7 +65,7 @@ class LuxAlgoSupertrendStrategy(StrategyBase):
             #tp = close - ((close * 0.005) * 2.5)
 
         else:
-            return SignalResult(signal, None, None)
+            return SignalResult(Signal.HOLD, None, None)
         
         # valida relação risco/benefício
         risk = abs(close - sl)
@@ -76,10 +76,10 @@ class LuxAlgoSupertrendStrategy(StrategyBase):
             sl_adjusted = close - (risk * 0.5) if signal == Signal.BUY else close + (risk * 0.5)
             tp_adjusted = close + (reward * 1.5) if signal == Signal.BUY else close - (reward * 1.5)
 
-            return SignalResult(signal, sl, tp_adjusted)
+            return SignalResult(Signal.HOLD, sl, tp_adjusted)
         
 
-        return SignalResult(signal, sl, tp)
+        return SignalResult(Signal.HOLD, sl, tp)
     
     @staticmethod
     def build_signal(indicators: IndicatorsUtils, ohlcv: OhlcvWrapper, trailing_n = 3):
