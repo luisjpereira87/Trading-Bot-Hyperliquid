@@ -65,7 +65,7 @@ class LuxAlgoSupertrendStrategy(StrategyBase):
             #tp = close - ((close * 0.005) * 2.5)
 
         else:
-            return SignalResult(Signal.HOLD, None, None)
+            return SignalResult(signal, None, None)
         
         # valida relação risco/benefício
         risk = abs(close - sl)
