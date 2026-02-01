@@ -6,6 +6,8 @@ from commons.models.signal_result_dclass import SignalResult
 from commons.models.strategy_base_dclass import StrategyBase
 from commons.models.strategy_params_dclass import StrategyParams
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
+from strategies.cross_ema_linear_regression_strategy import \
+    CrossEmaLinearRegressionStrategy
 from strategies.cross_ema_strategy import CrossEmaStrategy
 from strategies.luxalgo_supertrend_strategy import LuxAlgoSupertrendStrategy
 from strategies.ml_strategy import MLModelType, MLStrategy
@@ -38,6 +40,8 @@ class StrategyManager(StrategyBase):
             self.strategy = MLStrategy(self.exchange, MLModelType.RANDOM_FOREST)
         elif self.name == StrategyEnum.ML_LSTM:
             self.strategy = MLStrategy(self.exchange, MLModelType.LSTM)
+        elif self.name == StrategyEnum.CROSS_EMA_LINEAR_REGRESSION:
+            self.strategy = CrossEmaLinearRegressionStrategy(self.exchange)
         else:
             raise ValueError(f"Estratégia '{self.name}' não reconhecida.")
         

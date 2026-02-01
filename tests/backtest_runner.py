@@ -465,7 +465,7 @@ class BacktestRunner:
             signals.append({'signal': signal, 'index': i - 1, 'candle': current_candle})
             
 
-            #if i == 60:
+            #if i == 1:
             #   break
 
         #print(signals)
@@ -512,11 +512,11 @@ class BacktestRunner:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("BTC/USDC:USDC")
+    pair = get_pair_by_symbol("SOL/USDC:USDC")
 
     if pair != None:
 
-        runner = BacktestRunner(StrategyEnum.LUXALGO_SUPERTREND, TimeframeEnum.M15, pair, 750, 1000)
+        runner = BacktestRunner(StrategyEnum.CROSS_EMA_LINEAR_REGRESSION, TimeframeEnum.M15, pair, 750, 1000)
         
         await runner.run(True)
     #print(LoadParams.load_best_params_with_weights())

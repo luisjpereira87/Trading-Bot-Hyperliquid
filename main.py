@@ -52,7 +52,7 @@ async def run_bot():
     )
     helpers = TradingHelpers()
     exchange_client = ExchangeClient(exchange, wallet_address)
-    strategy = StrategyManager(exchange_client, StrategyEnum.LUXALGO_SUPERTREND)
+    strategy = StrategyManager(exchange_client, StrategyEnum.CROSS_EMA_LINEAR_REGRESSION)
     bot = TradingBot(exchange_client, strategy, helpers, pairs, timeframe)
 
     await bot.start() 

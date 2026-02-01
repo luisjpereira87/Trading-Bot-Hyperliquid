@@ -8,3 +8,7 @@ class CandleType(Enum):
     BOTTOM_EXHAUSTION = auto()
     DOJI = auto()
     NEUTRAL = auto()
+    WEAK_BULL = auto()
+    STRONG_BULL = auto()
+    WEAK_BEAR = auto()
+    STRONG_BEAR = auto()

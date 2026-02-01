@@ -6,10 +6,12 @@ from datetime import datetime
 
 import matplotlib.dates as mdates
 import numpy as np
+import pandas as pd
 from ccxt.async_support import hyperliquid
 from matplotlib import pyplot as plt
 from matplotlib.collections import LineCollection
 from matplotlib.colors import to_rgba
+from matplotlib.patches import Rectangle
 
 ROOT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if ROOT_PATH not in sys.path:
@@ -19,6 +21,7 @@ from commons.enums.signal_enum import Signal
 from commons.enums.timeframe_enum import TimeframeEnum
 from commons.utils.config_loader import PairConfig, get_pair_by_symbol
 from commons.utils.indicators.indicators_utils import IndicatorsUtils
+from commons.utils.indicators.tv_indicators_utils import TvIndicatorsUtils
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from strategies.cross_ema_strategy import CrossEmaStrategy
 
@@ -211,7 +214,7 @@ class PlotTrades:
         closes = ohlcv.closes
 
         # Obter todos os arrays do SuperTrend
-        indicatorsUtils = IndicatorsUtils(ohlcv)
+        indicatorsUtils = TvIndicatorsUtils(ohlcv)
         stop_line, trend_stop_atr  = indicatorsUtils.stop_atr_tradingview()
         supertrend, trend, upperband, lowerband, supertrend_smooth, direction, perf_score = indicatorsUtils.supertrend()
         ema_cross_signal = CrossEmaStrategy.build_signal(indicatorsUtils, ohlcv)
@@ -361,8 +364,11 @@ class PlotTrades:
         closes = ohlcv.closes
 
         # --- Obter arrays do SuperTrend AI ---
-        indicatorsUtils = IndicatorsUtils(ohlcv)
+        indicatorsUtils = TvIndicatorsUtils(ohlcv)
         supertrend = indicatorsUtils.supertrend_ai()
+        direction, rsi = indicatorsUtils.market_structure_rsi()
+
+        print("AQUIII", direction)
         ts = supertrend.ts 
         perf_ama = supertrend.perf_ama
         direction = supertrend.direction
@@ -600,8 +606,8 @@ class PlotTrades:
         lows = ohlcv.lows
         closes = ohlcv.closes
 
-        indicatorsUtils = IndicatorsUtils(ohlcv)
-        res = indicatorsUtils.volumatic_vidya()
+        indicatorsUtils = TvIndicatorsUtils(ohlcv)
+        res = indicatorsUtils.volumatic_vidya(34)
 
         vidya = res.vidya
         upper = res.upper_band
@@ -624,6 +630,7 @@ class PlotTrades:
 
         # ---- CANDLE PLOT (mesmo estilo do teu supertrend) ----
         for i in range(n):
+            print(f"AQUIII delta_vol={delta_vol[i]}")
             dates_num = mdates.date2num(dates[i])
             color = "green" if closes[i] >= opens[i] else "red"
 
@@ -676,6 +683,365 @@ class PlotTrades:
         plt.show()
 
     
+    @staticmethod
+    def plot_smart_money_flow_cloud(ohlcv: OhlcvWrapper, symbol: str):
+        dates = ohlcv.dates
+        opens = ohlcv.opens
+        highs = ohlcv.highs
+        lows = ohlcv.lows
+        closes = ohlcv.closes
+        volumes = ohlcv.volumes
+        volumes_log = np.log1p(pd.Series(volumes))
+
+        # --- Obter arrays do SuperTrend AI ---
+        indicatorsUtils = TvIndicatorsUtils(ohlcv)
+        #supertrend = indicatorsUtils.supertrend_ai()
+        res = indicatorsUtils.smart_money_flow_cloud()
+        signal = res['signal']
+        strength = res['strength']
+        upper =  res['upper']
+        lower =  res['lower']
+        bull_retest = res['bull_retest']
+        bear_retest = res['bear_retest']
+        basis = res['basis']
+
+        psi = indicatorsUtils.squeeze_index()
+
+        two_p, two_pp, buy, sell, direction_arr = indicatorsUtils.two_pole_oscillator()
+
+
+
+        dii = indicatorsUtils.directional_imbalance_index()
+        dii_upper = dii['upper']
+        dii_lower = dii['lower']
+        dii_up_count = dii['up_count']
+        dii_down_count = dii['down_count']
+        dii_bulls_perc = dii['bulls_perc']
+        dii_bears_perc = dii['bears_perc']
+
+        #ts = res["ts"]
+        #direction = res["direction"]  # 1 bullish, 0 bearish
+        #perf_score = res["perf_score"]
+        n = len(closes)
+
+        # --- Plot ---
+        fig, ax = plt.subplots(figsize=(18, 7))
+        ax.set_title(f"SuperTrend AI - {symbol}")
+
+        for i in range(1, n):
+            dates_num = mdates.date2num(dates[i])
+            #print("AQUII", i, signal[i])
+            # BUY: direção muda de 0 -> 1 e fechamento acima do TS anterior
+            print(f"AQUIII index={i} dii_bulls_perc={dii_bulls_perc[i]} dii_bears_perc={dii_bears_perc[i]} dii_upper={dii_upper[i]} dii_lower={dii_lower[i]} dii_up_count={dii_up_count[i]} dii_down_count={dii_down_count[i]}")
+            #print(f"AQUIII index={i} strength={strength[i]} two_p={two_p[i]} two_pp={two_pp[i]} buy={buy[i]} sell={sell[i]} direction_arr={direction_arr[i]}")
+            if ((signal[i-1] == -1 and signal[i] == 1) or bull_retest[i]):
+
+                ax.scatter(dates_num, (0.985*lows[i]), color='green', s=100, zorder=5)
+                ax.vlines(dates_num, ymin=lows[i], ymax=(0.985*lows[i]), linestyles='dashed', color='green', linewidth=1.2, zorder=5)
+               
+                ax.text(
+                        dates_num,
+                        (0.985*lows[i]),    # ligeiramente abaixo do círculo
+                        f"Index {i}, {round(strength[i],2)}",
+                        fontsize=9,
+                        ha='center',
+                        va='top',           # alinhado pelo topo do texto
+                        color='green',
+                        bbox=dict(facecolor='white', alpha=0.6, boxstyle='round,pad=0.2'),
+                        zorder=6
+                    )
+            # SELL: direção muda de 1 -> 0 e fechamento abaixo do TS anterior
+            elif ((signal[i-1] == 1 and signal[i] == -1) or bear_retest[i]):
+
+                ax.scatter(dates_num, (1.015*highs[i]), color='red', s=100, zorder=5)
+                ax.vlines(dates_num, ymin=highs[i], ymax=(1.015*highs[i]), linestyles='dashed', color='red', linewidth=1.2, zorder=5)
+
+                ax.text(
+                        dates_num,
+                        (1.015*highs[i]),    # ligeiramente abaixo do círculo
+                        f"Index {i}, {round(strength[i],2)}",
+                        fontsize=9,
+                        ha='center',
+                        va='top',           # alinhado pelo topo do texto
+                        color='red',
+                        bbox=dict(facecolor='white', alpha=0.6, boxstyle='round,pad=0.2'),
+                        zorder=6
+                    )
+
+        # Candles
+        for i in range(n):
+            color = 'green' if signal[i] == 1 else 'red'
+            ax.plot([dates[i], dates[i]], [lows[i], highs[i]], color='black', linewidth=1)  # high-low
+            ax.plot([dates[i], dates[i]], [opens[i], closes[i]], color=color, linewidth=5)   # body
+
+                # ----------- VIDYA + BANDS -----------
+        ax.plot(dates, upper, label="Upper Band", color="orange", linewidth=1)
+        ax.plot(dates, lower, label="Lower Band", color="purple", linewidth=1)
+        ax.plot(dates, basis, label="Middle Band", color="red", linewidth=1)
+
+        ax.set_xlabel("Date")
+        ax.set_ylabel("Price")
+        ax.grid(True)
+        plt.xticks(rotation=45)
+        ax.legend()
+        plt.tight_layout()
+        plt.show()
+
+    
+    @staticmethod
+    def plot_market_structure_rsi(ohlcv: OhlcvWrapper, symbol: str):
+        dates = ohlcv.dates
+        opens = ohlcv.opens
+        highs = ohlcv.highs
+        lows = ohlcv.lows
+        closes = ohlcv.closes
+
+        # --- Obter arrays do SuperTrend AI ---
+        indicatorsUtils = TvIndicatorsUtils(ohlcv)
+        #supertrend = indicatorsUtils.supertrend_ai()
+        direction = indicatorsUtils.market_structure_rsi()
+
+        #ts = res["ts"]
+        #direction = res["direction"]  # 1 bullish, 0 bearish
+        #perf_score = res["perf_score"]
+        n = len(closes)
+
+        #print("AQUIII", direction)
+
+        # --- Inicializar arrays para TS colorido ---
+        ts_long = np.full(n, np.nan)
+        ts_short = np.full(n, np.nan)
+
+        # --- Identificar sinais de BUY/SELL ---
+        buy_signals = []
+        sell_signals = []
+        trend_change_scores = []  # para armazenar (data, score)
+
+        # --- Plot ---
+        fig, ax = plt.subplots(figsize=(18, 7))
+        ax.set_title(f"SuperTrend AI - {symbol}")
+
+        for i in range(1, n):
+            dates_num = mdates.date2num(dates[i])
+            print("AQUII", i, direction[i])
+            # BUY: direção muda de 0 -> 1 e fechamento acima do TS anterior
+            if direction[i] == 1:
+
+                ax.scatter(dates_num, (0.985*lows[i]), color='green', s=100, zorder=5)
+                ax.vlines(dates_num, ymin=lows[i], ymax=(0.985*lows[i]), linestyles='dashed', color='green', linewidth=1.2, zorder=5)
+               
+                ax.text(
+                        dates_num,
+                        (0.985*lows[i]),    # ligeiramente abaixo do círculo
+                        f"Index {i}",
+                        fontsize=9,
+                        ha='center',
+                        va='top',           # alinhado pelo topo do texto
+                        color='green',
+                        bbox=dict(facecolor='white', alpha=0.6, boxstyle='round,pad=0.2'),
+                        zorder=6
+                    )
+            # SELL: direção muda de 1 -> 0 e fechamento abaixo do TS anterior
+            elif direction[i] == -1 :
+
+                ax.scatter(dates_num, (1.015*highs[i]), color='red', s=100, zorder=5)
+                ax.vlines(dates_num, ymin=highs[i], ymax=(1.015*highs[i]), linestyles='dashed', color='red', linewidth=1.2, zorder=5)
+
+                ax.text(
+                        dates_num,
+                        (1.015*highs[i]),    # ligeiramente abaixo do círculo
+                        f"Index {i}",
+                        fontsize=9,
+                        ha='center',
+                        va='top',           # alinhado pelo topo do texto
+                        color='red',
+                        bbox=dict(facecolor='white', alpha=0.6, boxstyle='round,pad=0.2'),
+                        zorder=6
+                    )
+
+        # Candles
+        for i in range(n):
+            color = 'green' if direction[i] == 1 else 'red'
+            ax.plot([dates[i], dates[i]], [lows[i], highs[i]], color='black', linewidth=1)  # high-low
+            ax.plot([dates[i], dates[i]], [opens[i], closes[i]], color=color, linewidth=5)   # body
+
+        ax.set_xlabel("Date")
+        ax.set_ylabel("Price")
+        ax.grid(True)
+        plt.xticks(rotation=45)
+        ax.legend()
+        plt.tight_layout()
+        plt.show()
+
+
+    @staticmethod
+    def plot_smart_money_breakout(ohlcv, symbol):
+        """
+        Plota o Smart Money Breakout Channels com retângulos que cobrem
+        desde o início da acumulação até o breakout.
+        """
+        dates = ohlcv.dates
+        opens = ohlcv.opens
+        highs = ohlcv.highs
+        lows = ohlcv.lows
+        closes = ohlcv.closes
+        n = len(closes)
+
+        # Obter resultados do indicador
+        indicatorsUtils = TvIndicatorsUtils(ohlcv)
+        res = indicatorsUtils.smart_money_breakout_channels()
+
+        top = res["top"]
+        bottom = res["bottom"]
+        new_channel = res["new_channel"]
+        bull_break = res["bull_break"]
+        bear_break = res["bear_break"]
+        duration = res["duration"] # Importante: deve vir do retorno da função
+
+        fig, ax = plt.subplots(figsize=(18, 7))
+        ax.set_title(f"Smart Money Breakout Channels - {symbol}")
+        ax.set_facecolor('#ffffff')
+
+        # --- 1. Desenho de Candles ---
+        for i in range(n):
+            color = '#00ffbb' if closes[i] >= opens[i] else '#ff1100'
+            # Pavio (High-Low)
+            ax.plot([dates[i], dates[i]], [lows[i], highs[i]], color='black', linewidth=0.8, zorder=3)
+            # Corpo (Open-Close)
+            ax.plot([dates[i], dates[i]], [opens[i], closes[i]], color=color, linewidth=4, solid_capstyle='butt', zorder=4)
+
+        # --- 2. Desenho das Caixas (Canais) ---
+        for i in range(n):
+            if new_channel[i]:
+                # Ponto de início: barra atual menos a duração da acumulação
+                d = int(duration[i])
+                start_idx = max(0, i - d)
+                
+                # Ponto de fim: procurar o primeiro breakout após o índice i
+                end_idx = n - 1
+                for j in range(i, n):
+                    if bull_break[j] or bear_break[j]:
+                        end_idx = j
+                        break
+                
+                # Converter datas para o formato do Matplotlib
+                x0 = mdates.date2num(dates[start_idx])
+                x1 = mdates.date2num(dates[end_idx])
+                width = x1 - x0
+                
+                # Altura baseada nos valores capturados no nascimento do canal
+                box_top = top[i]
+                box_bottom = bottom[i]
+                height = box_top - box_bottom
+                
+                if not np.isnan(box_top) and not np.isnan(box_bottom):
+                    # Canal Principal (Azul Translúcido)
+                    rect = Rectangle((x0, box_bottom), width, height,
+                                    facecolor='#4A90E2', edgecolor='#1f4e79', 
+                                    alpha=0.12, linewidth=0.7, zorder=1)
+                    ax.add_patch(rect)
+                
+                    # Margem visual para Supply/Demand (15% da altura)
+                    margin = height * 0.15
+                    
+                    # Supply Zone (Topo - Vermelho)
+                    ax.add_patch(Rectangle((x0, box_top - margin), width, margin,
+                                        facecolor='#ff1100', alpha=0.18, linewidth=0, zorder=2))
+
+                    # Demand Zone (Base - Verde)
+                    ax.add_patch(Rectangle((x0, box_bottom), width, margin,
+                                        facecolor='#00ffbb', alpha=0.18, linewidth=0, zorder=2))
+
+        # --- 3. Sinais de Breakout (Setas) ---
+        for i in range(n):
+            if bull_break[i]:
+                ax.text(dates[i], highs[i], "▲", color='#00a67d', fontsize=14, 
+                        ha='center', va='bottom', fontweight='bold', zorder=5)
+            if bear_break[i]:
+                ax.text(dates[i], lows[i], "▼", color='#d91e18', fontsize=14, 
+                        ha='center', va='top', fontweight='bold', zorder=5)
+
+        # --- 4. Formatação de Eixos ---
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
+        plt.xticks(rotation=30)
+        ax.grid(True, linestyle=':', alpha=0.4)
+        
+        # Ajuste dinâmico de escala Y
+        y_min = np.min(lows) * 0.998
+        y_max = np.max(highs) * 1.002
+        ax.set_ylim(y_min, y_max)
+
+        plt.tight_layout()
+        plt.show()
+
+    @staticmethod
+    def plot_sha_macd_raw_signals(ohlcv, symbol: str):
+        dates = ohlcv.dates
+        opens, highs, lows, closes = ohlcv.opens, ohlcv.highs, ohlcv.lows, ohlcv.closes
+        n = len(closes)
+
+        # 1. Indicadores
+        indicatorsUtils = TvIndicatorsUtils(ohlcv)
+        # SHA para cores das velas
+        trend_sha, o2, h2, l2, c2 = indicatorsUtils.smoothed_heikin_ashi(len1=34, len2=34)
+        # MACD para os sinais em bruto
+        ha_o, ha_c, signal, _ = indicatorsUtils.standardized_macd_ha(fast=12, slow=26, sig_len=9)
+
+        # 2. Configuração base
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(18, 10), sharex=True, 
+                                       gridspec_kw={'height_ratios': [2, 1]})
+        
+        dates_num = mdates.date2num(dates)
+        delta = dates_num[1] - dates_num[0] if n > 1 else 0.0005
+        width = delta * 0.8
+
+        # --- QUADRO 1: VELAS DE PREÇO (Cor baseada no SHA) ---
+        for i in range(n):
+            sha_color = 'lime' if c2[i] > o2[i] else 'red'
+            
+            ax1.plot([dates_num[i], dates_num[i]], [lows[i], highs[i]], color='black', linewidth=0.8, zorder=2)
+            bottom, height = min(opens[i], closes[i]), abs(closes[i] - opens[i])
+            ax1.bar(dates_num[i], max(height, 0.001), bottom=bottom, width=width, 
+                    color=sha_color, edgecolor='black', linewidth=0.3, zorder=3)
+
+        # --- QUADRO 2: MACD COM BANDAS ---
+        ax2.axhline(100, color='red', linestyle='--', alpha=0.3)
+        ax2.axhline(-100, color='cyan', linestyle='--', alpha=0.3)
+        ax2.axhline(0, color='gray', linewidth=0.8, alpha=0.5)
+
+        for i in range(n):
+            if np.isnan(ha_o[i]): continue
+            macd_col = '#00bcd4' if ha_c[i] > ha_o[i] else '#fc1f1f'
+            m_bottom, m_height = min(ha_o[i], ha_c[i]), abs(ha_c[i] - ha_o[i])
+            ax2.bar(dates_num[i], max(m_height, 0.1), bottom=m_bottom, width=width, 
+                    color=macd_col, alpha=0.9, zorder=2)
+
+        ax2.plot(dates_num, signal, color='black', linewidth=1.2, alpha=0.7, zorder=4)
+
+        # --- SINAIS EM BRUTO (Sem filtro de tendência) ---
+        for i in range(1, n):
+            # Cruzamento de ALTA em bruto
+            if ha_c[i] > signal[i] and ha_c[i-1] <= signal[i-1]:
+                # Marcador verde em ambos os quadros
+                ax1.scatter(dates_num[i], (lows[i] * 0.99), color='green', marker='^', s=100, zorder=10)
+                ax2.scatter(dates_num[i], signal[i], color='green', marker='o', s=40, zorder=10)
+            
+            # Cruzamento de BAIXA em bruto
+            elif ha_c[i] < signal[i] and ha_c[i-1] >= signal[i-1]:
+                # Marcador vermelho em ambos os quadros
+                ax1.scatter(dates_num[i], (highs[i] * 1.01), color='red', marker='v', s=100, zorder=10)
+                ax2.scatter(dates_num[i], signal[i], color='red', marker='o', s=40, zorder=10)
+
+        # Estética Final
+        ax1.set_title(f"{symbol} - Preço (Trend Color) + MACD Raw Signals")
+        ax1.grid(True, alpha=0.1)
+        ax2.grid(True, alpha=0.1)
+        ax2.set_ylim(-250, 250)
+        
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        plt.show()
+
 
     @staticmethod
     async def get_historical_ohlcv(pair: PairConfig, timeframe: TimeframeEnum, limit: int = 50) -> OhlcvWrapper:
@@ -698,16 +1064,18 @@ class PlotTrades:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("BTC/USDC:USDC")
+    pair = get_pair_by_symbol("ETH/USDC:USDC")
 
     if pair:
 
         ohlcv = await PlotTrades.get_historical_ohlcv(pair, TimeframeEnum.M15, 750)
 
         #PlotTrades.plot_supertrend_with_signals(ohlcv, pair.symbol)
-        PlotTrades.plot_luxalgo_supertrend(ohlcv, pair.symbol)
+        #PlotTrades.plot_smart_money_flow_cloud(ohlcv, pair.symbol)
         #PlotTrades.plot_custom_supertrend(ohlcv, pair.symbol)
-        #PlotTrades.plot_volumatic_vidya(ohlcv, pair.symbol)
+        PlotTrades.plot_volumatic_vidya(ohlcv, pair.symbol)
+        #PlotTrades.plot_smart_money_breakout(ohlcv, pair.symbol)
+        #PlotTrades.plot_sha_macd_raw_signals(ohlcv, pair.symbol)
         
         
 

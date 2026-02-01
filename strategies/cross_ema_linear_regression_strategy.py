@@ -1,3 +1,4 @@
+from commons.enums.candle_type_enum import CandleType
 from commons.enums.signal_enum import Signal
 from commons.models.signal_result_dclass import SignalResult
 from commons.models.strategy_base_dclass import StrategyBase
@@ -8,7 +9,7 @@ from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from trading_bot.exchange_client import ExchangeClient
 
 
-class LuxAlgoSupertrendStrategy(StrategyBase):
+class CrossEmaLinearRegressionStrategy(StrategyBase):
 
     def __init__(self, exchange: ExchangeClient):
         super().__init__()
@@ -45,28 +46,30 @@ class LuxAlgoSupertrendStrategy(StrategyBase):
 
         last_closed_candle = self.ohlcv.get_last_closed_candle()
         supertrend, trend, upperband, lowerband, supertrend_smooth,_,_ = self.indicators.supertrend()
-        ema_cross_signal, ts = LuxAlgoSupertrendStrategy.build_signal(self.indicators, self.ohlcv)
+        signal = CrossEmaLinearRegressionStrategy.build_signal(self.indicators, self.ohlcv)
 
-        signal = ema_cross_signal[-2]
+        signal = signal[-2]
         close = last_closed_candle.close
         closes = self.ohlcv.closes
 
         lookback = 10
         if signal == Signal.BUY:
             #sl = close - (close * 0.005)
+            #tp = close + ((close * 0.005) * 2.5)
             sl = min(lowerband[-lookback:])  # SL no ponto mais baixo da banda
             tp = max(upperband[-lookback:]) + (max(upperband[-lookback:]) - sl) * 0.5
-            #tp = close + ((close * 0.005) * 2.5)
+            
 
         elif signal == Signal.SELL:
             #sl = upperband[-2]
             #sl = close + (close * 0.005)
+            #tp = close - ((close * 0.005) * 2.5)
             sl = max(upperband[-lookback:])  # SL no ponto mais alto da banda
             tp = min(lowerband[-lookback:]) - (sl - min(lowerband[-lookback:])) * 0.5
-            #tp = close - ((close * 0.005) * 2.5)
+            
 
         else:
-            return SignalResult(Signal.HOLD, None, None)
+            return SignalResult(signal, None, None)
         
         # valida relação risco/benefício
         risk = abs(close - sl)
@@ -83,39 +86,45 @@ class LuxAlgoSupertrendStrategy(StrategyBase):
         return SignalResult(signal, sl, tp)
     
     @staticmethod
-    def build_signal(indicators: TvIndicatorsUtils, ohlcv: OhlcvWrapper, trailing_n = 3):
+    def get_gap_index(osc_values, sig_values, lookback=100):
+        # 1. Calcular as distâncias absolutas (Gaps) de todo o histórico
+        gaps = [abs(o - s) for o, s in zip(osc_values, sig_values)]
+        
+        gap_index = []
+        for i in range(len(gaps)):
+            if i < lookback:
+                gap_index.append(0)
+                continue
+                
+            # 2. Pegar na janela histórica de Gaps
+            window = gaps[i-lookback : i+1]
+            min_gap = min(window)
+            max_gap = max(window)
+            
+            # 3. Normalizar o Gap atual para a escala 0-100
+            if max_gap - min_gap == 0:
+                index = 0
+            else:
+                # Formula: (Valor - Min) / (Max - Min) * 100
+                index = ((gaps[i] - min_gap) / (max_gap - min_gap)) * 100
+                
+            gap_index.append(index)
+            
+        return gap_index
+    
+    @staticmethod
+    def build_signal(indicators: TvIndicatorsUtils, ohlcv: OhlcvWrapper, trailing_n = 3, gap_pct = 20):
         closes = ohlcv.closes
-        highs = ohlcv.highs
-        lows = ohlcv.lows
-        opens = ohlcv.opens
         n = len(closes)
         trend_signal = [Signal.HOLD] * n
         last_signal = None
-        last_supertrend_value = None
-        psar = indicators.psar()
-        ema50 = indicators.ema(50)
-        ema200 = indicators.ema(200)
-        #res = indicators.luxalgo_supertrend_ai(symbol)
-        supertrend = indicators.supertrend_ai()
-        #two_p, two_pp, buy, sell, direction1 = indicators.two_pole_oscillator()
-        #res = indicators.volumatic_vidya()
-        psi = indicators.squeeze_index()
-        #vidya = res.vidya
-        #upper = res.upper_band
-        #lower = res.lower_band
-        #smoothed = res.smoothed
-        #pivot_high = res.pivot_high
-        #pivot_low = res.pivot_low
-        #delta_vol = res.delta_volume_pct
-        #is_trend_up = res.is_trend_up
-        #retest = res.retest
 
-        #lateral = indicators.detect_low_volatility(slope_threshold=0.008)
-        ts = supertrend.ts
-        direction = supertrend.direction  # 1 bullish, 0 bearish
-        perf_score = supertrend.score
-        delta_vol = supertrend.delta_vol
-        retest = supertrend.retest
+        sma5 = indicators.sma(5)
+        sma13 = indicators.sma(13)
+        oscillator_values, signal_line, signals = indicators.regression_slope_oscillator()
+        gap_index = CrossEmaLinearRegressionStrategy.get_gap_index(oscillator_values, signal_line)
+
+        classify_candle = indicators.classify_candles()
 
         entry_price = 0
         profits = []
@@ -124,7 +133,6 @@ class LuxAlgoSupertrendStrategy(StrategyBase):
 
         
         for i in range(1, n):
-
             current_signal = None
 
             # Calcula lucro atual
@@ -139,55 +147,35 @@ class LuxAlgoSupertrendStrategy(StrategyBase):
             # ---------------------------------------------------------
             # → NOVA CHAMADA AO MÉTODO DE EXIT LOGIC
             # ---------------------------------------------------------
-            
-            current_signal = LuxAlgoSupertrendStrategy.check_exit_signal(
+            current_signal = CrossEmaLinearRegressionStrategy.check_exit_signal(
                 last_signal=last_signal,
                 profits=profits,
                 current_profit_pct=current_profit_pct,
-                psar_value=psar[i],
-                close_value=closes[i],
                 trailing_n=trailing_n,
                 min_profit_threshold=min_profit_threshold,
-                supertrend_value=last_supertrend_value
+                signal_indicator=signals[i]
             )
             
-            #if last_signal == Signal.BUY and sell[i] or last_signal == Signal.SELL and buy[i]:
-            #    current_signal = Signal.CLOSE
-
-            #print(f"AQUI i={i}, {upper[i]}, {lower[i]}, is_trend_up={is_trend_up[i]}, delta_vol={delta_vol[i]}, direction={direction1[i]}, is_ranging={psi[i]}, retest={retest[i]}")
-            
-            #print(f"AQUII, {i}, {ts[i]}")
-            #print("AQUII", i, direction[i], retest[i])
-            # --- Detecção de tendência via EMA ---
-            """
-            if is_trend_up[i] and retest[i] == 1:
+            sma_cross_up = sma5[i-2] <= sma13[i-2] and sma5[i-1] > sma13[i-1]
+            sma_cross_down = sma5[i-2] >= sma13[i-2] and sma5[i-1] < sma13[i-1]
+            start = max(0, i - 2)
+            window = signals[start : i + 1]
+            osc_confirmed_up = any(s > 1 for s in window)
+            osc_confirmed_down = any(s < -1 for s in window)
+     
+            if sma_cross_up and osc_confirmed_up and closes[i] > closes[i-1] and gap_index[i] > gap_pct and not classify_candle[i] in (CandleType.WEAK_BULL, CandleType.TOP_EXHAUSTION):
                 current_signal = Signal.BUY
 
-            elif not is_trend_up[i] and retest[i] == -1:
-                current_signal = Signal.SELL
-            """
-            if direction[i-1] == -1 and direction[i] == 1 and psi[i] < 80 and ema50[i] > ema200[i]:
-                current_signal = Signal.BUY
-
-            elif direction[i-1] == 1 and direction[i] == -1 and psi[i] < 80 and ema50[i] < ema200[i]:
+            elif sma_cross_down and osc_confirmed_down and closes[i] < closes[i-1] and gap_index[i] > gap_pct and not classify_candle[i] in (CandleType.WEAK_BEAR, CandleType.BOTTOM_EXHAUSTION):
                 current_signal = Signal.SELL
 
-            #if lateral[i] and current_signal != Signal.CLOSE:
-            #    current_signal = None
-            
             if current_signal is not None and current_signal != last_signal:
-
-                if trend_signal[i-1] == Signal.CLOSE:
-                    last_signal = None
-
                 trend_signal[i] = current_signal
                 last_signal = current_signal
-                #last_supertrend_value = ts[i-1]
                 entry_price = closes[i]
-                active_trend = None
                 profits = []
-
-        return trend_signal, ts
+                
+        return trend_signal
     
     
     @staticmethod
@@ -195,11 +183,9 @@ class LuxAlgoSupertrendStrategy(StrategyBase):
         last_signal: Signal | None,
         profits: list[float],
         current_profit_pct: float| None,
-        psar_value: float,
-        close_value: float,
         trailing_n: int,
         min_profit_threshold: float,
-        supertrend_value: float | None
+        signal_indicator: int,
     ):
         """
         Avalia se deve sair da posição com base nas condições de exit logic.
@@ -216,35 +202,13 @@ class LuxAlgoSupertrendStrategy(StrategyBase):
         if len(profits) >= trailing_n and current_profit_pct > min_profit_threshold:
             # últimos N profits estão sempre a descer
             if all(profits[-k] < profits[-(k+1)] for k in range(1, trailing_n)):
-                # validação pelo PSAR
-                #if (psar_value < close_value and last_signal == Signal.SELL) or \
-                #(psar_value > close_value and last_signal == Signal.BUY):
                 return Signal.CLOSE
-
+            
         # --------------------------
-        # 2. EXIT: Mercado sem direção
+        # 2. EXIT: Cruzamento contrário regression_slope_oscillator
         # --------------------------
-        profit_pos = sum(1 for x in profits if x > 0)
-        profit_neg = sum(1 for x in profits if x < 0)
+        if current_profit_pct != None and (last_signal == Signal.SELL and signal_indicator < 0 or \
+            last_signal == Signal.BUY and signal_indicator > 0) and current_profit_pct > min_profit_threshold:
+            return Signal.CLOSE
 
-        #if len(profits) >= trailing_n and profit_neg >= profit_pos and current_profit_pct > min_profit_threshold:
-        #    return Signal.CLOSE
-        
-        # --------------------------
-        # 3. EXIT: Falha de rompimento da linha ATR (SuperTrend)
-        # --------------------------
-
-        """
-        # BUY → perdeu a linha que tinha rompido
-        if supertrend_value is not None:
-            if last_signal == Signal.BUY:
-                if close_value < supertrend_value:
-                    return Signal.CLOSE
-
-            # SELL → perdeu a linha que tinha rompido
-            if last_signal == Signal.SELL:
-                print("AQUIIII", last_signal, close_value, supertrend_value, close_value > supertrend_value)
-                if close_value > supertrend_value:
-                    return Signal.CLOSE
-        """
         return None
