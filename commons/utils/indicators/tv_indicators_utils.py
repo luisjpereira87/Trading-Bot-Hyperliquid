@@ -1353,16 +1353,36 @@ class TvIndicatorsUtils(IndicatorsUtils):
         for i in range(1, n):
             # Crossover (Cruza para cima)
             if oscillator_values[i-1] < signal_line[i-1] and oscillator_values[i] > signal_line[i]:
-                #if oscillator_values[i] < 0: # Condição de "Reversal Up" do BigBeluga
-                    #signals[i] = 1
                 signals[i] = -2 if oscillator_values[i] > 0 else -1
             
             # Crossunder (Cruza para baixo)
             elif oscillator_values[i-1] > signal_line[i-1] and oscillator_values[i] < signal_line[i]:
-                #if oscillator_values[i] > 0: # Condição de "Reversal Down" do BigBeluga
-                    #signals[i] = -1
                 signals[i] = 2 if oscillator_values[i] < 0 else 1
-        return oscillator_values.tolist(), signal_line.tolist(), signals.tolist()
+
+        # 4. Calcular as distâncias absolutas (Gaps) de todo o histórico
+        gaps = [abs(o - s) for o, s in zip(oscillator_values, signal_line)]
+        
+        gap_index = np.zeros(n)
+        for i in range(1, n):
+            if i < max_range:
+                gap_index[i] = 0
+                continue
+                
+            # 4.1. Pegar na janela histórica de Gaps
+            window = gaps[i-max_range : i+1]
+            min_gap = min(window)
+            max_gap = max(window)
+            
+            # 4.2. Normalizar o Gap atual para a escala 0-100
+            if max_gap - min_gap == 0:
+                index = 0
+            else:
+                # Formula: (Valor - Min) / (Max - Min) * 100
+                index = ((gaps[i] - min_gap) / (max_gap - min_gap)) * 100
+                
+            gap_index[i] = index
+
+        return oscillator_values.tolist(), signal_line.tolist(), signals.tolist(), gap_index.tolist()
 
 
 

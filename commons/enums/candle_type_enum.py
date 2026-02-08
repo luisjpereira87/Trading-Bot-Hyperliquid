@@ -12,3 +12,4 @@ class CandleType(Enum):
     STRONG_BULL = auto()
     WEAK_BEAR = auto()
     STRONG_BEAR = auto()
+    HUGE_EXHAUSTION = auto()

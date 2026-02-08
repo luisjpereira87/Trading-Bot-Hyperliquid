@@ -5,12 +5,13 @@ from commons.models.strategy_params_dclass import StrategyParams
 from commons.utils.indicators.indicators_utils import IndicatorsUtils
 from commons.utils.indicators.tv_indicators_utils import TvIndicatorsUtils
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
+from trading_bot.exchange_base import ExchangeBase
 from trading_bot.exchange_client import ExchangeClient
 
 
 class LuxAlgoSupertrendStrategy(StrategyBase):
 
-    def __init__(self, exchange: ExchangeClient):
+    def __init__(self, exchange: ExchangeBase):
         super().__init__()
     
         self.exchange = exchange

@@ -17,6 +17,7 @@ from commons.utils.best_params_loader import BestParamsLoader
 from commons.utils.config_loader import PairConfig
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from strategies.strategy_manager import StrategyManager  # Para cálculo ATR
+from trading_bot.exchange_base import ExchangeBase
 from trading_bot.exchange_client import ExchangeClient
 from trading_bot.exit_logic.exit_logic_ema_based import ExitLogicEmaBased
 
@@ -25,15 +26,16 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 
 class TradingBot:
-    def __init__(self, exchange_client: ExchangeClient, strategy: StrategyManager, helpers: TradingHelpers, pairs: list[PairConfig], timeframe: TimeframeEnum):
+    def __init__(self, exchange_client: ExchangeBase, strategy: StrategyManager, helpers: TradingHelpers, pairs: list[PairConfig], timeframe: TimeframeEnum, exchange_name: str = "EXCHANGE"):
         self.exchange_client = exchange_client
+        self.exchange_name = exchange_name
         self.helpers = helpers
         self.pairs = pairs
         self.timeframe: TimeframeEnum = timeframe
         self.last_candle_times: dict[str, datetime | None] = {pair.symbol: None for pair in self.pairs}
         self.signal = None
         self.strategy = strategy
-        self.params_loader = BestParamsLoader()
+        #self.params_loader = BestParamsLoader()
         self.exit_logic = ExitLogicEmaBased(self.helpers, self.exchange_client)
 
     async def run_pair(self, pair: PairConfig) -> SignalResult:
@@ -44,13 +46,13 @@ class TradingBot:
 
         ohlcv = ohlcv_obj.ohlcv
         ohlcv_higher = ohlcv_obj.ohlcv_higher
-
+        logging.info(f"\n{'='*20} {self.exchange_name}: {symbol} {'='*20}")
         try:
             logging.info(f"🚀 Starting processing for {symbol}")
 
-            balance_total = await self.exchange_client.get_total_balance()
+            #balance_total = await self.exchange_client.get_total_balance()
             available_balance = await self.exchange_client.get_available_balance()
-            capital_amount = min(available_balance, balance_total * capital_pct) * leverage
+            capital_amount = (available_balance * capital_pct) * leverage
 
             logging.info(f"[DEBUG] Available capital_pct: {capital_pct}")
             logging.info(f"[DEBUG] Available balance: {available_balance}")
@@ -69,8 +71,8 @@ class TradingBot:
 
             logging.info(f"[DEBUG] signal: {signal}")
 
-            await self.exchange_client.print_balance()
-            await self.exchange_client.print_open_orders(symbol)
+            #await self.exchange_client.print_balance()
+            #$await self.exchange_client.print_open_orders(symbol)
 
             current_position = await self.exchange_client.get_open_position(symbol)
 
@@ -206,7 +208,7 @@ class TradingBot:
 
     async def get_last_closed_candle_time(self, symbol):
         try:
-            candles_obj: OhlcvFormat = await self.exchange_client.fetch_ohlcv(symbol, timeframe=self.timeframe)
+            candles_obj: OhlcvFormat = await self.exchange_client.fetch_ohlcv(symbol, timeframe=self.timeframe, limit=False)
             candles: OhlcvWrapper = candles_obj.ohlcv
             last_candle = candles.get_last_closed_candle()
             timestamp = last_candle.timestamp

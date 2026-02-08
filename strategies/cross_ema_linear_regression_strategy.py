@@ -6,12 +6,13 @@ from commons.models.strategy_params_dclass import StrategyParams
 from commons.utils.indicators.indicators_utils import IndicatorsUtils
 from commons.utils.indicators.tv_indicators_utils import TvIndicatorsUtils
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
+from trading_bot.exchange_base import ExchangeBase
 from trading_bot.exchange_client import ExchangeClient
 
 
 class CrossEmaLinearRegressionStrategy(StrategyBase):
 
-    def __init__(self, exchange: ExchangeClient):
+    def __init__(self, exchange: ExchangeBase):
         super().__init__()
     
         self.exchange = exchange
@@ -52,7 +53,7 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
         close = last_closed_candle.close
         closes = self.ohlcv.closes
 
-        lookback = 10
+        lookback = 1
         if signal == Signal.BUY:
             #sl = close - (close * 0.005)
             #tp = close + ((close * 0.005) * 2.5)
@@ -86,33 +87,6 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
         return SignalResult(signal, sl, tp)
     
     @staticmethod
-    def get_gap_index(osc_values, sig_values, lookback=100):
-        # 1. Calcular as distâncias absolutas (Gaps) de todo o histórico
-        gaps = [abs(o - s) for o, s in zip(osc_values, sig_values)]
-        
-        gap_index = []
-        for i in range(len(gaps)):
-            if i < lookback:
-                gap_index.append(0)
-                continue
-                
-            # 2. Pegar na janela histórica de Gaps
-            window = gaps[i-lookback : i+1]
-            min_gap = min(window)
-            max_gap = max(window)
-            
-            # 3. Normalizar o Gap atual para a escala 0-100
-            if max_gap - min_gap == 0:
-                index = 0
-            else:
-                # Formula: (Valor - Min) / (Max - Min) * 100
-                index = ((gaps[i] - min_gap) / (max_gap - min_gap)) * 100
-                
-            gap_index.append(index)
-            
-        return gap_index
-    
-    @staticmethod
     def build_signal(indicators: TvIndicatorsUtils, ohlcv: OhlcvWrapper, trailing_n = 3, gap_pct = 20):
         closes = ohlcv.closes
         n = len(closes)
@@ -121,15 +95,14 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
 
         sma5 = indicators.sma(5)
         sma13 = indicators.sma(13)
-        oscillator_values, signal_line, signals = indicators.regression_slope_oscillator()
-        gap_index = CrossEmaLinearRegressionStrategy.get_gap_index(oscillator_values, signal_line)
-
+        oscillator_values, signal_line, signals, gap_index = indicators.regression_slope_oscillator()
         classify_candle = indicators.classify_candles()
 
         entry_price = 0
         profits = []
         min_profit_threshold = 0.001
         current_profit_pct = None
+        sl = None
 
         
         for i in range(1, n):
@@ -156,13 +129,18 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
                 signal_indicator=signals[i]
             )
             
+            # Cruzamento das sma no candle anterior
             sma_cross_up = sma5[i-2] <= sma13[i-2] and sma5[i-1] > sma13[i-1]
             sma_cross_down = sma5[i-2] >= sma13[i-2] and sma5[i-1] < sma13[i-1]
+
+            # Validar se existiu cruzamento no regression_slope_oscillator nos 2 candles anteriores
             start = max(0, i - 2)
             window = signals[start : i + 1]
             osc_confirmed_up = any(s > 1 for s in window)
             osc_confirmed_down = any(s < -1 for s in window)
-     
+
+
+            #print(f"index={i} gap_index={gap_index[i]} classify_candle={classify_candle[i]} osc_confirmed_down={osc_confirmed_down} sma_cross_down={sma_cross_down}")
             if sma_cross_up and osc_confirmed_up and closes[i] > closes[i-1] and gap_index[i] > gap_pct and not classify_candle[i] in (CandleType.WEAK_BULL, CandleType.TOP_EXHAUSTION):
                 current_signal = Signal.BUY
 

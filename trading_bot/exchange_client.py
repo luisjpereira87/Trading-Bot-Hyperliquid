@@ -9,9 +9,10 @@ from commons.models.open_position_dclass import OpenPosition
 from commons.models.opened_order_dclass import OpenedOrder
 from commons.utils.config_loader import PairConfig
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
+from trading_bot.exchange_base import ExchangeBase
 
 
-class ExchangeClient:
+class ExchangeClient(ExchangeBase):
     def __init__(self, exchange, wallet_address):
         self.exchange = exchange
         self.wallet_address = wallet_address
@@ -123,20 +124,31 @@ class ExchangeClient:
         except Exception as e:
             logging.error(f"Erro ao buscar saldo: {e}")
             raise
-
     
+    """
+    async def get_total_balance(self):
+        try:
+            balance = await self.exchange.fetch_balance(params={'user': self.wallet_address})
+            total_usdc = balance['total'].get('USDC', 0)
+            return float(total_usdc)
+        except Exception as e:
+            logging.error(f"Erro ao obter saldo total: {e}")
+            return 0
+    """
+    async def print_balance(self):
+        try:
+            balance = await self.get_available_balance()
+            logging.info(f"💰 Saldo total: {balance}")
+        except Exception as e:
+            logging.error(f"Erro ao buscar saldo: {e}")
+
+    """
     async def fetch_ticker(self, symbol: str):
         try:
             return await self.exchange.fetch_ticker(symbol)
         except Exception as e:
             logging.error(f"Erro ao buscar preço atual: {e}")
-
-    async def print_balance(self):
-        try:
-            balance = await self.exchange.fetch_balance(params={'user': self.wallet_address})
-            logging.info(f"💰 Saldo total: {balance['total']}")
-        except Exception as e:
-            logging.error(f"Erro ao buscar saldo: {e}")
+    """
 
     async def print_open_orders(self, symbol: str = ''):
         try:
@@ -182,6 +194,7 @@ class ExchangeClient:
             logging.error(f"Erro ao obter posições abertas: {e}")
         return None
 
+    """
     async def get_reference_price(self, symbol: str):
         try:
             order_book = await self.exchange.fetch_order_book(symbol)
@@ -196,6 +209,14 @@ class ExchangeClient:
         except Exception as e:
             logging.error(f"Erro ao obter order book: {e}")
         return None
+    """
+    async def get_entry_price(self, symbol: str) -> float:
+        try:
+            ticker = await self.exchange.fetch_ticker(symbol)
+            return float(ticker['last'])
+        except Exception as e:
+            logging.error(f"Erro ao obter preço de entrada: {e}")
+            return 0
 
     async def calculate_entry_amount(self, price_ref: float, capital_amount: float) -> float:
         """
@@ -276,26 +297,11 @@ class ExchangeClient:
         except Exception as e:
             logging.error(f"Erro ao criar ordem de entrada: {e}")
             raise
-
-    async def get_entry_price(self, symbol: str) -> float:
-        try:
-            ticker = await self.exchange.fetch_ticker(symbol)
-            return float(ticker['last'])
-        except Exception as e:
-            logging.error(f"Erro ao obter preço de entrada: {e}")
-            return 0
         
-    async def get_total_balance(self):
-        try:
-            balance = await self.exchange.fetch_balance(params={'user': self.wallet_address})
-            total_usdc = balance['total'].get('USDC', 0)
-            return float(total_usdc)
-        except Exception as e:
-            logging.error(f"Erro ao obter saldo total: {e}")
-            return 0
+
     
     async def open_new_position(self, symbol: str, leverage: float, signal: Signal, capital_amount: float, pair: PairConfig, sl: (float|None), tp: (float|None)) -> (OpenedOrder | None):
-        price_ref = await self.get_reference_price(symbol)
+        price_ref = await self.get_entry_price(symbol)
         if not price_ref or price_ref <= 0:
             raise ValueError("❌ Invalid reference price (None or <= 0)")
 

@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 from commons.enums.candle_type_enum import CandleType
+from commons.enums.mode_enum import ModeEnum
 from commons.enums.signal_enum import Signal
 from commons.models.supertrend_dclass import Supertrend
 from commons.models.volumatic_vidya_dclass import VolumaticVidya
@@ -704,7 +705,29 @@ class IndicatorsUtils:
                 candles_values[i] = CandleType.DOJI
 
         return candles_values
+    
+    def check_market_context(self, signal: Signal, current_price: float) -> ModeEnum:
+        # Pegar o valor mais baixo e mais alto dos últimos 100 candles
+        recent_low = min(self.lows[-100:])
+        recent_high = max(self.highs[-100:])
         
+        if signal == Signal.SELL:
+            distance_bottom = (current_price - recent_low) / current_price
+            
+            # Se o preço atual for quase o recorde de queda (menos de 0.5% do fundo)
+            if distance_bottom < 0.005:
+                return ModeEnum.CONSERVATIVE  # Estamos em "terra de ninguém", perigo de reversão
+            else:
+                return ModeEnum.AGGRESSIVE    # Existe um fundo anterior para buscar
+                
+        if signal == Signal.BUY:
+            distance_top = (recent_high - current_price) / current_price
+            if distance_top < 0.005:
+                return ModeEnum.CONSERVATIVE   # Rompimento de topo, cuidado com exaustão
+            else:
+                return ModeEnum.AGGRESSIVE    # Caminho livre até a resistência anterior
+        
+        return ModeEnum.CONSERVATIVE
 
 
         

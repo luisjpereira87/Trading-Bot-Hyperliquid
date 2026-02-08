@@ -8,11 +8,12 @@ from commons.models.open_position_dclass import OpenPosition
 from commons.models.signal_result_dclass import SignalResult
 from commons.utils.config_loader import PairConfig
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
+from trading_bot.exchange_base import ExchangeBase
 from trading_bot.exchange_client import ExchangeClient
 
 
 class ExitLogicEmaBased:
-    def __init__(self, helpers: TradingHelpers, exchange_client: ExchangeClient):
+    def __init__(self, helpers: TradingHelpers, exchange_client: ExchangeBase):
         """
         buffer_pct: margem percentual em torno da EMA para tolerância
         atr_factor: quantos ATRs usar para definir perda de força

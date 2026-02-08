@@ -11,6 +11,7 @@ from ta.volatility import AverageTrueRange
 from commons.enums.mode_enum import ModeEnum
 from commons.models.strategy_params_dclass import StrategyParams
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
+from trading_bot.exchange_base import ExchangeBase
 from trading_bot.exchange_client import ExchangeClient
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # ou '3'
@@ -26,7 +27,7 @@ from machine_learning.ml_train_pipeline import MLTrainer
 
 
 class MLStrategy(StrategyBase):
-    def __init__(self, exchange :ExchangeClient, model_type = MLModelType.RANDOM_FOREST):
+    def __init__(self, exchange :ExchangeBase, model_type = MLModelType.RANDOM_FOREST):
         super().__init__()
 
         self.exchange = exchange

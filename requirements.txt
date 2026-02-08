@@ -12,3 +12,4 @@ pydantic
 xgboost>=2.0
 joblib>=1.3
 tensorflow
+nado-protocol

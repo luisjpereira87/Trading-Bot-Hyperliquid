@@ -11,11 +11,12 @@ from strategies.cross_ema_linear_regression_strategy import \
 from strategies.cross_ema_strategy import CrossEmaStrategy
 from strategies.luxalgo_supertrend_strategy import LuxAlgoSupertrendStrategy
 from strategies.ml_strategy import MLModelType, MLStrategy
+from trading_bot.exchange_base import ExchangeBase
 from trading_bot.exchange_client import ExchangeClient
 
 
 class StrategyManager(StrategyBase):
-    def __init__(self, exchange: ExchangeClient, name=StrategyEnum.AI_SUPERTREND):
+    def __init__(self, exchange: ExchangeBase, name=StrategyEnum.AI_SUPERTREND):
         super().__init__()
         self.exchange = exchange
         self.symbol = None
