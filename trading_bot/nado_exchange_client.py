@@ -67,7 +67,6 @@ class NadoExchangeClient(ExchangeBase):
         self._market_map = {}
 
     
-
     async def _get_market_id(self, symbol: str) -> int | None:
         try:
             # 1. Busca no cache de mapeamento (já carregado no init)
@@ -79,19 +78,50 @@ class NadoExchangeClient(ExchangeBase):
 
             # 2. Sincronização Única com a Engine
             if not self._market_map:
-                logging.info("🔄 Sincronizando IDs com a Engine Nado (Uma única vez)...")
+                logging.info("🔄 Sincronizando IDs e Incrementos com a Engine Nado...")
                 symbols_data = self.client.context.engine_client.get_product_symbols()
-                self._market_map = {
-                    getattr(s, 'symbol', s): int(getattr(s, 'product_id', 0)) 
-                    for s in symbols_data if getattr(s, 'product_id', None) is not None
-                }
+                
+                self._market_map = {}
+                for s in symbols_data:
+                    ticker = getattr(s, 'symbol', s)
+                    p_id = getattr(s, 'product_id', None)
+                    
+                    # Captura os incrementos (Vêm em X18 do SDK)
+                    s_inc = getattr(s, 'size_increment', 10**14) # Default p/ BTC
+                    p_inc = getattr(s, 'price_increment_x18', 10**16) # Default p/ SOL/ETH (0.01)
+
+                    if ticker and p_id is not None:
+                        self._market_map[ticker] = {
+                            "id": int(p_id),
+                            "size_step": float(s_inc) / 10**18,
+                            "price_step": float(p_inc) / 10**18
+                        }
 
             # 3. Resolução instantânea por dicionário
-            return self._market_map.get(symbol_nado)
+            data = self._market_map.get(symbol_nado)
+            return data["id"] if data else None
 
         except Exception as e:
             logging.error(f"❌ Erro ao resolver Market ID para {symbol}: {e}")
             return None
+        
+    async def get_market_meta(self, symbol: str):
+        """Retorna o dicionário de metadados para o símbolo."""
+        # Garante que o mapa está carregado
+        if not self._market_map:
+            await self._get_market_id(symbol)
+        
+        pair = get_pair_by_configs_symbol(self._pairs_cache, symbol)
+        return self._market_map.get(pair.symbol_nado) if pair else None
+
+    async def get_size_increment(self, symbol: str) -> float:
+        meta = await self.get_market_meta(symbol)
+        return meta["size_step"] if meta else 0.01
+
+    async def get_price_increment(self, symbol: str) -> float:
+        meta = await self.get_market_meta(symbol)
+        return meta["price_step"] if meta else 0.01
+    
 
     async def fetch_ohlcv(self, symbol: str, timeframe: TimeframeEnum, limit: int = 14, is_higher: bool = False) -> OhlcvFormat:
         try:
@@ -315,7 +345,7 @@ class NadoExchangeClient(ExchangeBase):
             logging.error(f"Erro ao converter posição Nado para {symbol}: {e}")
             return None
         
-    async def calculate_entry_amount(self, price_ref: float, capital_amount: float) -> float:
+    async def calculate_entry_amount(self, symbol: str, price_ref: float, capital_amount: float) -> float:
         """
         Calcula a quantidade (size) exata para a Nado, respeitando os 
         incrementos mínimos do protocolo para evitar erros de validação.
@@ -325,22 +355,26 @@ class NadoExchangeClient(ExchangeBase):
                 logging.warning(f"🚫 Preço ({price_ref}) ou Capital ({capital_amount}) inválidos.")
                 return 0.0
 
-            # 1. Cálculo da quantidade bruta (Notional / Preço)
-            # Ex: $1000 de capital_amount / $75.000 de preço = 0.013333... BTC
+            # 1. Cálculo da quantidade bruta
             raw_quantity = capital_amount / price_ref
 
-            # 2. Definição do incremento (Size Increment)
-            # Na Nado Ink (Sepolia), o BTC-PERP usa 0.00005 como base.
-            # TODO: No futuro, podes buscar isto via self.exchange.context.contracts.perp_products
-            size_increment = 0.00005 
+            # 2. Busca Dinâmica do Incremento (A CORREÇÃO ESTÁ AQUI)
+            # Em vez de 0.00005 fixo, pedimos à exchange qual é a regra para este símbolo
+            size_increment = await self.get_size_increment(symbol)
+            
+            # Fallback de segurança se a API falhar (usa 0.01 para ALTs, 0.0001 para BTC)
+            if size_increment == 0:
+                size_increment = 0.0001 if "BTC" in symbol else 0.01
 
-            # 3. Arredondamento para baixo baseado no incremento (Floor Logic)
-            # Esta é a parte vital: a Engine só aceita múltiplos exatos do size_increment.
-            # Se raw_qty = 0.01333, o resultado será 0.01330 (divisível por 0.00005)
+            # 3. Arredondamento "Floor" (Corta o excesso)
+            # Exemplo SOL: 1.338 -> Step 0.01 -> (133.8 // 1) * 0.01 -> 1.33
             refined_quantity = (raw_quantity // size_increment) * size_increment
 
-            # 4. Limpeza de precisão de ponto flutuante do Python
-            final_quantity = round(refined_quantity, 8)
+            # 4. Limpeza de precisão
+            # Calcula quantas casas decimais o step tem para arredondar corretamente
+            import math
+            decimals = int(abs(math.log10(size_increment))) if size_increment < 1 else 0
+            final_quantity = round(refined_quantity, decimals)
 
             logging.info(
                 f"🧮 Cálculo de Size: Bruto: {raw_quantity:.6f} | "
@@ -380,7 +414,7 @@ class NadoExchangeClient(ExchangeBase):
             notional_value = target_capital * pair.leverage # 5000 se leverage=10
             
             # 3. Converter para Size (Quantidade de ativos)
-            entry_amount = await self.calculate_entry_amount(price_ref, notional_value)
+            entry_amount = await self.calculate_entry_amount(symbol, price_ref, notional_value)
 
             logging.info(
                 f"💰 [Nado] Balance: ${balance_total:.2f} | Alocação: {pair.capital*100}% | "
@@ -427,18 +461,21 @@ class NadoExchangeClient(ExchangeBase):
 
             # 2. Configuração de Escalas e Arredondamentos (Engine Requirements)
             X18_SCALE = 10**18
-            
+            step_decimal = await self.get_size_increment(symbol)
+            size_increment = int(step_decimal * X18_SCALE)
+
             # Incremento de Tamanho (Size Step)
             # Nota: entry_amount já deve vir arredondado pelo calculate_entry_amount
             amount_raw = int(entry_amount * X18_SCALE)
-            size_increment = 50_000_000_000_000 # Específico para BTC-PERP na Nado
+            #size_increment = 50_000_000_000_000 # Específico para BTC-PERP na Nado
             amount_adjusted = (amount_raw // size_increment) * size_increment
             
             # Na Nado: Compra (BUY) é positivo, Venda (SELL) é negativo
             amount = amount_adjusted if side == Signal.BUY else -amount_adjusted
 
             # 3. Cálculo de Preço Limite (Slippage de 10% sobre o price_ref)
-            price_increment_x18 = 1_000_000_000_000_000_000 
+            price_step_decimal = await self.get_price_increment(symbol)
+            price_increment_x18 = int(price_step_decimal * X18_SCALE)
             if side == Signal.BUY:
                 raw_price_limit = int(price_ref * 1.10 * X18_SCALE)
             else:
