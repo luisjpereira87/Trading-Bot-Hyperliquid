@@ -79,23 +79,26 @@ class NadoExchangeClient(ExchangeBase):
             # 2. Sincronização Única com a Engine
             if not self._market_map:
                 logging.info("🔄 Sincronizando IDs e Incrementos com a Engine Nado...")
-                symbols_data = self.client.context.engine_client.get_product_symbols()
+                symbols_data = self.client.context.engine_client.get_symbols()
                 
                 self._market_map = {}
-                for s in symbols_data:
-                    ticker = getattr(s, 'symbol', s)
-                    p_id = getattr(s, 'product_id', None)
-                    
-                    # Captura os incrementos (Vêm em X18 do SDK)
-                    s_inc = getattr(s, 'size_increment', 10**14) # Default p/ BTC
-                    p_inc = getattr(s, 'price_increment_x18', 10**16) # Default p/ SOL/ETH (0.01)
+                X18 = 10**18
 
-                    if ticker and p_id is not None:
-                        self._market_map[ticker] = {
-                            "id": int(p_id),
-                            "size_step": float(s_inc) / 10**18,
-                            "price_step": float(p_inc) / 10**18
-                        }
+                for ticker, data in symbols_data.symbols.items():
+                    # Extração direta dos campos que vimos no teu log
+                    # Note: size_increment às vezes não tem o sufixo _x18 no nome mas o valor é X18
+                    s_inc = int(data.size_increment)
+                    p_inc = int(data.price_increment_x18)
+                    m_notional = int(data.min_size)
+
+                    self._market_map[ticker] = {
+                        "id": int(data.product_id),
+                        "size_step": s_inc / X18,
+                        "price_step": p_inc / X18,
+                        "min_notional": m_notional / X18
+                    }
+                
+                logging.info(f"✅ Market Map: {len(self._market_map)} ativos carregados.")
 
             # 3. Resolução instantânea por dicionário
             data = self._market_map.get(symbol_nado)
