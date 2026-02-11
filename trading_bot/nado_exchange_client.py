@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import math
 import time
 from datetime import datetime
 
@@ -371,11 +372,12 @@ class NadoExchangeClient(ExchangeBase):
 
             # 3. Arredondamento "Floor" (Corta o excesso)
             # Exemplo SOL: 1.338 -> Step 0.01 -> (133.8 // 1) * 0.01 -> 1.33
-            refined_quantity = (raw_quantity // size_increment) * size_increment
+            multiplier = 1 / size_increment
+            refined_quantity = math.floor(raw_quantity * multiplier) / multiplier
 
             # 4. Limpeza de precisão
             # Calcula quantas casas decimais o step tem para arredondar corretamente
-            import math
+
             decimals = int(abs(math.log10(size_increment))) if size_increment < 1 else 0
             final_quantity = round(refined_quantity, decimals)
 
@@ -562,10 +564,12 @@ class NadoExchangeClient(ExchangeBase):
     async def _place_protections(self, symbol, product_id, size, side, sl_price, tp_price):
         X18_SCALE = 10**18
         close_amount = -int(size * X18_SCALE) if side == Signal.BUY else int(size * X18_SCALE)
+        market_data = self._market_map.get(symbol)
+        price_step = market_data["price_step"] if market_data else 0.01
 
         # 🛠️ CORREÇÃO 1: Arredondar para inteiros (Tick Size Fix)
-        sl_price_fixed = int(round(sl_price))
-        tp_price_fixed = int(round(tp_price))
+        sl_price_fixed = (sl_price // price_step) * price_step
+        tp_price_fixed = (tp_price // price_step) * price_step
 
         # 1. STOP LOSS (Trigger Order)
         if sl_price:
