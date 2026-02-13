@@ -596,8 +596,8 @@ class NadoExchangeClient(ExchangeBase):
                     ),
                     trigger=PriceTrigger(
                         price_trigger=PriceTriggerData(
-                            price_requirement=LastPriceBelow(last_price_below=str(sl_price_fixed * X18_SCALE)) 
-                            if side == Signal.BUY else LastPriceAbove(last_price_above=str(sl_price_fixed * X18_SCALE))
+                            price_requirement=LastPriceBelow(last_price_below=f"{int(round(sl_price_fixed * X18_SCALE)):.0f}") 
+                            if side == Signal.BUY else LastPriceAbove(last_price_above=f"{int(round(sl_price_fixed * X18_SCALE)):.0f}")
                         )
                     ),
                     signature=None, id=None, digest=None, spot_leverage=None # type: ignore
