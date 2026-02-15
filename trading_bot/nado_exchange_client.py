@@ -587,7 +587,7 @@ class NadoExchangeClient(ExchangeBase):
                         sender=SubaccountParams(subaccount_owner=self.wallet_address, subaccount_name="default"),
                         amount=close_amount,
                         # Preço de execução agressivo
-                        priceX18=int(sl_price_fixed * 0.95 * X18_SCALE) if side == Signal.BUY else int(sl_price_fixed * 1.05 * X18_SCALE),
+                        priceX18=int(round(sl_price_fixed * 0.95 * X18_SCALE)) if side == Signal.BUY else int(round(sl_price_fixed * 1.05 * X18_SCALE)),
                         expiration=int(time.time() + 86400),
                         # TENTATIVA FINAL: appendix=None ou omitir. 
                         # Se o Pylance reclamar, usa 0 (sem bits ativos).
@@ -596,8 +596,8 @@ class NadoExchangeClient(ExchangeBase):
                     ),
                     trigger=PriceTrigger(
                         price_trigger=PriceTriggerData(
-                            price_requirement=LastPriceBelow(last_price_below=str(sl_price_fixed * X18_SCALE)) 
-                            if side == Signal.BUY else LastPriceAbove(last_price_above=str(sl_price_fixed * X18_SCALE))
+                            price_requirement=LastPriceBelow(last_price_below=f"{int(round(sl_price_fixed * X18_SCALE)):.0f}") 
+                            if side == Signal.BUY else LastPriceAbove(last_price_above=f"{int(round(sl_price_fixed * X18_SCALE)):.0f}")
                         )
                     ),
                     signature=None, id=None, digest=None, spot_leverage=None # type: ignore
