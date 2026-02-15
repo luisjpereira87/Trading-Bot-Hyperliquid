@@ -71,8 +71,8 @@ class TradingBot:
 
             logging.info(f"[DEBUG] signal: {signal}")
 
-            #await self.exchange_client.print_balance()
-            #$await self.exchange_client.print_open_orders(symbol)
+            await self.exchange_client.print_balance()
+            await self.exchange_client.print_open_orders(symbol)
 
             current_position = await self.exchange_client.get_open_position(symbol)
 

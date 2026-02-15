@@ -157,6 +157,58 @@ async def nado_test():
     except Exception as e:
         logging.error(f"❌ O teste falhou no meio do ciclo: {e}", exc_info=True)
 
+async def test_sol_order():
+    wallet_address = os.getenv("WALLET_ADDRESS")
+    private_key = os.getenv("PRIVATE_KEY")
+
+    if not wallet_address or not private_key:
+        raise ValueError(
+            "Variáveis de ambiente WALLET_ADDRESS e PRIVATE_KEY devem estar definidas"
+        )
+
+    #timeframe = TimeframeEnum.M15
+    pairs = load_pair_configs()
+
+    exchange = NadoExchangeClient(private_key, None, wallet_address, pairs)
+    symbol = "SOL/USDC:USDC"
+    
+    print(f"🚀 Iniciando teste real para {symbol}...")
+
+    try:
+        # 2. Vamos buscar o preço atual para o teste
+        price_ref = await exchange.get_entry_price(symbol)
+
+        if price_ref is None:
+            return
+
+        print(f"📊 Preço atual de mercado: {price_ref}")
+
+        # 3. Definimos valores de teste
+        # Vamos usar um amount fixo pequeno (ex: 10 USDC) em vez de capital_pct
+        test_amount_usdc = 10.0 
+        leverage = 1.0
+        test_amount_sol = 1.5
+        
+        # Simulando um sinal de SELL como o do erro anterior
+        side = Signal.SELL
+        sl_price = price_ref * 1.05 # 5% acima
+        tp_price = price_ref * 0.95 # 5% abaixo
+
+        print(f"🛒 Enviando ordem de {side.value} para {symbol}...")
+        
+        order = await exchange.place_entry_order(
+                symbol=symbol,
+                leverage=1.0,
+                entry_amount=test_amount_sol, # Ja entra em Tokens
+                price_ref=price_ref,
+                side=Signal.SELL,
+                sl_price=price_ref * 1.05,
+                tp_price=price_ref * 0.95
+            )
+        print(f"✅ SUCESSO! Digest da ordem: {order.id}")
+
+    except Exception as e:
+        print(f"❌ O teste falhou! Erro: {e}")
 
 
 async def run_train():
@@ -188,7 +240,7 @@ if __name__ == "__main__":
         elif comando == "alpaca":
             asyncio.run(alpaca_test())
         elif comando == "nado":
-            asyncio.run(nado_test())
+            asyncio.run(test_sol_order())
         else:
             print(f"❌ Comando desconhecido: {comando}")
             print("Usa: python main.py [treino | backtest]")

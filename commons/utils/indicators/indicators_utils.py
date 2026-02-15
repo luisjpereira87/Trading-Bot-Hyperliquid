@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import pandas as pd
 
@@ -728,6 +730,147 @@ class IndicatorsUtils:
                 return ModeEnum.AGGRESSIVE    # Caminho livre até a resistência anterior
         
         return ModeEnum.CONSERVATIVE
+    
+    def double_rsi(self, rsi_slow_len = 21, rsi_fast_len = 5) -> list[Signal]:
+        n = len(self.closes)
+        rsi_slow = self.rsi(rsi_slow_len)
+        rsi_fast = self.rsi(rsi_fast_len) 
+
+        signal_values = [Signal.HOLD] * n
+
+        for i in range(1, n):
+            if rsi_fast[i-1] <= rsi_slow[i-1] and rsi_fast[i] > rsi_slow[i] and rsi_slow[i] > 50 and rsi_fast[i] > 50:
+                signal_values[i] = Signal.BUY
+            elif rsi_fast[i-1] >= rsi_slow[i-1] and rsi_fast[i] < rsi_slow[i] and rsi_slow[i] < 50 and rsi_fast[i] < 50:
+                signal_values[i] = Signal.SELL
+        return signal_values
+    
+    
+    def ema_list(self, data, period) -> np.ndarray:
+        """
+        Calcula a Média Móvel Exponencial (EMA) sobre qualquer array de dados.
+        Fórmula: EMA = (Preço - EMA_anterior) * Multiplicador + EMA_anterior
+        """
+        data = np.array(data)
+        n = len(data)
+        ema = np.zeros(n)
+        
+        if n == 0:
+            return ema
+
+        # Multiplicador: 2 / (período + 1)
+        alpha = 2 / (period + 1)
+        
+        # O primeiro valor da EMA é o primeiro valor do dado (Semente)
+        ema[0] = data[0]
+        
+        # Cálculo iterativo
+        for i in range(1, n):
+            ema[i] = (data[i] - ema[i-1]) * alpha + ema[i-1]
+            
+        return ema
+    
+    def calculate_power_oscillator(self, period=20):
+        closes = np.array(self.closes)
+        volumes = np.array(self.ohlcv.volumes)
+        n = len(closes)
+        
+        # 1. Delta Preço com Direção
+        delta_p = np.diff(closes, prepend=closes[0])
+        
+        # 2. Força Bruta (Preço * Volume) - Esta é a "Energia" do movimento
+        energy = delta_p * volumes
+        
+        # 3. Normalização para a escala -100 a 100
+        # Usamos o maior pico de energia do período para definir o que é 100%
+        oscillator = np.zeros(n)
+        for i in range(period, n):
+            window = energy[i-period+1 : i+1]
+            max_abs_energy = np.max(np.abs(window))
+            
+            if max_abs_energy != 0:
+                oscillator[i] = (energy[i] / max_abs_energy) * 100
+            else:
+                oscillator[i] = 0
+                
+        # 4. Suavização (Opcional, mas recomendado para evitar ruído)
+        return self.ema_list(oscillator, 5)
+
+    
+    def multi_ema_trend(self, ema_slow_len=34, ema_mid_len=20, ema_fast_len=6):
+        n = len(self.closes)
+        ema_slow = self.ema(ema_slow_len)
+        ema_mid = self.ema(ema_mid_len)
+        ema_fast = self.ema(ema_fast_len)
+        closes = self.closes
+        opens = self.opens
+        volumes = np.array(self.ohlcv.volumes)
+
+        direction = np.zeros(n)
+        gap_pct = np.zeros(n)
+        angles = np.zeros(n) # Nova lista para os graus
+        delta_price = np.diff(closes, prepend=closes[0])
+        delta_vol = np.where(closes > np.roll(closes, 1), volumes, -volumes)
+        avg_delta_price = self.ema_list(np.abs(delta_price), 10)
+
+        # Precisamos de um lookback para calcular a inclinação (ex: 3 candles)
+        lookback = 3 
+
+        for i in range(lookback, n):
+            # 1. Calcular o Gap Percentual (Saúde do leque)
+            diff = abs(ema_mid[i] - ema_slow[i])
+            gap_pct[i] = (diff / ema_slow[i]) * 100
+
+            # 2. CALCULAR O ÂNGULO (Offset em graus)
+            # delta_y: variação do preço da EMA lenta
+            # delta_x: variação do tempo (candles)
+            delta_y = ema_slow[i] - ema_slow[i - lookback]
+            delta_x = lookback
+            
+            # Normalização: Ajustamos o delta_y para que o ângulo não dependa do preço nominal
+            # Usamos 0.1% do preço como unidade base de movimento
+            scaling_factor = ema_slow[i] * 0.001 
+            
+            # math.atan2(y, x) retorna radianos, convertemos para graus
+            angle_rad = math.atan2(delta_y / scaling_factor, delta_x)
+            angles[i] = math.degrees(angle_rad)
+
+            # 3. Definir Direção
+            if ema_fast[i] > ema_mid[i] and ema_mid[i] > ema_slow[i]:
+                    direction[i] = 1
+            elif ema_fast[i] < ema_mid[i] and ema_mid[i] < ema_slow[i]:
+                    direction[i] = -1
+
+        return {
+            'slow_band': ema_slow,
+            'mid_band': ema_mid,
+            'fast_band': ema_fast,
+            'direction': direction,
+            'gap_pct': gap_pct,
+            'angle': angles, # Agora o bot sabe a inclinação exata
+            'delta_vol': delta_vol,
+            'delta_price': delta_price
+        }
+    
+    def calculate_efficiency_ratio(self, period=14):
+        closes = np.array(self.closes)
+        n = len(closes)
+        er = np.zeros(n)
+        
+        for i in range(period, n):
+            # 1. Mudança líquida (Distância do ponto A ao B)
+            net_change = abs(closes[i] - closes[i - period])
+            
+            # 2. Volatilidade total (Soma de todos os 'passos' individuais)
+            # abs(fecho_atual - fecho_anterior)
+            volatility = np.sum(np.abs(np.diff(closes[i - period : i + 1])))
+            
+            if volatility != 0:
+                er[i] = net_change / volatility
+            else:
+                er[i] = 0
+                
+        return er
 
 
         

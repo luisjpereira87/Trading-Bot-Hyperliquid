@@ -1350,6 +1350,7 @@ class TvIndicatorsUtils(IndicatorsUtils):
         # 1: Reversal Up (Crossover quando osc < 0)
         # -1: Reversal Down (Crossunder quando osc > 0)
         signals = np.zeros(n)
+        direction = np.zeros(n)
         for i in range(1, n):
             # Crossover (Cruza para cima)
             if oscillator_values[i-1] < signal_line[i-1] and oscillator_values[i] > signal_line[i]:
@@ -1358,6 +1359,11 @@ class TvIndicatorsUtils(IndicatorsUtils):
             # Crossunder (Cruza para baixo)
             elif oscillator_values[i-1] > signal_line[i-1] and oscillator_values[i] < signal_line[i]:
                 signals[i] = 2 if oscillator_values[i] < 0 else 1
+            
+            if oscillator_values[i] > signal_line[i]:
+                direction[i] = -2 if direction[i] > 0 else -1
+            elif oscillator_values[i] < signal_line[i]:
+                direction[i] = 2 if oscillator_values[i] < 0 else 1
 
         # 4. Calcular as distâncias absolutas (Gaps) de todo o histórico
         gaps = [abs(o - s) for o, s in zip(oscillator_values, signal_line)]
@@ -1382,8 +1388,124 @@ class TvIndicatorsUtils(IndicatorsUtils):
                 
             gap_index[i] = index
 
-        return oscillator_values.tolist(), signal_line.tolist(), signals.tolist(), gap_index.tolist()
+        return oscillator_values.tolist(), signal_line.tolist(), signals.tolist(), gap_index.tolist(), direction.tolist()
 
+    def calculate_future_trend_list(self, period=25):
+        """
+        ohlcv: lista de listas [[timestamp, open, high, low, close, volume], ...]
+        """
+        # Extrair apenas os preços de fecho, abertura e volume para facilitar
+        closes = self.closes
+        opens = self.opens
+        volumes = self.volumes
+        
+        # 1. Calcular Delta de Volume (CVD)
+        # delta_vol = volume se fecho > abertura, senão -volume
+        delta_vols = [(v if cl > op else -v) for cl, op, v in zip(closes, opens, volumes)]
+
+        # 2. Calcular os Deltas da Tabela (Somas de janelas)
+        # Delta 1: soma dos últimos 25
+        d1 = sum(delta_vols[-period:])
+        # Delta 2: soma dos 25 anteriores (de -50 a -25)
+        d2 = sum(delta_vols[-period*2 : -period])
+        # Delta 3: soma dos 25 anteriores ao 2 (de -75 a -50)
+        d3 = sum(delta_vols[-period*3 : -period*2])
+
+        # 3. Projeção Future Trend (Cálculo Cíclico)
+        future_values = []
+        # O indicador percorre do candle atual para trás até 'period'
+        for i in range(period + 1):
+            # Média do preço atual com o preço de 1 e 2 períodos atrás
+            # Corresponde ao values.set(i, math.avg(src[i], src[i + period], src[i + period * 2]))
+            avg_val = (closes[-i-1] + closes[-i-1-period] + closes[-i-1-period*2]) / 3
+            future_values.append(avg_val)
+
+        # Inverter para que o índice 0 seja o início da projeção (preço atual médio)
+        future_values.reverse()
+
+        # 4. Ajuste da Projeção ao Preço Atual (Offset)
+        current_close = closes[-1]
+        diff = current_close - future_values[0]
+        
+        # O caminho projetado ajustado para começar no preço atual
+        projected_path = [v + diff for v in future_values]
+        target_price = projected_path[-1] # Preço alvo daqui a 25 candles
+
+        return {
+            'projected_path': projected_path,
+            'target_price': target_price,
+            'delta1': d1,
+            'delta2': d2,
+            'delta3': d3,
+            'is_bullish_projection': target_price > current_close
+        }
+
+
+    def calculate_andean_oscillator(self, length=50, sig_length=9):
+        """
+        Calcula o Andean Oscillator (Bullish, Bearish e Signal).
+        ohlcv: lista de listas [[ts, open, high, low, close, vol], ...]
+        """
+        #if len(ohlcv) < length:
+        #    return None
+
+        # Extrair Close e Open para listas simples
+        closes = self.closes
+        opens = self.opens
+        
+        alpha = 2 / (length + 1)
+        alpha_sig = 2 / (sig_length + 1)
+
+        # Listas para armazenar os componentes ao longo do tempo
+        bull_comp = []
+        bear_comp = []
+        
+        # Inicialização das variáveis recursivas (equivalente ao 'var' no Pine)
+        # Começamos com os primeiros valores para "aquecer" o cálculo
+        up1 = closes[0]
+        up2 = closes[0]**2
+        dn1 = closes[0]
+        dn2 = closes[0]**2
+
+        # Loop principal (processa todo o histórico para garantir precisão nas Médias Exponenciais)
+        for i in range(len(closes)):
+            C = closes[i]
+            O = opens[i]
+
+            # Lógica dos Envelopes Exponenciais do Andean
+            # math.max(C, O, up1 - (up1 - C) * alpha)
+            up1 = max(C, O, up1 - (up1 - C) * alpha)
+            up2 = max(C * C, O * O, up2 - (up2 - C * C) * alpha)
+            
+            dn1 = min(C, O, dn1 + (C - dn1) * alpha)
+            dn2 = min(C * C, O * O, dn2 + (C * C - dn2) * alpha)
+
+            # Cálculo dos Componentes Bull e Bear
+            # bull = math.sqrt(dn2 - dn1 * dn1)
+            # bear = math.sqrt(up2 - up1 * up1)
+            # Usamos max(0, ...) para evitar erros de floating point que gerem números negativos ínfimos
+            bull = math.sqrt(max(0, dn2 - dn1 * dn1))
+            bear = math.sqrt(max(0, up2 - up1 * up1))
+            
+            bull_comp.append(bull)
+            bear_comp.append(bear)
+
+        # Cálculo da Linha de Sinal (EMA do max(bull, bear))
+        signal_list = []
+        # Calculamos o máximo entre os dois em cada ponto
+        max_components = [max(bull_comp[i], bear_comp[i]) for i in range(len(bull_comp))]
+        
+        # EMA manual para o Sinal
+        current_sig = max_components[0]
+        for i in range(len(max_components)):
+            current_sig = (max_components[i] - current_sig) * alpha_sig + current_sig
+            signal_list.append(current_sig)
+
+        return {
+            'bull': bull_comp,
+            'bear': bear_comp,
+            'signal': signal_list
+        }
 
 
 

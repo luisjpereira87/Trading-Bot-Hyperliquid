@@ -1,3 +1,5 @@
+import numpy as np
+
 from commons.enums.candle_type_enum import CandleType
 from commons.enums.signal_enum import Signal
 from commons.models.signal_result_dclass import SignalResult
@@ -49,7 +51,7 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
         supertrend, trend, upperband, lowerband, supertrend_smooth,_,_ = self.indicators.supertrend()
         signal = CrossEmaLinearRegressionStrategy.build_signal(self.indicators, self.ohlcv)
 
-        signal = signal[-2]
+        signal = signal[-1]
         close = last_closed_candle.close
         closes = self.ohlcv.closes
 
@@ -92,18 +94,18 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
         n = len(closes)
         trend_signal = [Signal.HOLD] * n
         last_signal = None
-
-        sma5 = indicators.sma(5)
-        sma13 = indicators.sma(13)
-        oscillator_values, signal_line, signals, gap_index = indicators.regression_slope_oscillator()
+        oscillator_values, signal_line, signals, gap_index, rso_direction = indicators.regression_slope_oscillator(sig_line=14)
         classify_candle = indicators.classify_candles()
+        met = indicators.multi_ema_trend()
+        met_direction = met['direction']
+        psi = indicators.squeeze_index()
 
         entry_price = 0
         profits = []
         min_profit_threshold = 0.001
         current_profit_pct = None
-        sl = None
 
+        #efficiency = indicators.calculate_efficiency_ratio(period=14)
         
         for i in range(1, n):
             current_signal = None
@@ -128,25 +130,23 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
                 min_profit_threshold=min_profit_threshold,
                 signal_indicator=signals[i]
             )
-            
-            # Cruzamento das sma no candle anterior
-            sma_cross_up = sma5[i-2] <= sma13[i-2] and sma5[i-1] > sma13[i-1]
-            sma_cross_down = sma5[i-2] >= sma13[i-2] and sma5[i-1] < sma13[i-1]
 
-            # Validar se existiu cruzamento no regression_slope_oscillator nos 2 candles anteriores
-            start = max(0, i - 2)
-            window = signals[start : i + 1]
-            osc_confirmed_up = any(s > 1 for s in window)
-            osc_confirmed_down = any(s < -1 for s in window)
+            #is_ideal_context = 0.3 < efficiency[i] < 0.75
 
+            is_gap_pct = gap_index[i] > gap_pct
 
-            #print(f"index={i} gap_index={gap_index[i]} classify_candle={classify_candle[i]} osc_confirmed_down={osc_confirmed_down} sma_cross_down={sma_cross_down}")
-            if sma_cross_up and osc_confirmed_up and closes[i] > closes[i-1] and gap_index[i] > gap_pct and not classify_candle[i] in (CandleType.WEAK_BULL, CandleType.TOP_EXHAUSTION):
+            price_action_buy = closes[i] > closes[i-1] and not classify_candle[i] in (CandleType.WEAK_BULL, CandleType.TOP_EXHAUSTION)
+            price_action_sell = closes[i] < closes[i-1] and not classify_candle[i] in (CandleType.WEAK_BEAR, CandleType.BOTTOM_EXHAUSTION)
+
+            trend_buy = met_direction[i] > 0 and rso_direction[i] > 0 and is_gap_pct
+            trend_sell = met_direction[i] < 0 and rso_direction[i] < 0 and is_gap_pct
+
+            if psi[i] < 80 and trend_buy and price_action_buy:
                 current_signal = Signal.BUY
 
-            elif sma_cross_down and osc_confirmed_down and closes[i] < closes[i-1] and gap_index[i] > gap_pct and not classify_candle[i] in (CandleType.WEAK_BEAR, CandleType.BOTTOM_EXHAUSTION):
+            elif psi[i] < 80 and trend_sell and price_action_sell:
                 current_signal = Signal.SELL
-
+            
             if current_signal is not None and current_signal != last_signal:
                 trend_signal[i] = current_signal
                 last_signal = current_signal
