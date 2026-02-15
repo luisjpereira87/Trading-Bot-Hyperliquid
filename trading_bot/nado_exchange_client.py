@@ -190,7 +190,7 @@ class NadoExchangeClient(ExchangeBase):
             logging.error(f"❌ Erro fetch_ohlcv Nado para {symbol}: {e}")
             raise
 
-    def __get_subaccount_info(self) -> SubaccountInfoData | None:
+    def _get_subaccount_info(self) -> SubaccountInfoData | None:
         try:
             # 1. Pegamos a info da subconta via Engine (o log que mandaste)
             # Assumindo que 'sub' é o objeto que obtiveste via get_subaccount_info
@@ -213,13 +213,13 @@ class NadoExchangeClient(ExchangeBase):
     async def print_open_orders(self, symbol: str):
         try:
 
-            info = self.__get_subaccount_info()
+            info = self._get_subaccount_info()
 
             if info is None:
                 logging.info(f"📊 Não foi possível obter os dados")
                 return 
             
-            product_id = self._get_market_id(symbol)
+            product_id = await self._get_market_id(symbol)
             # 1. Localizar o balanço do Perpétuo específico
             # O perp_balances contém o estado da posição (amount, v_quote_balance, etc)
             perp_pos = next((p for p in info.perp_balances if p.product_id == product_id), None)
@@ -255,7 +255,7 @@ class NadoExchangeClient(ExchangeBase):
     async def get_available_balance(self) -> float:
         try:
             # Chamada à Engine para ter os dados em tempo real (spot_balances)
-            info =  self.__get_subaccount_info()
+            info =  self._get_subaccount_info()
             
             if not info or not hasattr(info, 'spot_balances'):
                 return 0.0
@@ -308,7 +308,7 @@ class NadoExchangeClient(ExchangeBase):
                 return None
             
             # Chamada à Engine para ter os dados em tempo real (spot_balances)
-            positions = self.__get_subaccount_info()
+            positions = self._get_subaccount_info()
 
             if not positions:
                 return None
@@ -626,109 +626,7 @@ class NadoExchangeClient(ExchangeBase):
                 logging.info(f"🎯 Take Profit enviado: {tp_price_fixed}")
             except Exception as e:
                 logging.error(f"❌ Erro TP: {e}")
-    """        
-    async def place_entry_order(
-        self, 
-        symbol: str, 
-        size: float, 
-        side: Signal, 
-        leverage: float = 1.0
-    ) -> OpenedOrder:
-        try:
-            # 1. Obter o ID do produto
-            product_id = await self._get_market_id(symbol)
-            if product_id is None:
-                raise ValueError(f"ID não encontrado para {symbol}")
-
-            # 2. Configurar o montante com escala X18 e arredondamento
-            X18_SCALE = 10**18
-            # O erro anterior indicou este incremento para o BTC-PERP
-            size_increment = 50_000_000_000_000 
-            
-            amount_raw = int(size * X18_SCALE)
-            # Garante que o valor é divisível pelo incremento da Engine
-            amount_adjusted = (amount_raw // size_increment) * size_increment
-            
-            # Na Nado: Compra (BUY) é positivo, Venda (SELL) é negativo
-            amount = amount_adjusted if side == Signal.BUY else -amount_adjusted
-
-            # 3. Calcular preço limite para proteção (Slippage de 10%)
-            # Precisamos do preço atual do objeto ohlcv que o teu bot já carrega
-            
-            t =await self.fetch_ohlcv(symbol, TimeframeEnum.M15)
-            current_price = t.ohlcv.closes[-1] # Ajusta conforme onde guardas o último ohlcv
-            
-            # 1. Obter o preço atual
-            X18_SCALE = 10**18
-            
-            # O erro indicou este incremento (1.0 em X18)
-            price_increment_x18 = 1_000_000_000_000_000_000 
-
-            # 2. Calcular o limite com slippage e ARREDONDAR
-            if side == Signal.BUY:
-                raw_price_limit = int(current_price * 1.10 * X18_SCALE)
-            else:
-                raw_price_limit = int(current_price * 0.90 * X18_SCALE)
-
-            price_limit = (raw_price_limit // price_increment_x18) * price_increment_x18
-
-            appendix = build_appendix(
-                order_type=OrderType.FOK, 
-                reduce_only=False
-            )
-
-            # 4. Construir a hierarquia de parâmetros para PERPS
-            sender_info = SubaccountParams(
-                subaccount_owner=self.wallet_address,
-                subaccount_name="default" 
-            )
-
-            # Usamos OrderParams (genérico) em vez de MarketOrderParams
-            m_order = OrderParams(
-                sender=sender_info,
-                amount=amount,
-                priceX18=price_limit,
-                nonce=None,
-                expiration=int(time.time() + 60),
-                appendix=appendix
-            )
-
-            # Usamos PlaceOrderParams (genérico) para evitar o erro de Spot (2018)
-            params = PlaceOrderParams(
-                product_id=product_id,
-                order=m_order,
-                signature=None,
-                id=None,
-                digest=None,
-                spot_leverage=None # OBRIGATÓRIO False para Perps
-            )
-
-            real_size = abs(amount) / X18_SCALE
-            logging.info(f"🚀 [Nado] Enviando Ordem: {side.value} {real_size} {symbol} (Limit: {price_limit/X18_SCALE})")
-
-            # 5. Execução via place_order (Endpoint de Perps/Geral)
-            order_response = self.client.market.place_order(params)
-            
-            order_hash = getattr(order_response, 'digest', "unknown_hash")
-
-            return OpenedOrder(
-                id=order_hash,
-                clientOrderId=None,
-                timestamp=None,
-                datetime=None,
-                symbol=symbol,
-                type="market",
-                side=side.value,
-                price=current_price,
-                amount=real_size,
-                reduceOnly=False,
-                orderType="market"
-            )
-
-        except Exception as e:
-            logging.error(f"❌ Erro fatal na Engine Nado ao colocar ordem: {e}")
-            raise
-    """        
+    
     async def cancel_all_orders(self, symbol: str):
         try:
             product_id = await self._get_market_id(symbol)
