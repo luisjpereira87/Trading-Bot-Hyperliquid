@@ -562,70 +562,101 @@ class NadoExchangeClient(ExchangeBase):
 
 
     async def _place_protections(self, symbol, product_id, size, side, sl_price, tp_price):
-        X18_SCALE = 10**18
-        close_amount = -int(size * X18_SCALE) if side == Signal.BUY else int(size * X18_SCALE)
-        market_data = self._market_map.get(symbol)
-        price_step = market_data["price_step"] if market_data else 0.01
+        try:
+            X18_SCALE = 10**18
+            
+            # 1. Recuperar os metadados sincronizados do mercado
+            market_data = self._market_map.get(symbol)
+            if not market_data:
+                logging.error(f"❌ Metadados não encontrados para {symbol}. Abortando proteções.")
+                return
 
-        # 🛠️ CORREÇÃO 1: Arredondar para inteiros (Tick Size Fix)
-        sl_price_fixed = (sl_price // price_step) * price_step
-        tp_price_fixed = (tp_price // price_step) * price_step
+            price_step = market_data["price_step"] # Ex: BTC=1.0, ETH=0.1, SOL=0.01
 
-        # 1. STOP LOSS (Trigger Order)
-        if sl_price:
-            try:
+            # 2. Função de Limpeza Rigorosa (Resolve Erro 2000)
+            def clean_price(p):
+                # Arredonda para baixo respeitando o tick size (incremento) do par
+                # Ex BTC: 69839.72 // 1.0 * 1.0 = 69839.0
+                return (p // price_step) * price_step
 
-                sl_appendix = build_appendix(
-                    order_type=OrderType.IOC, # Ou DEFAULT, conforme a tua estratégia
-                    reduce_only=True,
-                    trigger_type=OrderAppendixTriggerType.PRICE # <--- ISSO resolve o erro 2059
-                )
+            sl_fixed = clean_price(sl_price)
+            tp_fixed = clean_price(tp_price)
+            
+            # Quantidade de fecho (Inverter o sinal da entrada)
+            close_amount = -int(size * X18_SCALE) if side == Signal.BUY else int(size * X18_SCALE)
 
-                sl_params = PlaceTriggerOrderParams(
-                    product_id=product_id,
-                    order=OrderParams(
-                        sender=SubaccountParams(subaccount_owner=self.wallet_address, subaccount_name="default"),
-                        amount=close_amount,
-                        # Preço de execução agressivo
-                        priceX18=int(round(sl_price_fixed * 0.95 * X18_SCALE)) if side == Signal.BUY else int(round(sl_price_fixed * 1.05 * X18_SCALE)),
-                        expiration=int(time.time() + 86400),
-                        # TENTATIVA FINAL: appendix=None ou omitir. 
-                        # Se o Pylance reclamar, usa 0 (sem bits ativos).
-                        appendix=sl_appendix,
-                        nonce=None 
-                    ),
-                    trigger=PriceTrigger(
-                        price_trigger=PriceTriggerData(
-                            price_requirement=LastPriceBelow(last_price_below=f"{int(round(sl_price_fixed * X18_SCALE)):.0f}") 
-                            if side == Signal.BUY else LastPriceAbove(last_price_above=f"{int(round(sl_price_fixed * X18_SCALE)):.0f}")
-                        )
-                    ),
-                    signature=None, id=None, digest=None, spot_leverage=None # type: ignore
-                )
-                self.client.market.place_trigger_order(params=sl_params)
-                logging.info(f"🛑 Stop Loss enviado com appendix ZERO: {sl_price_fixed}")
-            except Exception as e:
-                logging.error(f"❌ Erro SL: {e}")
+            # ---------------------------------------------------------
+            # 1. STOP LOSS (Trigger Order)
+            # ---------------------------------------------------------
+            if sl_fixed:
+                try:
+                    # Formatação i128 para o Trigger (Resolve Erro i128)
+                    # O segredo é o :.0f para não enviar ".0" na string
+                    sl_trigger_str = f"{int(round(sl_fixed * X18_SCALE)):.0f}"
+                    
+                    # Preço de execução (Limit) com slippage de 5%
+                    slippage = 0.95 if side == Signal.BUY else 1.05
+                    exec_price_raw = clean_price(sl_fixed * slippage)
+                    exec_price_x18 = int(round(exec_price_raw * X18_SCALE))
 
-        # 2. TAKE PROFIT (Limit Order)
-        if tp_price:
-            try:
-                tp_params = PlaceOrderParams(
-                    product_id=product_id,
-                    order=OrderParams(
-                        sender=SubaccountParams(subaccount_owner=self.wallet_address, subaccount_name="default"),
-                        amount=close_amount,
-                        priceX18=tp_price_fixed * X18_SCALE, # Inteiro limpo
-                        expiration=int(time.time() + 86400),
-                        appendix=build_appendix(order_type=OrderType.DEFAULT, reduce_only=True),
-                        nonce=None
-                    ),
-                    signature=None, id=None, digest=None, spot_leverage=None # type: ignore
-                )
-                self.client.market.place_order(params=tp_params)
-                logging.info(f"🎯 Take Profit enviado: {tp_price_fixed}")
-            except Exception as e:
-                logging.error(f"❌ Erro TP: {e}")
+                    sl_params = PlaceTriggerOrderParams(
+                        product_id=product_id,
+                        order=OrderParams(
+                            sender=SubaccountParams(subaccount_owner=self.wallet_address, subaccount_name="default"),
+                            amount=close_amount,
+                            priceX18=exec_price_x18,
+                            expiration=int(time.time() + 86400),
+                            appendix=build_appendix(
+                                order_type=OrderType.IOC, 
+                                reduce_only=True, 
+                                trigger_type=OrderAppendixTriggerType.PRICE
+                            ),
+                            nonce=None 
+                        ),
+                        trigger=PriceTrigger(
+                            price_trigger=PriceTriggerData(
+                                price_requirement=LastPriceBelow(last_price_below=sl_trigger_str) 
+                                if side == Signal.BUY else LastPriceAbove(last_price_above=sl_trigger_str)
+                            )
+                        ),
+                        signature=None, id=None, digest=None, spot_leverage=None
+                    )
+                    
+                    res_sl = self.client.market.place_trigger_order(params=sl_params)
+                    logging.info(f"🛑 Stop Loss confirmado em {sl_fixed} | Digest: {getattr(res_sl, 'digest', 'OK')}")
+                    
+                except Exception as e:
+                    logging.error(f"❌ Erro ao configurar SL: {e}")
+
+            # ---------------------------------------------------------
+            # 2. TAKE PROFIT (Limit Order)
+            # ---------------------------------------------------------
+            if tp_fixed:
+                try:
+                    # Garantir que o TP é um inteiro X18 puro (Resolve Erro 2000)
+                    tp_price_x18 = int(round(tp_fixed * X18_SCALE))
+
+                    tp_params = PlaceOrderParams(
+                        product_id=product_id,
+                        order=OrderParams(
+                            sender=SubaccountParams(subaccount_owner=self.wallet_address, subaccount_name="default"),
+                            amount=close_amount,
+                            priceX18=tp_price_x18,
+                            expiration=int(time.time() + 86400),
+                            appendix=build_appendix(order_type=OrderType.DEFAULT, reduce_only=True),
+                            nonce=None
+                        ),
+                        signature=None, id=None, digest=None, spot_leverage=None
+                    )
+                    
+                    res_tp = self.client.market.place_order(params=tp_params)
+                    logging.info(f"🎯 Take Profit confirmado em {tp_fixed} | Digest: {getattr(res_tp, 'digest', 'OK')}")
+                    
+                except Exception as e:
+                    logging.error(f"❌ Erro ao configurar TP: {e}")
+
+        except Exception as e:
+            logging.error(f"❌ Erro fatal no _place_protections: {e}")
     
     async def cancel_all_orders(self, symbol: str):
         try:
