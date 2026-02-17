@@ -26,7 +26,7 @@ class ExitLogicEmaBased:
         if not current_position or not current_position.side:
             return False
 
-        logging.info(f"[DEBUG] Saída lógica baseado em reversão de tendência sinal: {signalResult.signal}")
+        logging.info(f"[DEBUG] Saída lógica baseado em reversão de tendência sinal: {signalResult.previous_signal}")
 
         # 1) Verificar cruzamento contra a tendência
         if signalResult.previous_signal == Signal.CLOSE:
