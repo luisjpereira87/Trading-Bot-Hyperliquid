@@ -95,21 +95,23 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
         trend_signal = [Signal.HOLD] * n
         last_signal = None
 
-        oscillator_values, signal_line, signals, gap_index, rso_direction = indicators.regression_slope_oscillator(sig_line=14)
+        oscillator_values, signal_line, signals, gap_index, rso_direction = indicators.regression_slope_oscillator()
         classify_candle = indicators.classify_candles()
 
         met = indicators.multi_ema_trend()
         met_direction = met['direction']
 
         psi = indicators.squeeze_index()
-        #d_rsi = indicators.double_rsi()
+        d_rsi = indicators.double_rsi()
+
+        #er = indicators.calculate_efficiency_ratio()
 
         entry_price = 0
         profits = []
         min_profit_threshold = 0.001
         current_profit_pct = None
 
-        #efficiency = indicators.calculate_efficiency_ratio(period=14)
+        efficiency = indicators.calculate_efficiency_ratio(period=14)
         
         for i in range(3, n):
             current_signal = None
@@ -139,7 +141,7 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
                 gap_is_accelerating=gap_is_accelerating
             )
 
-            #is_ideal_context = 0.3 < efficiency[i] < 0.75
+            is_ideal_context = 0.2 < efficiency[i] < 0.75
 
             is_gap_pct = gap_index[i] > gap_pct
             
@@ -147,14 +149,20 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
             price_action_buy = closes[i] > closes[i-1] and not classify_candle[i] in (CandleType.WEAK_BULL, CandleType.TOP_EXHAUSTION)
             price_action_sell = closes[i] < closes[i-1] and not classify_candle[i] in (CandleType.WEAK_BEAR, CandleType.BOTTOM_EXHAUSTION)
 
-            trend_buy = met_direction[i] > 0 and rso_direction[i] > 0 and gap_is_accelerating
-            trend_sell = met_direction[i] < 0 and rso_direction[i] < 0 and gap_is_accelerating
-            #print(f"aquiii index={i} gap_is_accelerating={gap_is_accelerating} gap_index[i]={gap_index[i]}")
-            if psi[i] < 80 and trend_buy and price_action_buy:
+            #trend_buy = met_direction[i] > 0 and rso_direction[i] > 0 and gap_is_accelerating
+            #trend_sell = met_direction[i] < 0 and rso_direction[i] < 0 and gap_is_accelerating
+
+
+            trend_buy = met_direction[i] > 0 and rso_direction[i-1] <= 0 and rso_direction[i] > 0
+            trend_sell = met_direction[i] < 0 and rso_direction[i-1] >= 0 and rso_direction[i] < 0
+
+            
+            if d_rsi[i] == Signal.BUY:
                 current_signal = Signal.BUY
 
-            elif psi[i] < 80 and trend_sell and price_action_sell:
+            elif d_rsi[i] == Signal.SELL:
                 current_signal = Signal.SELL
+            #print(f"aquiii index={i} d_rsi={d_rsi[i]} current_signal={current_signal} trend_buy={trend_buy} gap_index[i]={gap_index[i]} rso_direction={rso_direction[i]}")
             
             if current_signal is not None and current_signal != last_signal:
                 trend_signal[i] = current_signal

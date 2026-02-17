@@ -731,18 +731,51 @@ class IndicatorsUtils:
         
         return ModeEnum.CONSERVATIVE
     
-    def double_rsi(self, rsi_slow_len = 21, rsi_fast_len = 5) -> list[Signal]:
+    def double_rsi(self, rsi_slow_len=21, rsi_fast_len=5, atr_fast_len=7, atr_slow_len=24) -> list[Signal]:
         n = len(self.closes)
         rsi_slow = self.rsi(rsi_slow_len)
-        rsi_fast = self.rsi(rsi_fast_len) 
+        rsi_fast = self.rsi(rsi_fast_len)
+        
+        atr_fast = self.atr(atr_fast_len)
+        atr_slow = self.atr(atr_slow_len)
+        
+        highs = self.highs
+        lows = self.lows
+        closes = self.closes
 
         signal_values = [Signal.HOLD] * n
+        current_state = Signal.HOLD
 
-        for i in range(1, n):
-            if rsi_fast[i-1] <= rsi_slow[i-1] and rsi_fast[i] > rsi_slow[i]:
-                signal_values[i] = Signal.BUY
-            elif rsi_fast[i-1] >= rsi_slow[i-1] and rsi_fast[i] < rsi_slow[i]:
-                signal_values[i] = Signal.SELL
+        for i in range(max(2, atr_slow_len), n):
+            # --- FILTRO 1: VOLATILIDADE (ATR) ---
+            volatility_is_active = atr_fast[i] > (atr_slow[i] * 0.95)
+
+            # --- FILTRO 2: ESTICAMENTO (OVEREXTENSION) ---
+            # Bloqueia compras se o mercado estiver "comprado demais" (ex: > 75)
+            # Bloqueia vendas se o mercado estiver "vendido demais" (ex: < 25)
+            not_overbought = rsi_slow[i] < 75
+            not_oversold = rsi_slow[i] > 25
+
+            # --- GATILHOS E BREAKOUTS ---
+            cross_up = rsi_fast[i-1] <= rsi_slow[i-1] and rsi_fast[i] > rsi_slow[i]
+            cross_down = rsi_fast[i-1] >= rsi_slow[i-1] and rsi_fast[i] < rsi_slow[i]
+            
+            highest_prev = max(highs[i-1], highs[i-2])
+            lowest_prev = min(lows[i-1], lows[i-2])
+
+            # --- LÓGICA DE INVERSÃO ---
+            if current_state != Signal.BUY and cross_up:
+                # Agora validamos se NÃO está esticado antes de comprar
+                if closes[i] > highest_prev and volatility_is_active and not_overbought:
+                    signal_values[i] = Signal.BUY
+                    current_state = Signal.BUY
+
+            elif current_state != Signal.SELL and cross_down:
+                # Agora validamos se NÃO está esticado antes de vender
+                if closes[i] < lowest_prev and volatility_is_active and not_oversold:
+                    signal_values[i] = Signal.SELL
+                    current_state = Signal.SELL
+            
         return signal_values
     
     
