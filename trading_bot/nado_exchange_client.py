@@ -566,7 +566,8 @@ class NadoExchangeClient(ExchangeBase):
             X18_SCALE = 10**18
             
             # 1. Recuperar os metadados sincronizados do mercado
-            market_data = self._market_map.get(symbol)
+            market_data = await self.get_market_meta(symbol)
+        
             if not market_data:
                 logging.error(f"❌ Metadados não encontrados para {symbol}. Abortando proteções.")
                 return
