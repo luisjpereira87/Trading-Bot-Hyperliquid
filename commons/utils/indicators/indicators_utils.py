@@ -739,9 +739,9 @@ class IndicatorsUtils:
         signal_values = [Signal.HOLD] * n
 
         for i in range(1, n):
-            if rsi_fast[i-1] <= rsi_slow[i-1] and rsi_fast[i] > rsi_slow[i] and rsi_slow[i] > 50 and rsi_fast[i] > 50:
+            if rsi_fast[i-1] <= rsi_slow[i-1] and rsi_fast[i] > rsi_slow[i]:
                 signal_values[i] = Signal.BUY
-            elif rsi_fast[i-1] >= rsi_slow[i-1] and rsi_fast[i] < rsi_slow[i] and rsi_slow[i] < 50 and rsi_fast[i] < 50:
+            elif rsi_fast[i-1] >= rsi_slow[i-1] and rsi_fast[i] < rsi_slow[i]:
                 signal_values[i] = Signal.SELL
         return signal_values
     

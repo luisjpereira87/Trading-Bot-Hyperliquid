@@ -13,6 +13,7 @@ class SignalResult:
     tp: Optional[Union[float, None]] = field(default=None)
     confidence: Optional[Union[float, None]] = field(default=None)
     score: float = 0
+    previous_signal: Signal = Signal.HOLD
 
     def __post_init__(self):
         # Converte sl e tp para float nativo, se forem np.generic (ex: np.float64)

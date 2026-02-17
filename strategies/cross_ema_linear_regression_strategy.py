@@ -49,9 +49,9 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
 
         last_closed_candle = self.ohlcv.get_last_closed_candle()
         supertrend, trend, upperband, lowerband, supertrend_smooth,_,_ = self.indicators.supertrend()
-        signal = CrossEmaLinearRegressionStrategy.build_signal(self.indicators, self.ohlcv)
+        signal_val = CrossEmaLinearRegressionStrategy.build_signal(self.indicators, self.ohlcv)
 
-        signal = signal[-1]
+        signal = signal_val[-1]
         close = last_closed_candle.close
         closes = self.ohlcv.closes
 
@@ -72,7 +72,7 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
             
 
         else:
-            return SignalResult(signal, None, None)
+            return SignalResult(signal, None, None, None, 0, signal_val[-2])
         
         # valida relação risco/benefício
         risk = abs(close - sl)
@@ -83,10 +83,10 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
             sl_adjusted = close - (risk * 0.5) if signal == Signal.BUY else close + (risk * 0.5)
             tp_adjusted = close + (reward * 1.5) if signal == Signal.BUY else close - (reward * 1.5)
 
-            return SignalResult(signal, sl, tp_adjusted)
+            return SignalResult(signal, sl, tp_adjusted, None, 0, signal_val[-2])
         
 
-        return SignalResult(signal, sl, tp)
+        return SignalResult(signal, sl, tp, None, 0, signal_val[-2])
     
     @staticmethod
     def build_signal(indicators: TvIndicatorsUtils, ohlcv: OhlcvWrapper, trailing_n = 3, gap_pct = 20):
@@ -94,11 +94,15 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
         n = len(closes)
         trend_signal = [Signal.HOLD] * n
         last_signal = None
+
         oscillator_values, signal_line, signals, gap_index, rso_direction = indicators.regression_slope_oscillator(sig_line=14)
         classify_candle = indicators.classify_candles()
+
         met = indicators.multi_ema_trend()
         met_direction = met['direction']
+
         psi = indicators.squeeze_index()
+        #d_rsi = indicators.double_rsi()
 
         entry_price = 0
         profits = []
@@ -107,7 +111,7 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
 
         #efficiency = indicators.calculate_efficiency_ratio(period=14)
         
-        for i in range(1, n):
+        for i in range(3, n):
             current_signal = None
 
             # Calcula lucro atual
@@ -122,25 +126,30 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
             # ---------------------------------------------------------
             # → NOVA CHAMADA AO MÉTODO DE EXIT LOGIC
             # ---------------------------------------------------------
+            gap_avg_3 = np.mean(gap_index[i-3 : i])
+            gap_is_accelerating = gap_index[i] > gap_avg_3
             current_signal = CrossEmaLinearRegressionStrategy.check_exit_signal(
+                classify_candle=classify_candle[i],
                 last_signal=last_signal,
                 profits=profits,
                 current_profit_pct=current_profit_pct,
                 trailing_n=trailing_n,
                 min_profit_threshold=min_profit_threshold,
-                signal_indicator=signals[i]
+                signal_indicator=signals[i],
+                gap_is_accelerating=gap_is_accelerating
             )
 
             #is_ideal_context = 0.3 < efficiency[i] < 0.75
 
             is_gap_pct = gap_index[i] > gap_pct
+            
 
             price_action_buy = closes[i] > closes[i-1] and not classify_candle[i] in (CandleType.WEAK_BULL, CandleType.TOP_EXHAUSTION)
             price_action_sell = closes[i] < closes[i-1] and not classify_candle[i] in (CandleType.WEAK_BEAR, CandleType.BOTTOM_EXHAUSTION)
 
-            trend_buy = met_direction[i] > 0 and rso_direction[i] > 0 and is_gap_pct
-            trend_sell = met_direction[i] < 0 and rso_direction[i] < 0 and is_gap_pct
-
+            trend_buy = met_direction[i] > 0 and rso_direction[i] > 0 and gap_is_accelerating
+            trend_sell = met_direction[i] < 0 and rso_direction[i] < 0 and gap_is_accelerating
+            #print(f"aquiii index={i} gap_is_accelerating={gap_is_accelerating} gap_index[i]={gap_index[i]}")
             if psi[i] < 80 and trend_buy and price_action_buy:
                 current_signal = Signal.BUY
 
@@ -158,18 +167,20 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
     
     @staticmethod
     def check_exit_signal(
+        classify_candle: CandleType,
         last_signal: Signal | None,
         profits: list[float],
         current_profit_pct: float| None,
         trailing_n: int,
         min_profit_threshold: float,
         signal_indicator: int,
+        gap_is_accelerating: bool
     ):
         """
         Avalia se deve sair da posição com base nas condições de exit logic.
         Retorna Signal.CLOSE ou None.
         """
-
+    
         # Se não há posição aberta → nada a fazer
         if last_signal not in (Signal.BUY, Signal.SELL) or current_profit_pct is None:
             return None
@@ -188,5 +199,32 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
         if current_profit_pct != None and (last_signal == Signal.SELL and signal_indicator < 0 or \
             last_signal == Signal.BUY and signal_indicator > 0) and current_profit_pct > min_profit_threshold:
             return Signal.CLOSE
+        
+        #if current_profit_pct != None and not gap_is_accelerating and current_profit_pct > min_profit_threshold:
+        #    return Signal.CLOSE
+        
+        """
+        if last_signal == Signal.BUY:
+            # Reversão no BUY: O preço bateu no topo e foi rejeitado ou virou Bear
+            reversal_types = [
+                CandleType.TOP_EXHAUSTION, 
+                CandleType.WEAK_BULL,  # Subiu mas deixou muito pavio superior
+                CandleType.STRONG_BEAR, 
+                CandleType.BEAR
+            ]
+            if classify_candle in reversal_types and current_profit_pct > min_profit_threshold:
+                return Signal.CLOSE
+
+        elif last_signal == Signal.SELL:
+            # Reversão no SELL: O preço bateu no fundo e foi rejeitado ou virou Bull
+            reversal_types = [
+                CandleType.BOTTOM_EXHAUSTION, 
+                CandleType.WEAK_BEAR, # Desceu mas deixou muito pavio inferior
+                CandleType.STRONG_BULL, 
+                CandleType.BULL
+            ]
+            if classify_candle in reversal_types and current_profit_pct > min_profit_threshold:
+                return Signal.CLOSE
+            """
 
         return None
