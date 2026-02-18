@@ -573,6 +573,7 @@ class NadoExchangeClient(ExchangeBase):
                 return
 
             price_step = market_data["price_step"] # Ex: BTC=1.0, ETH=0.1, SOL=0.01
+            size_step = market_data["size_step"]
 
             # 2. Função de Limpeza Rigorosa (Resolve Erro 2000)
             def clean_price(p):
@@ -583,8 +584,14 @@ class NadoExchangeClient(ExchangeBase):
             sl_fixed = clean_price(sl_price)
             tp_fixed = clean_price(tp_price)
             
-            # Quantidade de fecho (Inverter o sinal da entrada)
-            close_amount = -int(size * X18_SCALE) if side == Signal.BUY else int(size * X18_SCALE)
+            # --- 🛠️ CORREÇÃO DO ERRO 2001: Limpeza da Quantidade (Amount) ---
+            size_step_x18 = int(round(size_step * X18_SCALE))
+            # Garantimos que o size é um múltiplo exato do incremento da exchange
+            clean_size_x18 = (int(round(size * X18_SCALE)) // size_step_x18) * size_step_x18
+            
+            # Quantidade de fecho com sinal correto
+            close_amount = -clean_size_x18 if side == Signal.BUY else clean_size_x18
+            # ---------------------------------------------------------------
 
             # ---------------------------------------------------------
             # 1. STOP LOSS (Trigger Order)
@@ -642,7 +649,7 @@ class NadoExchangeClient(ExchangeBase):
                     p_step_x18 = int(price_step * X18_SCALE)
                     
                     # Esta fórmula garante que o número final é INTEIRO e DIVISÍVEL pelo step
-                    tp_price_x18 = int((round(raw_tp_x18) // p_step_x18) * p_step_x18)
+                    tp_price_x18 = int((int(round(tp_fixed * X18_SCALE)) // p_step_x18) * p_step_x18)
 
                     tp_params = PlaceOrderParams(
                         product_id=product_id,
