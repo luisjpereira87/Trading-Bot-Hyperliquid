@@ -725,12 +725,13 @@ class NadoExchangeClient(ExchangeBase):
             product_id = await self._get_market_id(symbol)
             X18_SCALE = 10**18
             
-            # 2. Conversão para X18
-            amount_raw = int(amount * X18_SCALE)
+            # --- A GRANDE ALTERAÇÃO ESTÁ AQUI ---
+            # Em vez de nado_amount = -amount_raw if side == Signal.BUY else amount_raw
+            # Usamos o inverso exato da posição atual reportada pela exchange
+            nado_amount = int(-(current_pos.size * X18_SCALE))
             
-            # Na Nado: Positivo = Long (Buy), Negativo = Short (Sell)
-            # Se a posição que recebemos é BUY, temos de enviar um valor NEGATIVO para fechar
-            nado_amount = -amount_raw if side == Signal.BUY else amount_raw
+            logging.info(f"🔄 [Nado] Executando fecho real: Convertendo {current_pos.size} para ordem de {nado_amount / X18_SCALE}")
+            # ------------------------------------
 
             if product_id is None:
                 return 
