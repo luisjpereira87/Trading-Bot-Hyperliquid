@@ -715,6 +715,41 @@ class NadoExchangeClient(ExchangeBase):
             logging.warning(f"⚠️ Aviso ao cancelar ordens (pode não haver ordens abertas): {e}")
 
     async def close_position(self, symbol: str, amount: float, side: Signal):
+        logging.info(f"⚖️ [Nado] Iniciando fecho nativo via SDK para {symbol}")
+
+        try:
+            # 1. Cancelar ordens pendentes (Sempre boa prática)
+            await self.cancel_all_orders(symbol)
+
+            # 2. Obter o ID do produto
+            product_id = await self._get_market_id(symbol)
+            if product_id is None:
+                logging.error(f"❌ Não foi possível encontrar ID para {symbol}")
+                return
+
+            # 3. Preparar a subconta no formato que o SDK espera
+            # O SDK costuma aceitar o owner + nome
+            subaccount  = SubaccountParams(
+                subaccount_owner = self.wallet_address,
+                subaccount_name = "default"
+            )
+
+            # 4. Chamar o helper nativo
+            # Nota: amount e side são ignorados aqui porque o SDK vai buscar o saldo real
+            order_response = self.engine.close_position(
+                subaccount=subaccount,
+                product_id=product_id
+            )
+            
+            digest = getattr(order_response, 'digest', 'unknown')
+            logging.info(f"✅ Posição fechada com sucesso! Digest: {digest}")
+
+        except Exception as e:
+            logging.error(f"❌ Erro ao fechar posição com método nativo: {e}")
+            # Se o erro for que a posição já é zero, o SDK pode lançar exceção
+            # Podes tratar isso aqui se quiseres
+
+    async def close_position_old(self, symbol: str, amount: float, side: Signal):
         logging.info(f"⚖️ [Nado] Iniciando fecho: {symbol} | {side.value} | Size: {amount}")
 
         try:
