@@ -634,8 +634,15 @@ class NadoExchangeClient(ExchangeBase):
             # ---------------------------------------------------------
             if tp_fixed:
                 try:
-                    # Garantir que o TP é um inteiro X18 puro (Resolve Erro 2000)
-                    tp_price_x18 = int(round(tp_fixed * X18_SCALE))
+                    # 1. Calculamos o valor bruto em X18
+                    raw_tp_x18 = tp_fixed * X18_SCALE
+                    
+                    # 2. LIMPEZA TOTAL: Arredondamos e forçamos a divisibilidade pelo step da exchange
+                    # Convertemos o p_step para escala X18 também
+                    p_step_x18 = int(price_step * X18_SCALE)
+                    
+                    # Esta fórmula garante que o número final é INTEIRO e DIVISÍVEL pelo step
+                    tp_price_x18 = int((round(raw_tp_x18) // p_step_x18) * p_step_x18)
 
                     tp_params = PlaceOrderParams(
                         product_id=product_id,
