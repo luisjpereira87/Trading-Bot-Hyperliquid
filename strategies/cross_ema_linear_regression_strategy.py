@@ -51,7 +51,7 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
         supertrend, trend, upperband, lowerband, supertrend_smooth,_,_ = self.indicators.supertrend()
         signal_val = CrossEmaLinearRegressionStrategy.build_signal(self.indicators, self.ohlcv)
 
-        signal = signal_val[-1]
+        signal = signal_val[-2]
         close = last_closed_candle.close
         closes = self.ohlcv.closes
 
