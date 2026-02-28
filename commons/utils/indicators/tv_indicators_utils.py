@@ -7,13 +7,20 @@ import pandas as pd
 from commons.enums.signal_enum import Signal
 from commons.models.supertrend_dclass import Supertrend
 from commons.models.volumatic_vidya_dclass import VolumaticVidya
-from commons.utils.indicators.indicators_utils import IndicatorsUtils
+from commons.utils.indicators.base_indicators_utils import BaseIndicatorsUtils
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 
 
-class TvIndicatorsUtils(IndicatorsUtils):
+class TvIndicatorsUtils(BaseIndicatorsUtils):
     def __init__(self, ohlcv: OhlcvWrapper, mode='ta'):
         super().__init__(ohlcv, mode)
+        self.ohlcv = ohlcv
+        self.mode = mode
+        self.opens = ohlcv.opens
+        self.highs = ohlcv.highs
+        self.lows = ohlcv.lows
+        self.closes = ohlcv.closes
+        self.volumes = ohlcv.volumes
 
     def stop_atr_tradingview(self, period=1, multiplier=3.0):
         highs = np.array(self.ohlcv.highs)

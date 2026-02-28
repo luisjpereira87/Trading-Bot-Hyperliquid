@@ -1,15 +1,10 @@
-import numpy as np
-
-from commons.enums.candle_type_enum import CandleType
 from commons.enums.signal_enum import Signal
 from commons.models.signal_result_dclass import SignalResult
 from commons.models.strategy_base_dclass import StrategyBase
 from commons.models.strategy_params_dclass import StrategyParams
 from commons.utils.indicators.indicators_utils import IndicatorsUtils
-from commons.utils.indicators.tv_indicators_utils import TvIndicatorsUtils
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from trading_bot.exchange_base import ExchangeBase
-from trading_bot.exchange_client import ExchangeClient
 
 
 class CrossEmaLinearRegressionStrategy(StrategyBase):
@@ -29,7 +24,7 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
         self.ohlcv_higher = ohlcv_higher
         self.symbol = symbol
         self.price_ref = price_ref
-        self.indicators = TvIndicatorsUtils(ohlcv)
+        self.indicators = IndicatorsUtils(ohlcv)
 
         
     
@@ -89,29 +84,19 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
         return SignalResult(signal, sl, tp, None, 0, signal_val[-2])
     
     @staticmethod
-    def build_signal(indicators: TvIndicatorsUtils, ohlcv: OhlcvWrapper, trailing_n = 3, gap_pct = 20):
+    def build_signal(indicators: IndicatorsUtils, ohlcv: OhlcvWrapper, trailing_n = 3):
         closes = ohlcv.closes
         n = len(closes)
         trend_signal = [Signal.HOLD] * n
         last_signal = None
 
-        oscillator_values, signal_line, signals, gap_index, rso_direction = indicators.regression_slope_oscillator()
-        classify_candle = indicators.classify_candles()
-
-        met = indicators.multi_ema_trend()
-        met_direction = met['direction']
-
-        psi = indicators.squeeze_index()
-        d_rsi = indicators.double_rsi()
-
-        #er = indicators.calculate_efficiency_ratio()
+        double_bb = indicators.double_bb_rsi_logic()
+        signals = double_bb['signals']
 
         entry_price = 0
         profits = []
         min_profit_threshold = 0.001
         current_profit_pct = None
-
-        efficiency = indicators.calculate_efficiency_ratio(period=14)
         
         for i in range(3, n):
             current_signal = None
@@ -128,42 +113,20 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
             # ---------------------------------------------------------
             # → NOVA CHAMADA AO MÉTODO DE EXIT LOGIC
             # ---------------------------------------------------------
-            gap_avg_3 = np.mean(gap_index[i-3 : i])
-            gap_is_accelerating = gap_index[i] > gap_avg_3
             current_signal = CrossEmaLinearRegressionStrategy.check_exit_signal(
-                classify_candle=classify_candle[i],
                 last_signal=last_signal,
                 profits=profits,
                 current_profit_pct=current_profit_pct,
                 trailing_n=trailing_n,
                 min_profit_threshold=min_profit_threshold,
                 signal_indicator=signals[i],
-                gap_is_accelerating=gap_is_accelerating
             )
 
-            is_ideal_context = 0.2 < efficiency[i] < 0.75
-
-            is_gap_pct = gap_index[i] > gap_pct
-            
-
-            price_action_buy = closes[i] > closes[i-1] and not classify_candle[i] in (CandleType.WEAK_BULL, CandleType.TOP_EXHAUSTION)
-            price_action_sell = closes[i] < closes[i-1] and not classify_candle[i] in (CandleType.WEAK_BEAR, CandleType.BOTTOM_EXHAUSTION)
-
-            #trend_buy = met_direction[i] > 0 and rso_direction[i] > 0 and gap_is_accelerating
-            #trend_sell = met_direction[i] < 0 and rso_direction[i] < 0 and gap_is_accelerating
-
-
-            trend_buy = met_direction[i] > 0 and rso_direction[i-1] <= 0 and rso_direction[i] > 0
-            trend_sell = met_direction[i] < 0 and rso_direction[i-1] >= 0 and rso_direction[i] < 0
-
-            
-            if d_rsi[i] == Signal.BUY:
+            if signals[i] == 1 and signals[i-1] != 1: 
                 current_signal = Signal.BUY
-
-            elif d_rsi[i] == Signal.SELL:
+            elif signals[i] == -1 and signals[i-1] != -1:
                 current_signal = Signal.SELL
-            #print(f"aquiii index={i} d_rsi={d_rsi[i]} current_signal={current_signal} trend_buy={trend_buy} gap_index[i]={gap_index[i]} rso_direction={rso_direction[i]}")
-            
+   
             if current_signal is not None and current_signal != last_signal:
                 trend_signal[i] = current_signal
                 last_signal = current_signal
@@ -175,14 +138,12 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
     
     @staticmethod
     def check_exit_signal(
-        classify_candle: CandleType,
         last_signal: Signal | None,
         profits: list[float],
         current_profit_pct: float| None,
         trailing_n: int,
         min_profit_threshold: float,
-        signal_indicator: int,
-        gap_is_accelerating: bool
+        signal_indicator: int
     ):
         """
         Avalia se deve sair da posição com base nas condições de exit logic.

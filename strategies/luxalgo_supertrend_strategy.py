@@ -2,6 +2,7 @@ from commons.enums.signal_enum import Signal
 from commons.models.signal_result_dclass import SignalResult
 from commons.models.strategy_base_dclass import StrategyBase
 from commons.models.strategy_params_dclass import StrategyParams
+from commons.utils.indicators.base_indicators_utils import BaseIndicatorsUtils
 from commons.utils.indicators.indicators_utils import IndicatorsUtils
 from commons.utils.indicators.tv_indicators_utils import TvIndicatorsUtils
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
@@ -26,7 +27,7 @@ class LuxAlgoSupertrendStrategy(StrategyBase):
         self.ohlcv_higher = ohlcv_higher
         self.symbol = symbol
         self.price_ref = price_ref
-        self.indicators = TvIndicatorsUtils(ohlcv)
+        self.indicators = IndicatorsUtils(ohlcv)
 
         
     
@@ -84,7 +85,7 @@ class LuxAlgoSupertrendStrategy(StrategyBase):
         return SignalResult(signal, sl, tp)
     
     @staticmethod
-    def build_signal(indicators: TvIndicatorsUtils, ohlcv: OhlcvWrapper, trailing_n = 3):
+    def build_signal(indicators: IndicatorsUtils, ohlcv: OhlcvWrapper, trailing_n = 3):
         closes = ohlcv.closes
         highs = ohlcv.highs
         lows = ohlcv.lows
