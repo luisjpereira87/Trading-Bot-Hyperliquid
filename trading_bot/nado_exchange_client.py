@@ -613,9 +613,9 @@ class NadoExchangeClient(ExchangeBase):
                             sender=SubaccountParams(subaccount_owner=self.wallet_address, subaccount_name="default"),
                             amount=close_amount,
                             priceX18=exec_price_x18,
-                            expiration=int(time.time() + 86400),
+                            expiration=int(time.time() + 86400 * 30),
                             appendix=build_appendix(
-                                order_type=OrderType.IOC, 
+                                order_type=OrderType.DEFAULT, 
                                 reduce_only=True, 
                                 trigger_type=OrderAppendixTriggerType.PRICE
                             ),
