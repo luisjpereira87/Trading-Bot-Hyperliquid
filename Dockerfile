@@ -1,22 +1,23 @@
-# Usa a versão 3.12 para bater certo com o teu PC (e evita o -slim por agora)
 FROM python:3.12
 
 WORKDIR /app
 
-# Instala dependências de sistema necessárias para compilar pacotes de criptografia
+# 1. Instala dependências de sistema
 RUN apt-get update && apt-get install -y \
     build-essential \
     libffi-dev \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Atualiza as ferramentas de instalação ANTES de instalar o CCXT
-RUN pip install --upgrade pip setuptools wheel
+# 2. Atualiza ferramentas de build e instala o SETUPTOOLS (vital para o pkg_resources)
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# Copia e instala os requisitos
+# 3. Copia e instala os requisitos
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# 4. Copia o código
 COPY . .
 
+# Comando para iniciar
 CMD ["python", "main.py"]
