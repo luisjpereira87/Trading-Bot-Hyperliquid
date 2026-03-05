@@ -1,27 +1,22 @@
-FROM python:3.10
+# Usa a versão 3.12 para bater certo com o teu PC (e evita o -slim por agora)
+FROM python:3.12
 
-# 1. Definir o diretório de trabalho logo no início
 WORKDIR /app
 
-# 2. Instala dependências do sistema
-# Adicionei 'git' e 'ca-certificates' que o CCXT às vezes usa para submódulos
+# Instala dependências de sistema necessárias para compilar pacotes de criptografia
 RUN apt-get update && apt-get install -y \
     build-essential \
-    libopenblas-dev \
-    liblapack-dev \
+    libffi-dev \
     git \
-    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# 3. Atualizar o PIP é CRUCIAL para pacotes complexos como CCXT
+# Atualiza as ferramentas de instalação ANTES de instalar o CCXT
 RUN pip install --upgrade pip setuptools wheel
 
-# 4. Instala dependências Python (antes de copiar o código para aproveitar o cache)
+# Copia e instala os requisitos
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 5. Copia o código do bot
 COPY . .
 
-# Comando para iniciar o bot
 CMD ["python", "main.py"]
