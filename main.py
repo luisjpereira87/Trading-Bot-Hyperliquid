@@ -1,4 +1,11 @@
 # trading_bot/main.py
+try:
+    import pkg_resources
+except ImportError:
+    import sys
+
+    import pip._vendor.pkg_resources as pkg_resources
+    sys.modules["pkg_resources"] = pkg_resources
 import asyncio
 import logging
 import os
