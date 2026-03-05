@@ -1,4 +1,4 @@
-ccxt
+ccxt>=4.2.0
 numpy
 python-dotenv
 pytz
