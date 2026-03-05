@@ -432,6 +432,12 @@ class BaseIndicatorsUtils:
 
         return upper_band.values.tolist(), middle_band.values.tolist(), lower_band.values.tolist()
     
+    def bbw(self, period: int = 20, std_dev: float = 2.0):
+        upper, basis, lower = self.bollinger_bands(period, std_dev) 
+        upper, basis, lower = np.array(upper), np.array(basis), np.array(lower)
+
+        return ((upper - lower) / basis)
+    
     def supertrend(self,
                    mode="adaptive",
                    base_length=10, base_mult=3.0,

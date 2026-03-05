@@ -42,15 +42,40 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
                 
             return smoothed
 
+    def calculate_gap(self, array1, array2, max_range=100):
+        gaps = [abs(o - s) for o, s in zip(array1, array2)]
+        n = len(self.closes)
+        
+        gap_index = np.zeros(n)
+        for i in range(1, n):
+            if i < max_range:
+                gap_index[i] = 0
+                continue
+                
+            # 4.1. Pegar na janela histórica de Gaps
+            window = gaps[i-max_range : i+1]
+            min_gap = min(window)
+            max_gap = max(window)
+            
+            # 4.2. Normalizar o Gap atual para a escala 0-100
+            if max_gap - min_gap == 0:
+                index = 0
+            else:
+                # Formula: (Valor - Min) / (Max - Min) * 100
+                index = ((gaps[i] - min_gap) / (max_gap - min_gap)) * 100
+                
+            gap_index[i] = index
+        
+        return gap_index
     
-    def double_bb_rsi_logic(self, bb_short_period = 20, bb_long_period = 80):
+    def double_bb_rsi_logic(self, bb_short_period = 20, bb_long_period = 80, bb_short_std_dev = 2.0, bb_long_std_dev = 2.25):
         opens, highs, lows, closes = self.opens, self.highs, self.lows, self.closes
         n = len(closes)
         indices = np.arange(n)
         
         # 1. Calcula as bandas "brutas"
-        bb20_up_raw, bb20_basis_raw, bb20_low_raw = self.bollinger_bands(period=bb_short_period, std_dev=2.0)
-        bb80_up_raw, bb80_basis_raw, bb80_low_raw = self.bollinger_bands(period=bb_long_period, std_dev=2.25)
+        bb20_up_raw, bb20_basis_raw, bb20_low_raw = self.bollinger_bands(period=bb_short_period, std_dev=bb_short_std_dev)
+        bb80_up_raw, bb80_basis_raw, bb80_low_raw = self.bollinger_bands(period=bb_long_period, std_dev=bb_long_std_dev)
 
         # 2. Suavização Inteligente (Evitando o problema do zero inicial)
         
@@ -76,18 +101,6 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
         bb80_up = self.smooth_band(bb80_up_raw, 20)
         bb80_low = self.smooth_band(bb80_low_raw, 20)
 
-        super_score, ema_score = self.calculate_super_score()
-
-        in_extreme_zone_bull = False
-        in_extreme_zone_bear = False
-        
-        in_extreme_zone_bull = False
-        in_extreme_zone_bear = False
-
-        # Listas para Sinais de Contexto (Setas)
-        context_buy_idx, context_buy_val = [], []
-        context_sell_idx, context_sell_val = [], []
-
         # Listas para Sinais de Entrada Real (Círculos)
         entry_buy_idx, entry_buy_val = [], []
         entry_sell_idx, entry_sell_val = [], []
@@ -95,37 +108,60 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
         trend_buy_idx, trend_buy_val = [], []
         trend_sell_idx, trend_sell_val = [], []
 
-        rsi_gap_threshold = 2.0
         signals = np.zeros(n)
-        bull_osc, bear_osc, slope_ma_14, polarity_osc, signal_line = self.calculate_lux_bb_oscillator()
 
-        # Inicializamos os estados fora do loop
-        is_bull = False
-        is_bear = False
-        is_trigger = False # Esta variável controla a repetição
+        is_trigger_buy = False # Esta variável controla a repetição
+        is_trigger_sell = False
+
+        bbw = self.bbw(bb_short_period, bb_short_std_dev) * 1000
+        plano_zero = np.zeros(len(closes))
+        gap_index = self.calculate_gap(bbw, plano_zero)
         for i in range(1, n):
 
-            # 1. Definimos o Regime (O Caminho)
-            # Só mudamos o regime se houver força suficiente (> 20)
-            if bull_osc[i] > bear_osc[i] and bull_osc[i] > 20:
-                if not is_bull: # Se mudou de bear para bull agora
-                    is_bull = True
-                    is_bear = False
-                    is_trigger = False # Reset para permitir novo sinal neste novo regime
-            elif bear_osc[i] > bull_osc[i] and bear_osc[i] > 20:
-                if not is_bear: # Se mudou de bull para bear agora
-                    is_bear = True
-                    is_bull = False
-                    is_trigger = False # Reset para permitir novo sinal
-            else:
-                # Se cair na zona morta, limpamos tudo
-                is_bull = False
-                is_bear = False
-                is_trigger = False
+            # 1. CONDIÇÃO DE ROMPIMENTO (BREAKOUT)
+            # Usamos as bandas azuis (20 períodos) para o gatilho curto
+            breakout_up = closes[i] > bb20_up[i]
+            breakout_down = closes[i] < bb20_low[i]
 
-            # 2. Condições de Momentum (as tuas regras)
-            is_bullish_momentum = is_bull and bull_osc[i] > signal_line[i] and signal_line[i] > 20 and not is_trigger
-            is_bearish_momentum = is_bear and bear_osc[i] > signal_line[i] and signal_line[i] > 20 and not is_trigger
+
+            # A regra: Tem de haver um aumento de força de pelo menos 10%
+            is_strong_impulse = (gap_index[i] - gap_index[i-1]) >= 15
+
+
+            # 2. CÁLCULO DE INCLINAÇÃO (SLOPE)
+            # Usamos uma janela de 2 para ser mais responsivo, mas filtramos a força
+           
+            slope_bbw = (bbw[i] - bbw[i-1]) / (bbw[i-1] if bbw[i-1] != 0 else 1)
+            #volatility_confirm = bbw[i] > bbw[i-1] and slope_bbw > 0.30
+            volatility_confirm = bbw[i] > bbw[i-1] and gap_index[i] > gap_index[i-1] and is_strong_impulse
+
+            #print("AQUII", i, gap_index[i], gap_index[i] - gap_index[i-1])
+            """
+
+            # Definir o período de observação
+            lookback = 3 
+
+            # Calcular o Slope médio das últimas X velas
+            # (bbw[i] - bbw[i-lookback]) dá-nos a tendência real da abertura das bandas
+            avg_slope_bbw = (bbw[i] - bbw[i-lookback]) / (bbw[i-lookback] if bbw[i-lookback] != 0 else 1)
+
+            # Confirmamos se a volatilidade está a crescer de forma sustentada
+            volatility_confirm = avg_slope_bbw > 0.5
+             """
+        
+            # 4. LÓGICA DE MOMENTUM REFINADA
+            is_bullish_momentum = (
+                breakout_up and 
+                volatility_confirm and
+                not is_trigger_buy
+            )
+
+            # (Repetir lógica similar para Bearish...)
+            is_bearish_momentum = (
+                breakout_down and
+                volatility_confirm and
+                not is_trigger_sell
+            )
 
             # REVERSÃO PARA ALTA (BULL)
             # Se o oscilador bull começar a subir e cruzar um threshold (ex: 20 ou 50)
@@ -133,50 +169,57 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
                 trend_buy_idx.append(i)
                 trend_buy_val.append(lows[i])
                 signals[i] = 1
-                is_trigger = True
+                is_trigger_buy = True
 
             # REVERSÃO PARA BAIXA (BEAR)
             if is_bearish_momentum:
                 trend_sell_idx.append(i)
                 trend_sell_val.append(highs[i])
                 signals[i] = -1
-                is_trigger = True
+                is_trigger_sell = True
+
+            if bbw[i] < bbw[i-1]:
+                is_trigger_buy = False
+                is_trigger_sell = False
 
             # --- PASSO 1: CONTEXTO (SETAS) ---
-            if lows[i] < bb80_low[i] and not in_extreme_zone_bull:
-                context_buy_idx.append(i)
-                context_buy_val.append(lows[i])
-                in_extreme_zone_bull = True
-            
-            if highs[i] > bb80_up[i] and not in_extreme_zone_bear:
-                context_sell_idx.append(i)
-                context_sell_val.append(highs[i])
-                in_extreme_zone_bear = True
-
-            # --- PASSO 2: ENTRADA REAL (CÍRCULOS) ---
-            if in_extreme_zone_bull:
-                # Gatilho: Fecho acima do meio do candle anterior + RSI a subir
-                if super_score[i] > ema_score[i] and ema_score[i] > 0:
+            """
+            if lows[i] < bb80_low[i]:
+                if bb20_low[i-1] < bb20_low[i] and closes[i] > ltf_basis[i]:
                     entry_buy_idx.append(i)
                     entry_buy_val.append(lows[i] * 0.997) # Ligeiramente abaixo para não sobrepor
-                   
                     in_extreme_zone_bull = False 
 
-            elif in_extreme_zone_bear:
-                # Gatilho: Fecho abaixo do meio do candle anterior + RSI a descer
-                if super_score[i] < ema_score[i] and ema_score[i] < 0:
+            
+            if highs[i] > bb80_up[i]:
+                if bb20_up[i-1] > bb20_up[i] and closes[i] < ltf_basis[i]:
                     entry_sell_idx.append(i)
                     entry_sell_val.append(highs[i] * 1.003) # Ligeiramente acima
-                    
                     in_extreme_zone_bear = False
+            """
+
+            if bb20_low[i-1] < bb80_low[i-1] and bb20_low[i] >= bb80_low[i]:
+                entry_buy_idx.append(i)
+                entry_buy_val.append(lows[i] * 0.997) # Ligeiramente abaixo para não sobrepor
+                in_extreme_zone_bull = False 
+
+            
+            if bb20_up[i-1] > bb80_up[i-1] and bb20_up[i] <= bb80_up[i]:
+                entry_sell_idx.append(i)
+                entry_sell_val.append(highs[i] * 1.003) # Ligeiramente acima
+                in_extreme_zone_bear = False
+
 
             # --- RESET DE SEGURANÇA ---
+
             #if closes[i] > ltf_basis[i]: in_extreme_zone_bull = False
             #if closes[i] < ltf_basis[i]: in_extreme_zone_bear = False
+
 
         return {
             'bbshort_up': bb20_up,
             'bbshort_low': bb20_low,
+            'bbshort_mid': ltf_basis,
             'bblong_up': bb80_up,
             'bblong_low': bb80_low,
             'signals': signals,
