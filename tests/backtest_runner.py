@@ -342,6 +342,8 @@ class ExchangeClientMock(ExchangeClient):
         Lógica de Trailing Stop para o Backtest.
         Atualiza o SL e TP no estado interno da posição.
         """
+
+        print("AQUIII ENTROU AQUI")
         pos = self.positions.get(symbol)
         if not pos:
             return
@@ -356,13 +358,14 @@ class ExchangeClientMock(ExchangeClient):
             pnl_pct = (entry_price - current_price) / entry_price
 
         adjustment = 0
+        print(f"side={side} current_price={current_price} entry_price={entry_price} pnl_pct={pnl_pct}")
         # --- MESMOS DEGRAUS QUE DEFINIMOS PARA A NADO/HL ---
-        if pnl_pct >= 0.045:    # Lucro > 4.5%
-            adjustment = 0.035
-        elif pnl_pct >= 0.03:   # Lucro > 3%
-            adjustment = 0.02
-        elif pnl_pct >= 0.015:  # Lucro > 1.5%
-            adjustment = 0.005 # Breakeven
+        if pnl_pct >= 0.02:    # Lucro > 4.5%
+            adjustment = 0.015
+        elif pnl_pct >= 0.01:   # Lucro > 3%
+            adjustment = 0.006
+        elif pnl_pct >= 0.004:  # Lucro > 1.5%
+            adjustment = 0.001 # Breakeven
 
         if adjustment > 0:
             if side == 'buy':
@@ -510,7 +513,7 @@ class BacktestRunner:
             signals.append({'signal': signal, 'index': i - 1, 'candle': current_candle})
             
 
-            #if i == 1:
+            #if i == 584:
             #   break
 
         #print(signals)
@@ -557,7 +560,7 @@ class BacktestRunner:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("ETH/USDC:USDC")
+    pair = get_pair_by_symbol("SOL/USDC:USDC")
 
     if pair != None:
 

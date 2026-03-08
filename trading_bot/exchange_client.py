@@ -435,11 +435,18 @@ class ExchangeClient(ExchangeBase):
 
         # 3. Define o ajuste uniforme (Exemplo: sobe 1% no SL e 1% no TP)
         adjustment = 0
-        if pnl_pct >= 0.03:    # Se lucra 3%
-            adjustment = 0.02  # Sobe as balizas 2%
-        elif pnl_pct >= 0.015: # Se lucra 1.5%
-            adjustment = 0.005 # Sobe as balizas 0.5% (Protege entrada + taxas)
+        if pnl_pct >= 0.02:        # Se sobe 2% (Lucro 20%)
+            adjustment = 0.015     # Garante 1.5% (Lucro 15% -> ~$52)
+            logging.info("🔥 Meta de 2% atingida! Stop subiu para garantir 1.5%")
 
+        elif pnl_pct >= 0.01:      # Se sobe 1% (Lucro 10%)
+            adjustment = 0.006     # Garante 0.6% (Lucro 6% -> ~$20)
+            logging.info("💰 Meta de 1% atingida! Stop subiu para garantir 0.6%")
+
+        elif pnl_pct >= 0.004:     # Se sobe 0.4% (Lucro 4%)
+            adjustment = 0.001     # Garante 0.1% (Paga as taxas e sobra $3-$5)
+            logging.info("🛡️ Break-even ativo! Taxas cobertas e lucro mínimo garantido.")
+            
         if adjustment > 0:
             # 4. Calcula os novos preços baseados no ajuste uniforme
             if side == Signal.BUY:
