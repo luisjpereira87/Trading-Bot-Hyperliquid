@@ -1200,6 +1200,7 @@ class PlotTrades:
         double_bb = indicatorsUtils.double_bb_rsi_logic()
         bb20_up = double_bb['bbshort_up']
         bb20_low = double_bb['bbshort_low']
+        bb20_mid = double_bb['bbshort_mid']
         bb80_up = double_bb['bblong_up']
         bb80_low = double_bb['bblong_low']
         signals = double_bb['signals']
@@ -1230,6 +1231,7 @@ class PlotTrades:
         # Plot das duas Bandas
         ax1.plot(indices, bb20_up, color='cyan', alpha=0.3, label='BB 20 (15m)')
         ax1.plot(indices, bb20_low, color='cyan', alpha=0.3)
+        ax1.plot(indices, bb20_mid, color='cyan', alpha=0.3)
         ax1.plot(indices, bb80_up, color='orange', linewidth=1.5, alpha=0.6, label='BB 80 (1h Projection)')
         ax1.plot(indices, bb80_low, color='orange', linewidth=1.5, alpha=0.6)
         
@@ -1239,11 +1241,63 @@ class PlotTrades:
         ax1.scatter(context_buy_idx, context_buy_val, marker='^', color='lime', s=150, zorder=5, label='CONFLUENCE BUY')
         ax1.scatter(context_sell_idx, context_sell_val, marker='v', color='red', s=150, zorder=5, label='CONFLUENCE SELL')
 
+        for idx, val in zip(context_buy_idx, context_buy_val):
+            ax1.text(
+                idx, 
+                val, 
+                f"Idx {idx}", # Usamos o idx real do ponto
+                fontsize=8,
+                ha='center',
+                va='top',
+                color='darkgreen',
+                bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
+                zorder=6
+            )
+
+        for idx, val in zip(context_sell_idx, context_sell_val):
+            ax1.text(
+                idx, 
+                val, 
+                f"Idx {idx}", 
+                fontsize=8,
+                ha='center',
+                va='bottom', # Para o sell, talvez seja melhor 'bottom' para ficar acima da seta
+                color='darkred',
+                bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
+                zorder=6
+            )
+
         # 2. Plot dos Círculos (Entrada Real/Gatilho) - Símbolo sólido e marcante
         ax1.scatter(entry_buy_idx, entry_buy_val, marker='o', color='#00ff00', 
                     s=150, edgecolors='black', linewidth=1.5, label='ENTRADA (Evolução)')
         ax1.scatter(entry_sell_idx, entry_sell_val, marker='o', color='#ff0000', 
                     s=150, edgecolors='black', linewidth=1.5)
+        
+        for idx, val in zip(entry_buy_idx, entry_buy_val):
+            ax1.text(
+                idx, 
+                val, 
+                f"Idx {idx}", # Usamos o idx real do ponto
+                fontsize=8,
+                ha='center',
+                va='top',
+                color='darkgreen',
+                bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
+                zorder=6
+            )
+
+        for idx, val in zip(entry_sell_idx, context_sell_val):
+            ax1.text(
+                idx, 
+                val, 
+                f"Idx {idx}", 
+                fontsize=8,
+                ha='center',
+                va='bottom', # Para o sell, talvez seja melhor 'bottom' para ficar acima da seta
+                color='darkred',
+                bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
+                zorder=6
+            )
 
         ax1.set_facecolor('#131722')
         ax1.grid(True, color='#2a2e39', alpha=0.5)
@@ -1417,7 +1471,7 @@ class PlotTrades:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("SOL/USDC:USDC")
+    pair = get_pair_by_symbol("BTC/USDC:USDC")
 
     if pair:
 

@@ -212,8 +212,14 @@ class ExchangeClient(ExchangeBase):
     """
     async def get_entry_price(self, symbol: str) -> float:
         try:
-            ticker = await self.exchange.fetch_ticker(symbol)
-            return float(ticker['last'])
+            #ticker = await self.exchange.fetch_ticker(symbol)
+            ohlcv = await self.exchange.fetch_ohlcv(symbol, '1m', 1)
+            if ohlcv and len(ohlcv) > 0:
+                return float(ohlcv[-1][4]) # Retorna o 'Close' do candle mais recente
+            
+            # Caminho Alternativo: API respondeu mas a lista está vazia
+            logging.warning(f"⚠️ Lista OHLCV vazia para {symbol}")
+            return 0.0
         except Exception as e:
             logging.error(f"Erro ao obter preço de entrada: {e}")
             return 0
@@ -355,5 +361,108 @@ class ExchangeClient(ExchangeBase):
         except Exception as e:
             logging.error(f"❌ Erro ao fechar posição: {e}")
             raise
+
+    async def _place_protections(self, symbol, size, side, sl_price, tp_price):
+        """
+        Configura Stop Loss e Take Profit na Hyperliquid.
+        Funciona tanto para novas ordens quanto para Trailing Stop.
+        """
+        try:
+            # 1. Na HL, o symbol é apenas o nome da moeda (ex: 'BTC')
+            coin = symbol.split('/')[0] if '/' in symbol else symbol
+            
+            # 2. Determinar o lado da ordem de fecho
+            # Se estou em BUY, a proteção é uma ordem de SELL
+            is_buy_to_close = (side == Signal.SELL)
+
+            # ---------------------------------------------------------
+            # 1. STOP LOSS (Trigger Market)
+            # ---------------------------------------------------------
+            if sl_price:
+                logging.info(f"🛡️ [HL] Configurando SL em {sl_price}")
+                res_sl = self.exchange.order(
+                    coin=coin,
+                    is_buy=is_buy_to_close,
+                    sz=abs(float(size)),
+                    limit_px=float(sl_price), # Na HL, para trigger market, o limit_px atua como gatilho
+                    order_type={
+                        "trigger": {
+                            "isStop": True,
+                            "triggerPx": float(sl_price),
+                            "tpsl": "sl"
+                        }
+                    },
+                    reduce_only=True
+                )
+                logging.info(f"✅ [HL] Stop Loss enviado: {res_sl.get('status', 'OK')}")
+
+            # ---------------------------------------------------------
+            # 2. TAKE PROFIT (Trigger Market ou Limit)
+            # ---------------------------------------------------------
+            if tp_price:
+                logging.info(f"🎯 [HL] Configurando TP em {tp_price}")
+                res_tp = self.exchange.order(
+                    coin=coin,
+                    is_buy=is_buy_to_close,
+                    sz=abs(float(size)),
+                    limit_px=float(tp_price),
+                    order_type={
+                        "trigger": {
+                            "isStop": False,
+                            "triggerPx": float(tp_price),
+                            "tpsl": "tp"
+                        }
+                    },
+                    reduce_only=True
+                )
+                logging.info(f"✅ [HL] Take Profit enviado: {res_tp.get('status', 'OK')}")
+
+        except Exception as e:
+            logging.error(f"❌ Erro ao configurar proteções na Hyperliquid: {e}")
+
+    
+    async def apply_trailing_stop(self, symbol, current_price):
+        # 1. Verifica se há posição aberta
+        pos = await self.get_open_position(symbol)
+        if not pos or abs(pos.size) < 1e-8:
+            return
+
+        entry_price = float(pos.entry_price)
+        side = Signal.BUY if pos.size > 0 else Signal.SELL
+        
+        # 2. Calcula o lucro atual
+        pnl_pct = (current_price - entry_price) / entry_price if side == Signal.BUY else (entry_price - current_price) / entry_price
+
+        # 3. Define o ajuste uniforme (Exemplo: sobe 1% no SL e 1% no TP)
+        adjustment = 0
+        if pnl_pct >= 0.03:    # Se lucra 3%
+            adjustment = 0.02  # Sobe as balizas 2%
+        elif pnl_pct >= 0.015: # Se lucra 1.5%
+            adjustment = 0.005 # Sobe as balizas 0.5% (Protege entrada + taxas)
+
+        if adjustment > 0:
+            # 4. Calcula os novos preços baseados no ajuste uniforme
+            if side == Signal.BUY:
+                new_sl = entry_price * (1 + adjustment)
+                new_tp = entry_price * (1.05 + adjustment) # Alvo original de 5% + ajuste
+            else:
+                new_sl = entry_price * (1 - adjustment)
+                new_tp = entry_price * (0.95 - adjustment)
+
+            logging.info(f"🔄 [Trailing] Reajustando proteções para {symbol} (+{adjustment:.2%})")
+
+            # 5. O PULO DO GATO: Reutiliza o teu método de proteções
+            # Primeiro cancelamos as ordens de proteção antigas para não duplicar
+            await self.cancel_all_orders(symbol)
+
+            
+            # Chamamos o método que tu já tens pronto e validado!
+            await self._place_protections(
+                symbol=symbol,
+                size=abs(pos.size),
+                side=side,
+                sl_price=new_sl,
+                tp_price=new_tp
+            )
 
    

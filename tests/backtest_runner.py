@@ -336,6 +336,51 @@ class ExchangeClientMock(ExchangeClient):
                     print(f"close sell TP {low} {tp}")
                     await self.__close_position(candle, pair, size, Signal.SELL)
                 return candle
+            
+    async def apply_trailing_stop(self, symbol, current_price):
+        """
+        Lógica de Trailing Stop para o Backtest.
+        Atualiza o SL e TP no estado interno da posição.
+        """
+        pos = self.positions.get(symbol)
+        if not pos:
+            return
+
+        entry_price = pos['entryPrice']
+        side = pos['side']
+        
+        # Calcular PNL Percentual
+        if side == 'buy':
+            pnl_pct = (current_price - entry_price) / entry_price
+        else:
+            pnl_pct = (entry_price - current_price) / entry_price
+
+        adjustment = 0
+        # --- MESMOS DEGRAUS QUE DEFINIMOS PARA A NADO/HL ---
+        if pnl_pct >= 0.045:    # Lucro > 4.5%
+            adjustment = 0.035
+        elif pnl_pct >= 0.03:   # Lucro > 3%
+            adjustment = 0.02
+        elif pnl_pct >= 0.015:  # Lucro > 1.5%
+            adjustment = 0.005 # Breakeven
+
+        if adjustment > 0:
+            if side == 'buy':
+                new_sl = entry_price * (1 + adjustment)
+                new_tp = entry_price * (1.05 + adjustment) # Alvo original 5% + ajuste
+            else:
+                new_sl = entry_price * (1 - adjustment)
+                new_tp = entry_price * (0.95 - adjustment)
+
+            # Só atualizamos se o novo SL for "melhor" que o anterior para evitar retrocessos
+            if side == 'buy' and (pos['sl'] is None or new_sl > pos['sl']):
+                pos['sl'] = new_sl
+                pos['tp'] = new_tp
+                logging.info(f"🔄 [BACKTEST TRAILING] {symbol} BUY | Novo SL: {new_sl:.2f} | TP: {new_tp:.2f}")
+            elif side == 'sell' and (pos['sl'] is None or new_sl < pos['sl']):
+                pos['sl'] = new_sl
+                pos['tp'] = new_tp
+                logging.info(f"🔄 [BACKTEST TRAILING] {symbol} SELL | Novo SL: {new_sl:.2f} | TP: {new_tp:.2f}")
         
 
     def get_performance_summary(self):
@@ -485,7 +530,7 @@ class BacktestRunner:
         # Configura sua exchange Hyperliquid
         exchange =  hyperliquid({
                 "enableRateLimit": True,
-                "testnet": True,
+                "testnet": False,
             }) # type: ignore
 
         try:
@@ -512,7 +557,7 @@ class BacktestRunner:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("BTC/USDC:USDC")
+    pair = get_pair_by_symbol("ETH/USDC:USDC")
 
     if pair != None:
 

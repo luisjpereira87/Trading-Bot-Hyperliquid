@@ -56,7 +56,14 @@ async def run_bot():
             "privateKey":private_key,
             "testnet": True,
             "enableRateLimit": True,
-            "options": {"defaultSlippage": 0.01},
+            "options": {
+                "defaultSlippage": 0.01,
+                # Forçamos o CCXT a NÃO tentar carregar mercados Spot
+                "types": ["swap"], 
+                "fetchMarkets": ["swap"],
+                # Esta linha é o "segredo" para algumas versões do CCXT:
+                "createMarketBuyOrderRequiresPrice": False
+            },
         } # type: ignore
     )
     helpers = TradingHelpers()

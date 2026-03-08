@@ -613,7 +613,7 @@ class NadoExchangeClient(ExchangeBase):
                             sender=SubaccountParams(subaccount_owner=self.wallet_address, subaccount_name="default"),
                             amount=close_amount,
                             priceX18=exec_price_x18,
-                            expiration=int(time.time() + 86400 * 30),
+                            expiration=int(time.time() + 86400),
                             appendix=build_appendix(
                                 order_type=OrderType.DEFAULT, 
                                 reduce_only=True, 
@@ -806,4 +806,52 @@ class NadoExchangeClient(ExchangeBase):
             logging.error(f"❌ Erro ao fechar posição Nado: {e}")
             raise
 
+    async def apply_trailing_stop(self, symbol, current_price):
+        # 1. Verifica se há posição aberta
+        pos = await self.get_open_position(symbol)
+        if not pos or abs(pos.size) < 1e-8:
+            return
+
+        entry_price = float(pos.entry_price)
+        side = Signal.BUY if pos.size > 0 else Signal.SELL
+        
+        # 2. Calcula o lucro atual
+        pnl_pct = (current_price - entry_price) / entry_price if side == Signal.BUY else (entry_price - current_price) / entry_price
+
+        # 3. Define o ajuste uniforme (Exemplo: sobe 1% no SL e 1% no TP)
+        adjustment = 0
+        if pnl_pct >= 0.03:    # Se lucra 3%
+            adjustment = 0.02  # Sobe as balizas 2%
+        elif pnl_pct >= 0.015: # Se lucra 1.5%
+            adjustment = 0.005 # Sobe as balizas 0.5% (Protege entrada + taxas)
+
+        if adjustment > 0:
+            # 4. Calcula os novos preços baseados no ajuste uniforme
+            if side == Signal.BUY:
+                new_sl = entry_price * (1 + adjustment)
+                new_tp = entry_price * (1.05 + adjustment) # Alvo original de 5% + ajuste
+            else:
+                new_sl = entry_price * (1 - adjustment)
+                new_tp = entry_price * (0.95 - adjustment)
+
+            logging.info(f"🔄 [Trailing] Reajustando proteções para {symbol} (+{adjustment:.2%})")
+
+            # 5. O PULO DO GATO: Reutiliza o teu método de proteções
+            # Primeiro cancelamos as ordens de proteção antigas para não duplicar
+            await self.cancel_all_orders(symbol)
+            
+            product_id = await self._get_market_id(symbol)
+            
+            # Chamamos o método que tu já tens pronto e validado!
+            await self._place_protections(
+                symbol=symbol,
+                product_id=product_id,
+                size=abs(pos.size),
+                side=side,
+                sl_price=new_sl,
+                tp_price=new_tp
+            )
+
+        
+    
    
