@@ -202,7 +202,7 @@ class NadoExchangeClient(ExchangeBase):
 
             # Usamos a primeira subconta encontrada ou filtramos pelo ID
             sub_data = subaccounts_list.subaccounts[0]
-            
+
             # Chamada à Engine para ter os dados em tempo real (spot_balances)
             return self.engine.get_subaccount_info(subaccount=sub_data.subaccount)
 
@@ -299,6 +299,56 @@ class NadoExchangeClient(ExchangeBase):
         except Exception as e:
             logging.error(f"❌ Erro ao obter get_latest_market_price: {e}")
         return None
+    
+    async def get_position_entry_price(self, symbol: str, current_position_size: float):
+        try:
+            pair = get_pair_by_configs_symbol(self._pairs_cache, symbol) if self._pairs_cache else None
+
+            if pair is not None:
+                ticker_id = f"{pair.symbol_nado}_USDT0"
+
+            # Pedimos os últimos 20 trades para garantir que apanhamos a abertura toda
+            trades_data = self.indexer.get_historical_trades(
+                ticker_id=ticker_id,
+                limit=20 
+            )
+
+            total_quote = 0.0
+            total_base = 0.0
+            
+            # Percorremos os trades do mais recente para o mais antigo
+            # somando até perfazer o tamanho da nossa posição atual
+
+            # Determinar se estamos a procurar compras ou vendas para a média
+            target_side = 'buy' if current_position_size > 0 else 'sell'
+
+            for t in trades_data:
+                # Lógica Híbrida: Funciona com Dicionário ou Objeto
+                if isinstance(t, dict):
+                    t_side = t.get('trade_type')
+                    t_price = float(t.get('price', 0))
+                    t_amount = abs(float(t.get('base_filled', 0)))
+                else:
+                    t_side = getattr(t, 'trade_type', None)
+                    t_price = float(getattr(t, 'price', 0))
+                    t_amount = abs(float(getattr(t, 'base_filled', 0)))
+                
+                if t_side == target_side:
+                    total_quote += (t_price * t_amount)
+                    total_base += t_amount
+                
+                # Para quando cobrir o tamanho da posição (margem de 1%)
+                if total_base >= (abs(current_position_size) * 0.99):
+                    break
+            
+            if total_base > 0:
+                avg_entry = total_quote / total_base
+                return avg_entry
+                
+            return None
+        except Exception as e:
+            print(f"❌ Erro no cálculo de média: {e}")
+            return None
 
     async def get_open_position(self, symbol: str) -> (OpenPosition | None):
         try:
@@ -316,31 +366,52 @@ class NadoExchangeClient(ExchangeBase):
             X18_SCALE = 10**18
 
             # 3. Mapeamento para o teu formato OpenPosition
-            # Se a Nado devolver uma lista, iteramos; se devolver objeto único, ajustamos
-            # 1. Procurar nas posições Perpétuas
             for p_balance in positions.perp_balances:
                 if p_balance.product_id == product_id:
                     amount_raw = int(p_balance.balance.amount)
                     
                     if abs(amount_raw) > 0:
+                        X18_SCALE = 10**18
                         size = abs(float(amount_raw)) / X18_SCALE
-                        # Lógica do Side: Positivo é BUY, Negativo é SELL
-                        side = 'buy' if float(amount_raw) > 0 else 'sell'
+                        side = 'buy' if amount_raw > 0 else 'sell'
 
-                        current_price = await self.get_entry_price(symbol)
-                        if current_price is None:
-                           current_price = 0.0 
+                        entry_price = await self.get_position_entry_price(symbol, size)
+
+                        # Preço Atual de Mercado (Ticker)
+                        current_market_price = await self.get_entry_price(symbol) # Assume que tens este método
+
+                        # 2. Verificar se o preço é válido antes de fazer contas
+                        if current_market_price is None:
+                            logging.warning(f"⚠️ Não foi possível obter preço de entrada para {symbol}. PNL não calculado.")
+                            current_market_price = 0.0 # Fallback para evitar erro de cálculo, ou return None
+                        
+                        if entry_price is None:
+                            logging.warning(f"⚠️ Não foi possível obter preço currente para {symbol}. PNL não calculado.")
+                            entry_price = 0.0 # Fallback para evitar erro de cálculo, ou return None
+
+
+                        # Cálculo do PNL (ROE)
+                        # (Preço Atual - Preço Entrada) / Preço Entrada (Ajustado pelo side)
+                        if entry_price and current_market_price:
+                            diff = (current_market_price - entry_price) / entry_price
+                            pnl_pct = diff if side == 'buy' else -diff
+                            
+                            # LOG DE SUCESSO - Para veres se bate com a plataforma
+                            logging.info(f"📊 {symbol} | Entry: {entry_price:.2f} | Market: {current_market_price:.2f} | PNL: {pnl_pct*100:.2f}%")
+                        else:
+                            pnl_pct = 0.0
+                            logging.warning(f"⚠️ Falha de dados para {symbol}: Entry={entry_price}, Market={current_market_price}")
 
                         return OpenPosition(
                             side=side,
                             size=size,
-                            entry_price=current_price,
+                            entry_price=entry_price,
                             id=f"pos_{product_id}",
-                            notional=size * current_price,
+                            notional=size * current_market_price,
                             # Mantemos os teus campos None se não forem críticos agora
                             sl=None, 
                             tp=None,
-                            unrealizedPnl=0.0
+                            unrealizedPnl=pnl_pct
                         )
             
             return None
