@@ -423,8 +423,10 @@ class ExchangeClient(ExchangeBase):
     
     async def apply_trailing_stop(self, symbol, current_price):
         # 1. Verifica se há posição aberta
+        logging.info("Aplicar trailing stop")
         pos = await self.get_open_position(symbol)
         if not pos or abs(pos.size) < 1e-8:
+            logging.info("Sem posição ou size < 1e-8")
             return
 
         entry_price = float(pos.entry_price)
@@ -433,6 +435,7 @@ class ExchangeClient(ExchangeBase):
         # 2. Calcula o lucro atual
         pnl_pct = (current_price - entry_price) / entry_price if side == Signal.BUY else (entry_price - current_price) / entry_price
 
+        logging.info(f"pnl_pct={pnl_pct} side={side} current_price={current_price} entry_price={entry_price}")
         # 3. Define o ajuste uniforme (Exemplo: sobe 1% no SL e 1% no TP)
         adjustment = 0
         if pnl_pct >= 0.02:        # Se sobe 2% (Lucro 20%)
@@ -446,7 +449,7 @@ class ExchangeClient(ExchangeBase):
         elif pnl_pct >= 0.004:     # Se sobe 0.4% (Lucro 4%)
             adjustment = 0.001     # Garante 0.1% (Paga as taxas e sobra $3-$5)
             logging.info("🛡️ Break-even ativo! Taxas cobertas e lucro mínimo garantido.")
-            
+
         if adjustment > 0:
             # 4. Calcula os novos preços baseados no ajuste uniforme
             if side == Signal.BUY:

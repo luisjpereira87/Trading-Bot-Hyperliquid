@@ -820,6 +820,8 @@ class NadoExchangeClient(ExchangeBase):
         # 2. Calcula o lucro atual
         pnl_pct = (current_price - entry_price) / entry_price if side == Signal.BUY else (entry_price - current_price) / entry_price
 
+
+        logging.info(f"pnl_pct={pnl_pct} side={side} current_price={current_price} entry_price={entry_price}")
         # 3. Define o ajuste uniforme (Exemplo: sobe 1% no SL e 1% no TP)
         adjustment = 0
         if pnl_pct >= 0.02:        # Se sobe 2% (Lucro 20%)
