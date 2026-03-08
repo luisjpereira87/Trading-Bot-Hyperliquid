@@ -49,3 +49,7 @@ class ExchangeBase(ABC):
     @abstractmethod
     async def print_balance(self):
         pass
+    
+    @abstractmethod
+    async def apply_trailing_stop(self, symbol, current_price):
+        pass

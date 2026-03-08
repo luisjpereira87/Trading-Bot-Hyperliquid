@@ -13,13 +13,12 @@ from commons.enums.timeframe_enum import TimeframeEnum
 from commons.helpers.trading_helpers import TradingHelpers
 from commons.models.ohlcv_format_dclass import OhlcvFormat
 from commons.models.signal_result_dclass import SignalResult
-from commons.utils.best_params_loader import BestParamsLoader
 from commons.utils.config_loader import PairConfig
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from strategies.strategy_manager import StrategyManager  # Para cálculo ATR
 from trading_bot.exchange_base import ExchangeBase
-from trading_bot.exchange_client import ExchangeClient
-from trading_bot.exit_logic.exit_logic_ema_based import ExitLogicEmaBased
+from trading_bot.exit_logic.exit_logic_trailing_stop import \
+    ExitLogicTrailingStop
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -36,7 +35,7 @@ class TradingBot:
         self.signal = None
         self.strategy = strategy
         #self.params_loader = BestParamsLoader()
-        self.exit_logic = ExitLogicEmaBased(self.helpers, self.exchange_client)
+        self.exit_logic = ExitLogicTrailingStop(self.helpers, self.exchange_client)
 
     async def run_pair(self, pair: PairConfig) -> SignalResult:
         symbol = pair.symbol
@@ -85,7 +84,7 @@ class TradingBot:
                 logging.info(f"[DEBUG] Current position size: {position_size}")
 
                 if position_size > 0:
-                    should_exit = await self.exit_logic.should_exit(ohlcv, pair, signal, current_position)
+                    should_exit = await self.exit_logic.should_exit(ohlcv, pair, signal, current_position, price_ref)
                     if should_exit:
                         current_position = None  # atualiza para evitar fechar de novo
 
