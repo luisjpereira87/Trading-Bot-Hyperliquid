@@ -26,17 +26,19 @@ class ExchangeClient(ExchangeBase):
         is_higher: bool = False
     ) -> OhlcvFormat:
         try:
-            # 1. Definir quantos minutos cada candle tem (ex: M15 -> 15)
-            minutes_per_candle = int(''.join(filter(str.isdigit, timeframe.value)))
+            now = self.exchange.milliseconds()
+    
+            # Exemplo para M15: 15 minutos * 60s * 1000ms
+            tf_minutes = 15 
+            ms_per_candle = tf_minutes * 60 * 1000
             
-            # 2. Calcular o 'since' para que os 200 candles terminem EXACTAMENTE agora
-            # (limit + 5 de margem) * minutos * 60s * 1000ms
-            ms_to_look_back = (limit + 5) * minutes_per_candle * 60 * 1000
-            since = self.exchange.milliseconds() - ms_to_look_back
-            
+            # O TRUQUE: Recuamos apenas o estritamente necessário (ex: 198 candles)
+            # para garantir que o 'limit=200' nunca seja atingido ANTES de chegar ao agora.
+            # Se pedires 200 velas começando há 198 velas atrás, a 200ª será a atual.
+            since = now - (ms_per_candle * (limit - 2))
             
             # Fetch timeframe principal
-            ohlcv_data = await self.exchange.fetch_ohlcv(symbol, timeframe.value, since, limit)
+            ohlcv_data = await self.exchange.fetch_ohlcv(symbol, timeframe.value, since=since, limit=limit)
 
             # Timestamp esperado do último candle fechado
             expected_timestamp = self.get_expected_timestamp(timeframe)
@@ -82,7 +84,7 @@ class ExchangeClient(ExchangeBase):
             ohlcv_higher_data = []
             if is_higher:
                 higher_tf = timeframe.get_higher()
-                ohlcv_higher_data = await self.exchange.fetch_ohlcv(symbol, higher_tf.value, since, limit)
+                ohlcv_higher_data = await self.exchange.fetch_ohlcv(symbol, higher_tf.value, since=since, limit=limit)
 
             return OhlcvFormat(
                 OhlcvWrapper(ohlcv_data),
@@ -277,6 +279,9 @@ class ExchangeClient(ExchangeBase):
 
             # Se SL e TP forem fornecidos, adicionar ao params no formato correto
             if sl_price is not None and tp_price is not None:
+                # Faz isto antes de montar o dicionário params
+                sl_price = float(self.exchange.price_to_precision(symbol, sl_price)) if sl_price else None
+                tp_price = float(self.exchange.price_to_precision(symbol, tp_price)) if tp_price else None
                 params = {
                     #'marginMode': 'isolated',
                     'stopLoss': {
@@ -295,7 +300,8 @@ class ExchangeClient(ExchangeBase):
             logging.info(f"🧾 Params finais para create_order: symbol={symbol}, type=market, side={side}, amount={entry_amount}, price={price_ref}, params={params}")
     
             logging.info(f"Enviando ordem market ({side}) com params: {params}")
-    
+
+            entry_amount = float(self.exchange.amount_to_precision(symbol, entry_amount))
             order = await self.exchange.create_order(
                 symbol,
                 'market',

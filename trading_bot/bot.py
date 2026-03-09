@@ -207,7 +207,7 @@ class TradingBot:
 
     async def get_last_closed_candle_time(self, symbol):
         try:
-            candles_obj: OhlcvFormat = await self.exchange_client.fetch_ohlcv(symbol, timeframe=self.timeframe, limit=False)
+            candles_obj: OhlcvFormat = await self.exchange_client.fetch_ohlcv(symbol, timeframe=self.timeframe, limit=5)
             candles: OhlcvWrapper = candles_obj.ohlcv
             last_candle = candles.get_last_closed_candle()
             timestamp = last_candle.timestamp
