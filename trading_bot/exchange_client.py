@@ -26,8 +26,15 @@ class ExchangeClient(ExchangeBase):
         is_higher: bool = False
     ) -> OhlcvFormat:
         try:
+            # 1. Calcular o 'since' para garantir que pegamos os dados RECENTES
+            # timeframe_minutes * 60 (seg) * 1000 (ms) * (limit + margem de segurança)
+            # timeframe.value costuma ser '15m', precisamos extrair o número
+            minutes = int(''.join(filter(str.isdigit, timeframe.value)))
+            duration_ms = minutes * 60 * 1000 * (limit + 10) 
+            since = self.exchange.milliseconds() - duration_ms
+            
             # Fetch timeframe principal
-            ohlcv_data = await self.exchange.fetch_ohlcv(symbol, timeframe.value, limit)
+            ohlcv_data = await self.exchange.fetch_ohlcv(symbol, timeframe.value, since, limit)
 
             # Timestamp esperado do último candle fechado
             expected_timestamp = self.get_expected_timestamp(timeframe)
@@ -73,7 +80,7 @@ class ExchangeClient(ExchangeBase):
             ohlcv_higher_data = []
             if is_higher:
                 higher_tf = timeframe.get_higher()
-                ohlcv_higher_data = await self.exchange.fetch_ohlcv(symbol, higher_tf.value, limit)
+                ohlcv_higher_data = await self.exchange.fetch_ohlcv(symbol, higher_tf.value, since, limit)
 
             return OhlcvFormat(
                 OhlcvWrapper(ohlcv_data),
