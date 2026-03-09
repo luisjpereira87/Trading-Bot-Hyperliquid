@@ -30,7 +30,7 @@ class ExchangeClient(ExchangeBase):
             # timeframe_minutes * 60 (seg) * 1000 (ms) * (limit + margem de segurança)
             # timeframe.value costuma ser '15m', precisamos extrair o número
             minutes = int(''.join(filter(str.isdigit, timeframe.value)))
-            duration_ms = minutes * 60 * 1000 * (limit + 10) 
+            duration_ms = minutes * 60 * 1000 * (limit + 10)
             since = self.exchange.milliseconds() - duration_ms
             
             # Fetch timeframe principal
