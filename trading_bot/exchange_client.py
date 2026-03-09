@@ -26,12 +26,14 @@ class ExchangeClient(ExchangeBase):
         is_higher: bool = False
     ) -> OhlcvFormat:
         try:
-            # 1. Calcular o 'since' para garantir que pegamos os dados RECENTES
-            # timeframe_minutes * 60 (seg) * 1000 (ms) * (limit + margem de segurança)
-            # timeframe.value costuma ser '15m', precisamos extrair o número
-            minutes = int(''.join(filter(str.isdigit, timeframe.value)))
-            duration_ms = minutes * 60 * 1000 * (limit + 10)
-            since = self.exchange.milliseconds() - duration_ms
+            # 1. Definir quantos minutos cada candle tem (ex: M15 -> 15)
+            minutes_per_candle = int(''.join(filter(str.isdigit, timeframe.value)))
+            
+            # 2. Calcular o 'since' para que os 200 candles terminem EXACTAMENTE agora
+            # (limit + 5 de margem) * minutos * 60s * 1000ms
+            ms_to_look_back = (limit + 5) * minutes_per_candle * 60 * 1000
+            since = self.exchange.milliseconds() - ms_to_look_back
+            
             
             # Fetch timeframe principal
             ohlcv_data = await self.exchange.fetch_ohlcv(symbol, timeframe.value, since, limit)
