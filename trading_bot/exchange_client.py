@@ -1,6 +1,8 @@
 import logging
 from datetime import datetime, timedelta, timezone
 
+import ccxt.async_support as ccxt
+
 from commons.enums.signal_enum import Signal
 from commons.enums.timeframe_enum import TimeframeEnum
 from commons.helpers.trading_helpers import TradingHelpers
@@ -13,7 +15,7 @@ from trading_bot.exchange_base import ExchangeBase
 
 
 class ExchangeClient(ExchangeBase):
-    def __init__(self, exchange, wallet_address):
+    def __init__(self, exchange: ccxt.hyperliquid, wallet_address):
         self.exchange = exchange
         self.wallet_address = wallet_address
         self.helpers = TradingHelpers()
@@ -302,10 +304,10 @@ class ExchangeClient(ExchangeBase):
             logging.info(f"Enviando ordem market ({side}) com params: {params}")
 
             entry_amount = float(self.exchange.amount_to_precision(symbol, entry_amount))
-            order = await self.exchange.create_order(
+            order =  await self.exchange.create_order(
                 symbol,
                 'market',
-                side.value,
+                side.value, # type: ignore
                 entry_amount,
                 price_ref,
                 params
@@ -313,7 +315,7 @@ class ExchangeClient(ExchangeBase):
     
             logging.info(f"✅ Ordem criada: id={order.get('id')}, side={order.get('side')}, amount={order.get('amount')}, price={order.get('price')}")
             
-            return OpenedOrder(order.get('id'), None, None, None, symbol, None, order.get('side'), order.get('price'), order.get('amount'), False, None)
+            return OpenedOrder(str(order.get('id') or ""), None, None, None, symbol, None, str(order.get('side') or "") , float(order.get('price') or ""), order.get('amount'), False, None)
     
         except Exception as e:
             logging.error(f"Erro ao criar ordem de entrada: {e}")
@@ -361,12 +363,12 @@ class ExchangeClient(ExchangeBase):
 
             if price is None:
                 raise Exception("⚠️ Livro de ofertas vazio para fechamento.")
-
+            
             # Não enviar preço em ordens market (exchange pode rejeitar)
             order = await self.exchange.create_order(
                 symbol,
                 'market',
-                side.value,
+                side.value, # type: ignore
                 amount,
                 price,
                 params={'reduceOnly': True}
@@ -378,63 +380,54 @@ class ExchangeClient(ExchangeBase):
             raise
 
     async def _place_protections(self, symbol, size, side, sl_price, tp_price):
-        """
-        Configura Stop Loss e Take Profit na Hyperliquid.
-        Funciona tanto para novas ordens quanto para Trailing Stop.
-        """
         try:
-            # 1. Na HL, o symbol é apenas o nome da moeda (ex: 'BTC')
-            coin = symbol.split('/')[0] if '/' in symbol else symbol
-            
-            # 2. Determinar o lado da ordem de fecho
-            # Se estou em BUY, a proteção é uma ordem de SELL
-            is_buy_to_close = (side == Signal.SELL)
+            # 1. Side oposto para fechar
+            close_side = 'sell' if "buy" in str(side).lower() else 'buy'
+            amount = float(self.exchange.amount_to_precision(symbol, abs(float(size))))
 
-            # ---------------------------------------------------------
-            # 1. STOP LOSS (Trigger Market)
-            # ---------------------------------------------------------
+            # 2. STOP LOSS (Trigger Market)
             if sl_price:
-                logging.info(f"🛡️ [HL] Configurando SL em {sl_price}")
-                res_sl = self.exchange.order(
-                    coin=coin,
-                    is_buy=is_buy_to_close,
-                    sz=abs(float(size)),
-                    limit_px=float(sl_price), # Na HL, para trigger market, o limit_px atua como gatilho
-                    order_type={
-                        "trigger": {
-                            "isStop": True,
-                            "triggerPx": float(sl_price),
-                            "tpsl": "sl"
+                sl_price = float(self.exchange.price_to_precision(symbol, sl_price))
+                logging.info(f"🛡️ Configurando SL em {sl_price}")
+                
+                # Formato CCXT para ordem de Stop isolada na HL
+                await self.exchange.create_order(
+                    symbol=symbol,
+                    type='market', # Se quer que execute a mercado ao tocar no preço
+                    side=close_side,
+                    amount=amount,
+                    params={
+                        'stopPrice': sl_price,
+                        'reduceOnly': True,
+                        'trigger': {
+                            'isStop': True,
+                            'tpsl': 'sl'
                         }
-                    },
-                    reduce_only=True
+                    }
                 )
-                logging.info(f"✅ [HL] Stop Loss enviado: {res_sl.get('status', 'OK')}")
 
-            # ---------------------------------------------------------
-            # 2. TAKE PROFIT (Trigger Market ou Limit)
-            # ---------------------------------------------------------
+            # 3. TAKE PROFIT (Trigger Market)
             if tp_price:
-                logging.info(f"🎯 [HL] Configurando TP em {tp_price}")
-                res_tp = self.exchange.order(
-                    coin=coin,
-                    is_buy=is_buy_to_close,
-                    sz=abs(float(size)),
-                    limit_px=float(tp_price),
-                    order_type={
-                        "trigger": {
-                            "isStop": False,
-                            "triggerPx": float(tp_price),
-                            "tpsl": "tp"
+                tp_price = float(self.exchange.price_to_precision(symbol, tp_price))
+                logging.info(f"🎯 Configurando TP em {tp_price}")
+                
+                await self.exchange.create_order(
+                    symbol=symbol,
+                    type='market',
+                    side=close_side,
+                    amount=amount,
+                    params={
+                        'stopPrice': tp_price,
+                        'reduceOnly': True,
+                        'trigger': {
+                            'isStop': False,
+                            'tpsl': 'tp'
                         }
-                    },
-                    reduce_only=True
+                    }
                 )
-                logging.info(f"✅ [HL] Take Profit enviado: {res_tp.get('status', 'OK')}")
-
         except Exception as e:
-            logging.error(f"❌ Erro ao configurar proteções na Hyperliquid: {e}")
-
+            logging.error(f"❌ Erro no _place_protections: {e}")
+            raise
     
     async def apply_trailing_stop(self, symbol, current_price):
         # 1. Verifica se há posição aberta
