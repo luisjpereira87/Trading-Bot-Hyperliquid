@@ -886,7 +886,7 @@ class NadoExchangeClient(ExchangeBase):
             return
 
         entry_price = float(pos.entry_price)
-        side = Signal.BUY if pos.size > 0 else Signal.SELL
+        side = pos.side
         
         # 2. Calcula o lucro atual
         pnl_pct = (current_price - entry_price) / entry_price if side == Signal.BUY else (entry_price - current_price) / entry_price

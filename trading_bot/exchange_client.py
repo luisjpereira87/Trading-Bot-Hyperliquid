@@ -133,7 +133,7 @@ class ExchangeClient(ExchangeBase):
     async def get_available_balance(self) -> float:
         try:
             balance = await self.exchange.fetch_balance(params={'user': self.wallet_address})
-            return balance['total']['USDC']
+            return balance['total']['USDC'] # type: ignore
         except Exception as e:
             logging.error(f"Erro ao buscar saldo: {e}")
             raise
@@ -185,7 +185,7 @@ class ExchangeClient(ExchangeBase):
                 open_orders = await self.exchange.fetch_open_orders(params=params)
     
             for order in open_orders:
-                await self.exchange.cancel_order(order['id'], order['symbol'])
+                await self.exchange.cancel_order(order['id'], order['symbol']) # type: ignore
             logging.info(f"🔁 Todas as ordens foram canceladas para {symbol if symbol else 'todos símbolos'}.")
         except Exception as e:
             logging.error(f"Erro ao cancelar ordens: {e}")
@@ -194,14 +194,14 @@ class ExchangeClient(ExchangeBase):
         try:
             positions = await self.exchange.fetch_positions(params={'user': self.wallet_address})
             for pos in positions:
-                if pos["symbol"] == symbol and float(pos.get('contracts', 0)) > 0:
+                if pos["symbol"] == symbol and float(pos.get('contracts', 0)) > 0: # type: ignore
 
-                    size = float(pos['contracts'])
+                    size = float(pos['contracts']) # type: ignore
                     entry_price = pos.get('entryPrice') or pos.get('entry_price') or pos.get('averagePrice') or 0.0
                     id = pos.get('id') or pos.get('info', {}).get('order', {}).get('oid')
                     unrealizedPnl = pos.get('unrealizedPnl') or pos.get('unrealizedPnl')
                     
-                    return OpenPosition(self.helpers.position_side_to_signal_side(pos['side']), size, entry_price, id, size * entry_price, None, None, unrealizedPnl)
+                    return OpenPosition(self.helpers.position_side_to_signal_side(pos['side']), size, entry_price, id, size * entry_price, None, None, unrealizedPnl) # type: ignore
 
         except Exception as e:
             logging.error(f"Erro ao obter posições abertas: {e}")
@@ -313,9 +313,9 @@ class ExchangeClient(ExchangeBase):
                 params
             )
     
-            logging.info(f"✅ Ordem criada: id={order.get('id')}, side={order.get('side')}, amount={order.get('amount')}, price={order.get('price')}")
+            logging.info(f"✅ Ordem criada: id={order.get('id')}, side={order.get('side')}, amount={order.get('amount')}, price={order.get('price')}") # type: ignore
             
-            return OpenedOrder(str(order.get('id') or ""), None, None, None, symbol, None, str(order.get('side') or "") , float(order.get('price') or ""), order.get('amount'), False, None)
+            return OpenedOrder(str(order.get('id') or ""), None, None, None, symbol, None, str(order.get('side') or "") , float(order.get('price') or ""), order.get('amount'), False, None) # type: ignore
     
         except Exception as e:
             logging.error(f"Erro ao criar ordem de entrada: {e}")
@@ -373,7 +373,7 @@ class ExchangeClient(ExchangeBase):
                 price,
                 params={'reduceOnly': True}
             )
-            logging.info(f"✅ Ordem de fechamento enviada: {order.get('info')}")
+            logging.info(f"✅ Ordem de fechamento enviada: {order.get('info')}") # type: ignore
 
         except Exception as e:
             logging.error(f"❌ Erro ao fechar posição: {e}")
@@ -384,6 +384,8 @@ class ExchangeClient(ExchangeBase):
             # 1. Side oposto para fechar
             close_side = 'sell' if "buy" in str(side).lower() else 'buy'
             amount = float(self.exchange.amount_to_precision(symbol, abs(float(size))))
+
+            current_price = await self.get_entry_price(symbol)
 
             # 2. STOP LOSS (Trigger Market)
             if sl_price:
@@ -396,11 +398,12 @@ class ExchangeClient(ExchangeBase):
                     type='market', # Se quer que execute a mercado ao tocar no preço
                     side=close_side,
                     amount=amount,
+                    price=current_price,
                     params={
-                        'stopPrice': sl_price,
+                        'triggerPrice': sl_price, # Usar triggerPrice em vez de stopPrice
                         'reduceOnly': True,
                         'trigger': {
-                            'isStop': True,
+                            'isStop': True, # Garante que a HL entenda como STOP LOSS
                             'tpsl': 'sl'
                         }
                     }
@@ -416,11 +419,12 @@ class ExchangeClient(ExchangeBase):
                     type='market',
                     side=close_side,
                     amount=amount,
+                    price=current_price,
                     params={
-                        'stopPrice': tp_price,
+                        'triggerPrice': tp_price,
                         'reduceOnly': True,
                         'trigger': {
-                            'isStop': False,
+                            'isStop': False, # Garante que a HL entenda como TAKE PROFIT
                             'tpsl': 'tp'
                         }
                     }
@@ -436,9 +440,9 @@ class ExchangeClient(ExchangeBase):
         if not pos or abs(pos.size) < 1e-8:
             logging.info("Sem posição ou size < 1e-8")
             return
-
+        
         entry_price = float(pos.entry_price)
-        side = Signal.BUY if pos.size > 0 else Signal.SELL
+        side = pos.side
         
         # 2. Calcula o lucro atual
         pnl_pct = (current_price - entry_price) / entry_price if side == Signal.BUY else (entry_price - current_price) / entry_price
