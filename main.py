@@ -59,6 +59,11 @@ async def run_bot():
             "options": {"defaultSlippage": 0.01},
         } # type: ignore
     )
+    exchange.fetch_spot_markets = safe_fetch_spot_markets.__get__(exchange, exchange.__class__)
+    # IMPORTANTE: Carregar mercados antes de passar para o ExchangeClient
+    logging.info("📦 A carregar mercados da Hyperliquid...")
+    await exchange.load_markets()
+
     helpers = TradingHelpers()
     hl_client = ExchangeClient(exchange, wallet_address)
     nado_client = NadoExchangeClient(private_key, None, wallet_address, pairs)
@@ -236,6 +241,37 @@ async def run_backtest():
     await backtestRunner.run() 
 """
 
+
+# 1. Definimos a nossa versão segura do método
+async def safe_fetch_spot_markets(self, params={}):
+    """Versão corrigida para evitar o erro NoneType + str na Testnet"""
+    try:
+        request = {'type': 'spotMetaAndAssetCtxs'}
+        response = await self.publicPostInfo(self.extend(request, params))
+        
+        # Se a resposta for inválida, retornamos lista vazia
+        if not response or len(response) < 1:
+            return []
+
+        universe = self.safe_list(response[0], 'universe', [])
+        tokens = self.safe_list(response[0], 'tokens', [])
+        markets = []
+
+        for i in range(len(universe)):
+            market_data = universe[i]
+            name = self.safe_string(market_data, 'name')
+            
+            # O FIX: Se o nome for None ou não tiver '/', ignoramos
+            if not name or '/' not in name:
+                continue
+                
+            # Deixamos o CCXT processar o resto se o nome for válido
+            # Mas para este teste, podemos simplesmente ignorar Spot
+            pass 
+            
+        return [] # Retornamos vazio para o Spot não atrapalhar os Swaps
+    except Exception:
+        return [] # Se falhar qualquer coisa, não crasha o bot
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
