@@ -399,7 +399,7 @@ class ExchangeClient(ExchangeBase):
                     type='market', # Se quer que execute a mercado ao tocar no preço
                     side=close_side,
                     amount=amount,
-                    price=current_price,
+                    price=None,
                     params={
                         'triggerPrice': sl_price, # Usar triggerPrice em vez de stopPrice
                         'reduceOnly': True,
@@ -420,7 +420,7 @@ class ExchangeClient(ExchangeBase):
                     type='market',
                     side=close_side,
                     amount=amount,
-                    price=current_price,
+                    price=None,
                     params={
                         'triggerPrice': tp_price,
                         'reduceOnly': True,
