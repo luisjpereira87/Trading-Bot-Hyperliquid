@@ -446,7 +446,7 @@ class ExchangeClient(ExchangeBase):
         side = pos.side
         
         # 2. Calcula o lucro atual
-        pnl_pct = (current_price - entry_price) / entry_price if side == Signal.BUY else (entry_price - current_price) / entry_price
+        pnl_pct = (current_price - entry_price) / entry_price if side == 'buy' else (entry_price - current_price) / entry_price
 
         logging.info(f"pnl_pct={pnl_pct} side={side} current_price={current_price} entry_price={entry_price}")
         # 3. Define o ajuste uniforme (Exemplo: sobe 1% no SL e 1% no TP)
@@ -465,7 +465,7 @@ class ExchangeClient(ExchangeBase):
 
         if adjustment > 0:
             # 4. Calcula os novos preços baseados no ajuste uniforme
-            if side == Signal.BUY:
+            if side == 'buy':
                 new_sl = entry_price * (1 + adjustment)
                 new_tp = entry_price * (1.05 + adjustment) # Alvo original de 5% + ajuste
             else:
