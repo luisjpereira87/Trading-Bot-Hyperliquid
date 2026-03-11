@@ -312,7 +312,7 @@ class ExchangeClient(ExchangeBase):
                 price_ref,
                 params
             )
-            raw_price = order.get('price')
+            raw_price = order.get('price') # type: ignore
             final_price = float(raw_price) if (raw_price is not None and str(raw_price).strip() != '') else price_ref
             logging.info(f"✅ Ordem criada: id={order.get('id')}, side={order.get('side')}, amount={order.get('amount')}, price={order.get('price')}") # type: ignore
             
