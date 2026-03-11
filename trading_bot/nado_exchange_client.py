@@ -883,6 +883,10 @@ class NadoExchangeClient(ExchangeBase):
             # 5. O PULO DO GATO: Reutiliza o teu método de proteções
             # Primeiro cancelamos as ordens de proteção antigas para não duplicar
             await self.cancel_all_orders(symbol)
+
+            # 2. O PULO DO GATO: Pequena pausa para a Nado atualizar o saldo disponível
+            # Sem isto, o motor de risco da Nado acha que estás a duplicar ordens
+            await asyncio.sleep(1.0)
             
             product_id = await self._get_market_id(symbol)
             
