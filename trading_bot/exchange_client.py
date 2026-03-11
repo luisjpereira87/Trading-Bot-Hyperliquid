@@ -312,10 +312,11 @@ class ExchangeClient(ExchangeBase):
                 price_ref,
                 params
             )
-    
+            raw_price = order.get('price')
+            final_price = float(raw_price) if (raw_price is not None and str(raw_price).strip() != '') else price_ref
             logging.info(f"✅ Ordem criada: id={order.get('id')}, side={order.get('side')}, amount={order.get('amount')}, price={order.get('price')}") # type: ignore
             
-            return OpenedOrder(str(order.get('id') or ""), None, None, None, symbol, None, str(order.get('side') or "") , float(order.get('price') or ""), order.get('amount'), False, None) # type: ignore
+            return OpenedOrder(str(order.get('id') or ""), None, None, None, symbol, None, str(order.get('side') or "") , final_price, order.get('amount'), False, None) # type: ignore
     
         except Exception as e:
             logging.error(f"Erro ao criar ordem de entrada: {e}")
@@ -445,7 +446,7 @@ class ExchangeClient(ExchangeBase):
         side = pos.side
         
         # 2. Calcula o lucro atual
-        pnl_pct = (current_price - entry_price) / entry_price if side == Signal.BUY else (entry_price - current_price) / entry_price
+        pnl_pct = (current_price - entry_price) / entry_price if side == 'buy' else (entry_price - current_price) / entry_price
 
         logging.info(f"pnl_pct={pnl_pct} side={side} current_price={current_price} entry_price={entry_price}")
         # 3. Define o ajuste uniforme (Exemplo: sobe 1% no SL e 1% no TP)
@@ -464,7 +465,7 @@ class ExchangeClient(ExchangeBase):
 
         if adjustment > 0:
             # 4. Calcula os novos preços baseados no ajuste uniforme
-            if side == Signal.BUY:
+            if side == 'buy':
                 new_sl = entry_price * (1 + adjustment)
                 new_tp = entry_price * (1.05 + adjustment) # Alvo original de 5% + ajuste
             else:
