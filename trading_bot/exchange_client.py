@@ -312,10 +312,11 @@ class ExchangeClient(ExchangeBase):
                 price_ref,
                 params
             )
-    
+            raw_price = order.get('price')
+            final_price = float(raw_price) if (raw_price is not None and str(raw_price).strip() != '') else price_ref
             logging.info(f"✅ Ordem criada: id={order.get('id')}, side={order.get('side')}, amount={order.get('amount')}, price={order.get('price')}") # type: ignore
             
-            return OpenedOrder(str(order.get('id') or ""), None, None, None, symbol, None, str(order.get('side') or "") , float(order.get('price') or ""), order.get('amount'), False, None) # type: ignore
+            return OpenedOrder(str(order.get('id') or ""), None, None, None, symbol, None, str(order.get('side') or "") , final_price, order.get('amount'), False, None) # type: ignore
     
         except Exception as e:
             logging.error(f"Erro ao criar ordem de entrada: {e}")
