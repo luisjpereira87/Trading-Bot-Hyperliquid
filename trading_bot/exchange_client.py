@@ -401,12 +401,8 @@ class ExchangeClient(ExchangeBase):
                     amount=amount,
                     price=None,
                     params={
-                        'triggerPrice': sl_price, # Usar triggerPrice em vez de stopPrice
-                        'reduceOnly': True,
-                        'trigger': {
-                            'isStop': True, # Garante que a HL entenda como STOP LOSS
-                            'tpsl': 'sl'
-                        }
+                        'stopLossPrice': sl_price, # Usar triggerPrice em vez de stopPrice
+                        'reduceOnly': True
                     }
                 )
 
@@ -422,12 +418,8 @@ class ExchangeClient(ExchangeBase):
                     amount=amount,
                     price=None,
                     params={
-                        'triggerPrice': tp_price,
-                        'reduceOnly': True,
-                        'trigger': {
-                            'isStop': False, # Garante que a HL entenda como TAKE PROFIT
-                            'tpsl': 'tp'
-                        }
+                        'takeProfitPrice': tp_price,
+                        'reduceOnly': True
                     }
                 )
         except Exception as e:
