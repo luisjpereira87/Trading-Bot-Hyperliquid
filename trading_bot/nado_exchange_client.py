@@ -299,56 +299,6 @@ class NadoExchangeClient(ExchangeBase):
         except Exception as e:
             logging.error(f"❌ Erro ao obter get_latest_market_price: {e}")
         return None
-    
-    async def get_position_entry_price(self, symbol: str, current_position_size: float):
-        try:
-            pair = get_pair_by_configs_symbol(self._pairs_cache, symbol) if self._pairs_cache else None
-
-            if pair is not None:
-                ticker_id = f"{pair.symbol_nado}_USDT0"
-
-            # Pedimos os últimos 20 trades para garantir que apanhamos a abertura toda
-            trades_data = self.indexer.get_historical_trades(
-                ticker_id=ticker_id,
-                limit=20 
-            )
-
-            total_quote = 0.0
-            total_base = 0.0
-            
-            # Percorremos os trades do mais recente para o mais antigo
-            # somando até perfazer o tamanho da nossa posição atual
-
-            # Determinar se estamos a procurar compras ou vendas para a média
-            target_side = 'buy' if current_position_size > 0 else 'sell'
-
-            for t in trades_data:
-                # Lógica Híbrida: Funciona com Dicionário ou Objeto
-                if isinstance(t, dict):
-                    t_side = t.get('trade_type')
-                    t_price = float(t.get('price', 0))
-                    t_amount = abs(float(t.get('base_filled', 0)))
-                else:
-                    t_side = getattr(t, 'trade_type', None)
-                    t_price = float(getattr(t, 'price', 0))
-                    t_amount = abs(float(getattr(t, 'base_filled', 0)))
-                
-                if t_side == target_side:
-                    total_quote += (t_price * t_amount)
-                    total_base += t_amount
-                
-                # Para quando cobrir o tamanho da posição (margem de 1%)
-                if total_base >= (abs(current_position_size) * 0.99):
-                    break
-            
-            if total_base > 0:
-                avg_entry = total_quote / total_base
-                return avg_entry
-                
-            return None
-        except Exception as e:
-            print(f"❌ Erro no cálculo de média: {e}")
-            return None
 
     async def get_open_position(self, symbol: str) -> (OpenPosition | None):
         try:
@@ -375,7 +325,18 @@ class NadoExchangeClient(ExchangeBase):
                         size = abs(float(amount_raw)) / X18_SCALE
                         side = 'buy' if amount_raw > 0 else 'sell'
 
-                        entry_price = await self.get_position_entry_price(symbol, size)
+                        #entry_price = await self.get_position_entry_price(symbol, size)
+
+                        balance = p_balance.balance
+                
+                        amount = float(balance.amount)
+                        v_quote = float(balance.v_quote_balance)
+                        
+                        if amount == 0:
+                            return None
+                        
+                        # Fórmula: -v_quote / amount
+                        entry_price = abs(-v_quote / amount)
 
                         # Preço Atual de Mercado (Ticker)
                         current_market_price = await self.get_entry_price(symbol) # Assume que tens este método
@@ -385,6 +346,7 @@ class NadoExchangeClient(ExchangeBase):
                             logging.warning(f"⚠️ Não foi possível obter preço de entrada para {symbol}. PNL não calculado.")
                             current_market_price = 0.0 # Fallback para evitar erro de cálculo, ou return None
                         
+
                         if entry_price is None:
                             logging.warning(f"⚠️ Não foi possível obter preço currente para {symbol}. PNL não calculado.")
                             entry_price = 0.0 # Fallback para evitar erro de cálculo, ou return None

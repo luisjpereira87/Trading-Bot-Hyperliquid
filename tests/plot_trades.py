@@ -1314,7 +1314,7 @@ class PlotTrades:
         ax2.set_ylim(0, 100)
         """
 
-        """"
+       
         # Super score
         ax2.plot(indices, super_score, color='#9b59b6', linewidth=2, label='Super Score')
         ax2.plot(indices, ema_score, color="#137169", linewidth=2, label='Ema score')
@@ -1344,7 +1344,7 @@ class PlotTrades:
         # 3. Limites Reais (O indicador vai de -100 a 100)
         # Deixamos uma margem de 110 para a linha não bater no teto
         ax2.set_ylim(0, 100)
-
+         """
         ax2.set_facecolor('#131722')
         
 

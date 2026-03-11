@@ -116,6 +116,8 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
         bbw = self.bbw(bb_short_period, bb_short_std_dev) * 1000
         plano_zero = np.zeros(len(closes))
         gap_index = self.calculate_gap(bbw, plano_zero)
+
+        final_scores, smooth_scores = self.calculate_super_score()
         for i in range(1, n):
 
             # 1. CONDIÇÃO DE ROMPIMENTO (BREAKOUT)
@@ -165,6 +167,7 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
 
             # REVERSÃO PARA ALTA (BULL)
             # Se o oscilador bull começar a subir e cruzar um threshold (ex: 20 ou 50)
+            """
             if is_bullish_momentum:
                 trend_buy_idx.append(i)
                 trend_buy_val.append(lows[i])
@@ -181,7 +184,70 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
             if bbw[i] < bbw[i-1]:
                 is_trigger_buy = False
                 is_trigger_sell = False
+            """
+            # Definimos os 3 candles da sequência:
+            # i-2 (Passado próximo)
+            # i-1 (O bico do cone)
+            # i   (O candle atual de confirmação)
 
+            # 1. CONTEXTO DE EXTREMO (Ainda usamos as bandas para filtrar ruído)
+            zona_venda = highs[i-1] > bb80_up[i-1] or highs[i-1] > bb20_up[i-1]
+            zona_compra = lows[i-1] < bb80_low[i-1] or lows[i-1] < bb20_low[i-1]
+
+            # 2. PIVOT DE SELL (TOPO)
+            # -2 sobe: highs[i-2] > highs[i-3] (opcional, mas confirma força)
+            # -1 sobe acima do -2: highs[i-1] > highs[i-2]
+            #  0 cai abaixo do -1: closes[i] < lows[i-1]  <-- A quebra da estrutura
+            if zona_venda:
+                if highs[i-1] > highs[i-2]: # O bico subiu
+                    if closes[i] < lows[i-1]: # O atual engoliu a mínima do bico
+                        entry_sell_idx.append(i)
+                        entry_sell_val.append(highs[i-1] * 1.001)
+                        # Opcional: signals[i] = -1
+
+            # 3. PIVOT DE BUY (FUNDO)
+            # -1 desce abaixo do -2: lows[i-1] < lows[i-2]
+            #  0 sobe acima do -1: closes[i] > highs[i-1] <-- A quebra da estrutura
+            if zona_compra:
+                if lows[i-1] < lows[i-2]: # O bico desceu
+                    if closes[i] > highs[i-1]: # O atual rompeu a máxima do bico
+                        entry_buy_idx.append(i)
+                        entry_buy_val.append(lows[i-1] * 0.999)
+                        # Opcional: signals[i] = 1
+            """
+            # 1. ZONA DE CONE (Obrigatório estar fora ou tocar na BB80)
+            in_extreme_zone_bear = highs[i-2] > bb80_up[i-2] or highs[i-1] > bb80_up[i-1]
+            in_extreme_zone_bull = lows[i-2] < bb80_low[i-2] or lows[i-1] < bb80_low[i-1]
+
+            # 2. LÓGICA DE VENDA (SELL) - Quebra de Estrutura no Topo
+            if in_extreme_zone_bear:
+                # Identificamos o Pivot High (O bico do cone) em i-1 ou i-2
+                # E verificamos se o candle atual (i) quebrou a mínima do candle que fez o topo
+                topo_do_cone = max(highs[i-1], highs[i-2])
+                gatilho_venda = min(lows[i-1], lows[i-2]) # A mínima do bico
+                
+                # Quebra de Estrutura: Preço atual fecha abaixo da mínima do bico
+                if closes[i] < gatilho_venda and closes[i] < ltf_basis[i]:
+                    # Confirmamos que a banda 20 já começou a apontar para baixo
+                    if bb20_up[i] < bb20_up[i-1]:
+                        entry_sell_idx.append(i)
+                        entry_sell_val.append(highs[i-1]) # Sinal visual no topo
+                        in_extreme_zone_bear = False
+
+            # 3. LÓGICA DE COMPRA (BUY) - Quebra de Estrutura no Fundo
+            if in_extreme_zone_bull:
+                # Identificamos o Pivot Low em i-1 ou i-2
+                fundo_do_cone = min(lows[i-1], lows[i-2])
+                gatilho_compra = max(highs[i-1], highs[i-2]) # A máxima do bico
+                
+                # Quebra de Estrutura: Preço atual fecha acima da máxima do bico
+                if closes[i] > gatilho_compra and closes[i] > ltf_basis[i]:
+                    # Confirmamos que a banda 20 já curvou para cima
+                    if bb20_low[i] > bb20_low[i-1]:
+                        entry_buy_idx.append(i)
+                        entry_buy_val.append(lows[i-1])
+                        in_extreme_zone_bull = False
+            """
             # --- PASSO 1: CONTEXTO (SETAS) ---
             """
             if lows[i] < bb80_low[i]:
@@ -197,7 +263,7 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
                     entry_sell_val.append(highs[i] * 1.003) # Ligeiramente acima
                     in_extreme_zone_bear = False
             """
-
+            """
             if bb20_low[i-1] < bb80_low[i-1] and bb20_low[i] >= bb80_low[i]:
                 entry_buy_idx.append(i)
                 entry_buy_val.append(lows[i] * 0.997) # Ligeiramente abaixo para não sobrepor
@@ -208,7 +274,7 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
                 entry_sell_idx.append(i)
                 entry_sell_val.append(highs[i] * 1.003) # Ligeiramente acima
                 in_extreme_zone_bear = False
-
+            """
 
             # --- RESET DE SEGURANÇA ---
 
