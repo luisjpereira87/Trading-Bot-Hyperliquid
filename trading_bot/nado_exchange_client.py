@@ -18,8 +18,8 @@ from nado_protocol.indexer_client.types.models import \
 from nado_protocol.indexer_client.types.query import (
     IndexerCandlesticksParams, IndexerSubaccountsParams)
 from nado_protocol.trigger_client.types.execute import (
-    CancelProductTriggerOrdersParams, CancelTriggerOrdersParams,
-    PlaceTriggerOrderParams)
+    CancelProductOrdersParams, CancelProductTriggerOrdersParams,
+    CancelTriggerOrdersParams, PlaceTriggerOrderParams)
 from nado_protocol.trigger_client.types.models import (LastPriceAbove,
                                                        LastPriceBelow,
                                                        PriceTrigger,
@@ -705,47 +705,57 @@ class NadoExchangeClient(ExchangeBase):
 
         except Exception as e:
             logging.error(f"❌ Erro fatal no _place_protections: {e}")
-    
+
     async def cancel_all_orders(self, symbol: str):
         try:
             product_id = await self._get_market_id(symbol)
             if product_id is None:
                 return
 
-            # A Engine exige que as listas tenham o mesmo tamanho
-            # Se passamos 1 product_id, passamos uma lista com uma string vazia em digests
-            params_limit = CancelOrdersParams(
-                signature=None,
-                sender=SubaccountParams(
-                    subaccount_owner=self.wallet_address,
-                    subaccount_name="default"
-                ),
-                nonce=None,
-                productIds=[product_id],
-                digests=[""]  # <--- AJUSTE: Mesmo tamanho que productIds
+            subaccount = SubaccountParams(
+                subaccount_owner=self.wallet_address,
+                subaccount_name="default"
             )
-            
-            logging.info(f"🚫 [Nado] Cancelando Limit Orders em {symbol}...")
-            self.client.context.engine_client.cancel_orders(params=params_limit)
 
-            # O mesmo se aplica ao Trigger Client para o Stop Loss
+            # 1. CANCELAR TODAS AS LIMIT ORDERS (Book comum)
+            # Em vez de cancel_orders com digests vazios, usamos cancel_product_orders
+            try:
+                logging.info(f"🚫 [Nado] Limpando Limit Orders em {symbol}...")
+                self.client.market.cancel_product_orders(
+                    CancelProductOrdersParams(
+                        sender=subaccount,
+                        productIds=[product_id],
+                        signature=None,
+                        nonce=None,
+                        digest=None
+                    )
+                )
+            except Exception as e:
+                logging.debug(f"ℹ️ Sem limit orders para cancelar: {e}")
+
+            # 2. CANCELAR TODAS AS TRIGGER ORDERS (SL e TP)
             trigger_client = self.client.context.trigger_client
             if trigger_client:
-                params_trigger = CancelProductTriggerOrdersParams(
-                    signature=None,
-                    sender=SubaccountParams(
-                        subaccount_owner=self.wallet_address,
-                        subaccount_name="default"
-                    ),
-                    nonce=None,
-                    productIds=[product_id],
-                    digest=None
-                )
-                trigger_client.cancel_product_trigger_orders(params=params_trigger)
+                try:
+                    logging.info(f"🚫 [Nado] Limpando Trigger Orders (SL/TP) em {symbol}...")
+                    # O método mais seguro para limpar tudo de um produto
+                    params_trigger = CancelProductTriggerOrdersParams(
+                        signature=None,
+                        sender=SubaccountParams(
+                            subaccount_owner=self.wallet_address,
+                            subaccount_name="default"
+                        ),
+                        nonce=None,
+                        productIds=[product_id],
+                        digest=None
+                    )
+                    trigger_client.cancel_product_trigger_orders(params_trigger)
+                except Exception as e:
+                    logging.debug(f"ℹ️ Sem trigger orders para cancelar: {e}")
 
         except Exception as e:
-            # Se der erro aqui, não deixamos crashar o fecho da posição principal
-            logging.warning(f"⚠️ Aviso ao cancelar ordens (pode não haver ordens abertas): {e}")
+            logging.warning(f"⚠️ Erro ao limpar ordens em {symbol}: {e}")
+
 
     async def close_position(self, symbol: str, amount: float, side: Signal):
         logging.info(f"⚖️ [Nado] Iniciando fecho nativo via SDK para {symbol}")
