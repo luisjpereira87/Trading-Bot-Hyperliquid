@@ -16,7 +16,8 @@ from nado_protocol.engine_client.types import (CancelOrdersParams,
 from nado_protocol.indexer_client.types.models import \
     IndexerCandlesticksGranularity
 from nado_protocol.indexer_client.types.query import (
-    IndexerCandlesticksParams, IndexerSubaccountsParams)
+    IndexerCandlesticksParams, IndexerSubaccountHistoricalOrdersParams,
+    IndexerSubaccountsParams)
 from nado_protocol.trigger_client.types.execute import (
     CancelProductOrdersParams, CancelProductTriggerOrdersParams,
     CancelTriggerOrdersParams, PlaceTriggerOrderParams)
@@ -302,84 +303,76 @@ class NadoExchangeClient(ExchangeBase):
 
     async def get_open_position(self, symbol: str) -> (OpenPosition | None):
         try:
-            # 1. Resolve o ID do produto (HL -> Nado ID)
             product_id = await self._get_market_id(symbol)
             if product_id is None:
                 return None
-            
-            # Chamada à Engine para ter os dados em tempo real (spot_balances)
             positions = self._get_subaccount_info()
+            if not positions: return None
 
-            if not positions:
-                return None
-
-            X18_SCALE = 10**18
-
-            # 3. Mapeamento para o teu formato OpenPosition
             for p_balance in positions.perp_balances:
                 if p_balance.product_id == product_id:
                     amount_raw = int(p_balance.balance.amount)
                     
-                    if abs(amount_raw) > 0:
+                    # SÓ CONTINUA SE HOUVER POSIÇÃO ABERTA NA ENGINE
+                    if abs(amount_raw) > 1e14: # Mais de 0.0001 para ignorar poeira
                         X18_SCALE = 10**18
                         size = abs(float(amount_raw)) / X18_SCALE
                         side = 'buy' if amount_raw > 0 else 'sell'
 
-                        #entry_price = await self.get_position_entry_price(symbol, size)
+                        # BUSCAR PREÇO NO INDEXER
+                        entry_price = 0.0
+                        try:
+                            hist_params = IndexerSubaccountHistoricalOrdersParams(
+                                subaccounts=[positions.subaccount],
+                                product_ids=[product_id],
+                                limit=5,
+                                submission_idx=None,
+                                max_time=None,
+                                trigger_types=None,
+                                isolated=None
+                            )
+                            history = self.client.context.indexer_client.get_subaccount_historical_orders(hist_params)
 
-                        balance = p_balance.balance
-                
-                        amount = float(balance.amount)
-                        v_quote = float(balance.v_quote_balance)
+                            if history and history.orders:
+                                # Procuramos a ordem mais recente que combine com o nosso side
+                                for order_info in history.orders:
+                                    order_amount = int(order_info.amount)
+                                    # Se a ordem é de compra e estamos comprados (ou vice-versa)
+                                    if (order_amount > 0 and side == 'buy') or (order_amount < 0 and side == 'sell'):
+                                        # Cálculo do preço real de execução (Total gasto / Quantidade)
+                                        # Usamos abs porque quote_filled é negativo na compra
+                                        q_filled = abs(float(order_info.quote_filled))
+                                        b_filled = abs(float(order_info.base_filled))
+                                        if b_filled > 0:
+                                            entry_price = q_filled / b_filled
+                                            break
+                        except Exception as e:
+                            logging.error(f"Erro ao buscar histórico: {e}")
+
+                        # FALLBACK SE O INDEXER FALHAR
+                        if entry_price == 0:
+                            v_quote = float(p_balance.balance.v_quote_balance)
+                            entry_price = abs(-v_quote / float(amount_raw))
+
+                        current_market_price = await self.get_entry_price(symbol)
+                        if not current_market_price: return None
+
+                        # CÁLCULO PNL
+                        diff = (current_market_price - entry_price) / entry_price
+                        pnl_pct = diff if side == 'buy' else -diff
                         
-                        if amount == 0:
-                            return None
-                        
-                        # Fórmula: -v_quote / amount
-                        entry_price = abs(-v_quote / amount)
-
-                        # Preço Atual de Mercado (Ticker)
-                        current_market_price = await self.get_entry_price(symbol) # Assume que tens este método
-
-                        # 2. Verificar se o preço é válido antes de fazer contas
-                        if current_market_price is None:
-                            logging.warning(f"⚠️ Não foi possível obter preço de entrada para {symbol}. PNL não calculado.")
-                            current_market_price = 0.0 # Fallback para evitar erro de cálculo, ou return None
-                        
-
-                        if entry_price is None:
-                            logging.warning(f"⚠️ Não foi possível obter preço currente para {symbol}. PNL não calculado.")
-                            entry_price = 0.0 # Fallback para evitar erro de cálculo, ou return None
-
-
-                        # Cálculo do PNL (ROE)
-                        # (Preço Atual - Preço Entrada) / Preço Entrada (Ajustado pelo side)
-                        if entry_price and current_market_price:
-                            diff = (current_market_price - entry_price) / entry_price
-                            pnl_pct = diff if side == 'buy' else -diff
-                            
-                            # LOG DE SUCESSO - Para veres se bate com a plataforma
-                            logging.info(f"📊 {symbol} | Entry: {entry_price:.2f} | Market: {current_market_price:.2f} | PNL: {pnl_pct*100:.2f}%")
-                        else:
-                            pnl_pct = 0.0
-                            logging.warning(f"⚠️ Falha de dados para {symbol}: Entry={entry_price}, Market={current_market_price}")
+                        logging.info(f"📊 {symbol} | Entry: {entry_price:.2f} | Market: {current_market_price:.2f} | PNL: {pnl_pct*100:.2f}%")
 
                         return OpenPosition(
-                            side=side,
-                            size=size,
-                            entry_price=entry_price,
-                            id=f"pos_{product_id}",
-                            notional=size * current_market_price,
-                            # Mantemos os teus campos None se não forem críticos agora
-                            sl=None, 
-                            tp=None,
-                            unrealizedPnl=pnl_pct
+                            side=side, size=size, entry_price=entry_price,
+                            id=f"pos_{product_id}", notional=size * current_market_price,
+                            sl=None, tp=None, unrealizedPnl=pnl_pct
                         )
             
-            return None
+            return None # Nenhuma posição aberta para este produto
 
         except Exception as e:
-            logging.error(f"Erro ao converter posição Nado para {symbol}: {e}")
+            logging.error(f"Erro em get_open_position para {symbol}: {e}")
             return None
         
     async def calculate_entry_amount(self, symbol: str, price_ref: float, capital_amount: float) -> float:
