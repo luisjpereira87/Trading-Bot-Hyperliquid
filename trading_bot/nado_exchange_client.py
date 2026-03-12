@@ -708,6 +708,8 @@ class NadoExchangeClient(ExchangeBase):
             price_step = market_data["price_step"]
             size_step = market_data["size_step"]
 
+            base_nonce = int(time.time() * 1000)
+
             # 1. Limpeza de Preço
             def clean_price(p):
                 return (p // price_step) * price_step
@@ -745,7 +747,7 @@ class NadoExchangeClient(ExchangeBase):
                         sender=subaccount, amount=close_amount, priceX18=exec_price_x18,
                         expiration=int(time.time() + 86400 * 30), # 30 dias
                         appendix=build_appendix(OrderType.DEFAULT, reduce_only=True, trigger_type=OrderAppendixTriggerType.PRICE),
-                        nonce=None
+                        nonce=base_nonce
                     ),
                     trigger=PriceTrigger(price_trigger=PriceTriggerData(
                         price_requirement=LastPriceBelow(last_price_below=sl_trigger_str) if side == Signal.BUY 
@@ -754,7 +756,7 @@ class NadoExchangeClient(ExchangeBase):
                     signature=None, id=None, digest=None, spot_leverage=None
                 )
                 res_sl = self.client.market.place_trigger_order(params=sl_params)
-                logging.info(f"🛑 SL configurado: {sl_fixed}")
+                logging.info(f"🛑 SL configurado: {sl_fixed}, res_sl={res_sl}")
 
             # ---------------------------------------------------------
             # 2. TAKE PROFIT (Também como Trigger Order para evitar Erro 2064)
@@ -773,7 +775,7 @@ class NadoExchangeClient(ExchangeBase):
                         sender=subaccount, amount=close_amount, priceX18=tp_exec_price_x18,
                         expiration=int(time.time() + 86400 * 30),
                         appendix=build_appendix(OrderType.DEFAULT, reduce_only=True, trigger_type=OrderAppendixTriggerType.PRICE),
-                        nonce=None
+                        nonce=base_nonce+1
                     ),
                     trigger=PriceTrigger(price_trigger=PriceTriggerData(
                         # Se estou BUY, lucro está ACIMA. Se estou SELL, lucro está ABAIXO.
@@ -783,7 +785,7 @@ class NadoExchangeClient(ExchangeBase):
                     signature=None, id=None, digest=None, spot_leverage=None
                 )
                 res_tp = self.client.market.place_trigger_order(params=tp_trigger_params)
-                logging.info(f"🎯 TP configurado: {tp_fixed}")
+                logging.info(f"🎯 TP configurado: {tp_fixed}, res_tp={res_tp}")
 
         except Exception as e:
             logging.error(f"❌ Erro fatal no _place_protections: {e}")
