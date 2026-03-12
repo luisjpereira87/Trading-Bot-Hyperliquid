@@ -593,7 +593,7 @@ class NadoExchangeClient(ExchangeBase):
             logging.error(f"❌ Erro fatal no place_entry_order (Nado): {e}")
             raise
 
-
+    """
     async def _place_protections(self, symbol, product_id, size, side, sl_price, tp_price):
         try:
             X18_SCALE = 10**18
@@ -705,6 +705,95 @@ class NadoExchangeClient(ExchangeBase):
 
         except Exception as e:
             logging.error(f"❌ Erro fatal no _place_protections: {e}")
+    """
+    async def _place_protections(self, symbol, product_id, size, side, sl_price, tp_price):
+        try:
+            X18_SCALE = 10**18
+            market_data = await self.get_market_meta(symbol)
+            if not market_data: return
+
+            price_step = market_data["price_step"]
+            size_step = market_data["size_step"]
+
+            # 1. Limpeza de Preço
+            def clean_price(p):
+                return (p // price_step) * price_step
+
+            # 2. LIMPEZA DE QUANTIDADE (AMOUNT) - O SEGREDO DO ERRO 2064
+            # Usamos math.floor para NUNCA arredondar para cima. 
+            # Se a posição é 0.195, enviamos 0.195 ou 0.19499, nunca 0.1950001
+            import math
+            size_step_x18 = int(round(size_step * X18_SCALE))
+            
+            # Forçamos o arredondamento para BAIXO (floor)
+            amount_raw_x18 = int(size * X18_SCALE)
+            clean_size_x18 = (amount_raw_x18 // size_step_x18) * size_step_x18
+            
+            # Quantidade de fecho com sinal oposto
+            close_amount = -clean_size_x18 if side == Signal.BUY else clean_size_x18
+
+            # Subaccount comum
+            subaccount = SubaccountParams(subaccount_owner=self.wallet_address, subaccount_name="default")
+
+            # ---------------------------------------------------------
+            # 1. STOP LOSS (Trigger Order)
+            # ---------------------------------------------------------
+            if sl_price:
+                sl_fixed = clean_price(sl_price)
+                sl_trigger_str = f"{int(round(sl_fixed * X18_SCALE)):.0f}"
+                
+                # Slippage agressivo para garantir fecho (Slippage que discutimos antes)
+                slippage = 0.95 if side == Signal.BUY else 1.05
+                exec_price_x18 = int(round(clean_price(sl_fixed * slippage) * X18_SCALE))
+
+                sl_params = PlaceTriggerOrderParams(
+                    product_id=product_id,
+                    order=OrderParams(
+                        sender=subaccount, amount=close_amount, priceX18=exec_price_x18,
+                        expiration=int(time.time() + 86400 * 30), # 30 dias
+                        appendix=build_appendix(OrderType.DEFAULT, reduce_only=True, trigger_type=OrderAppendixTriggerType.PRICE),
+                        nonce=None
+                    ),
+                    trigger=PriceTrigger(price_trigger=PriceTriggerData(
+                        price_requirement=LastPriceBelow(last_price_below=sl_trigger_str) if side == Signal.BUY 
+                        else LastPriceAbove(last_price_above=sl_trigger_str)
+                    )),
+                    signature=None, id=None, digest=None, spot_leverage=None
+                )
+                res_sl = self.client.market.place_trigger_order(params=sl_params)
+                logging.info(f"🛑 SL configurado: {sl_fixed}")
+
+            # ---------------------------------------------------------
+            # 2. TAKE PROFIT (Também como Trigger Order para evitar Erro 2064)
+            # ---------------------------------------------------------
+            if tp_price:
+                tp_fixed = clean_price(tp_price)
+                tp_trigger_str = f"{int(round(tp_fixed * X18_SCALE)):.0f}"
+                
+                # No TP, o preço de execução pode ser o próprio TP (ou ligeiramente pior para garantir)
+                # Como é TP, queremos vender ao preço ou melhor, usamos o fixo.
+                tp_exec_price_x18 = int(round(tp_fixed * X18_SCALE))
+
+                tp_trigger_params = PlaceTriggerOrderParams(
+                    product_id=product_id,
+                    order=OrderParams(
+                        sender=subaccount, amount=close_amount, priceX18=tp_exec_price_x18,
+                        expiration=int(time.time() + 86400 * 30),
+                        appendix=build_appendix(OrderType.DEFAULT, reduce_only=True, trigger_type=OrderAppendixTriggerType.PRICE),
+                        nonce=None
+                    ),
+                    trigger=PriceTrigger(price_trigger=PriceTriggerData(
+                        # Se estou BUY, lucro está ACIMA. Se estou SELL, lucro está ABAIXO.
+                        price_requirement=LastPriceAbove(last_price_above=tp_trigger_str) if side == Signal.BUY 
+                        else LastPriceBelow(last_price_below=tp_trigger_str)
+                    )),
+                    signature=None, id=None, digest=None, spot_leverage=None
+                )
+                res_tp = self.client.market.place_trigger_order(params=tp_trigger_params)
+                logging.info(f"🎯 TP configurado: {tp_fixed}")
+
+        except Exception as e:
+            logging.error(f"❌ Erro fatal no _place_protections: {e}")
 
     async def cancel_all_orders(self, symbol: str):
         try:
@@ -792,62 +881,6 @@ class NadoExchangeClient(ExchangeBase):
             # Se o erro for que a posição já é zero, o SDK pode lançar exceção
             # Podes tratar isso aqui se quiseres
 
-    async def close_position_old(self, symbol: str, amount: float, side: Signal):
-        logging.info(f"⚖️ [Nado] Iniciando fecho: {symbol} | {side.value} | Size: {amount}")
-
-        try:
-            # 1. Verificar a posição real no Indexer antes de tentar fechar
-            current_pos = await self.get_open_position(symbol)
-        
-            # Se a posição for 0 ou não existir, saímos graciosamente
-            if not current_pos or abs(current_pos.size) < 1e-8:
-                logging.info(f"ℹ️ [Nado] Nada para fechar em {symbol}. A posição já é zero.")
-                return
-
-            # 1. Limpeza de segurança (Opcional mas recomendado)
-            await self.cancel_all_orders(symbol)
-
-            product_id = await self._get_market_id(symbol)
-            X18_SCALE = 10**18
-            
-            # --- A GRANDE ALTERAÇÃO ESTÁ AQUI ---
-            # Em vez de nado_amount = -amount_raw if side == Signal.BUY else amount_raw
-            # Usamos o inverso exato da posição atual reportada pela exchange
-            nado_amount = int(-(current_pos.size * X18_SCALE))
-            
-            logging.info(f"🔄 [Nado] Executando fecho real: Convertendo {current_pos.size} para ordem de {nado_amount / X18_SCALE}")
-            # ------------------------------------
-
-            if product_id is None:
-                return 
-
-            params = PlaceMarketOrderParams(
-                signature=None,
-                product_id=product_id,
-                market_order=MarketOrderParams(
-                    sender=SubaccountParams(
-                        subaccount_owner=self.wallet_address, 
-                        subaccount_name="default"
-                    ),
-                    nonce=None,
-                    amount=nado_amount
-                ),
-                slippage=0.05,
-                spot_leverage=None, # Perps não usam spot leverage
-                reduce_only=True    # CRÍTICO: Garante que apenas fecha
-            )
-
-            # 3. Execução via Engine
-            # Nota: Verifica se a tua engine está acessível via self.engine 
-            # ou self.client.context.engine_client
-            order_response = self.engine.place_market_order(params)
-            
-            digest = getattr(order_response, 'digest', 'unknown')
-            logging.info(f"✅ Posição fechada com sucesso! Digest: {digest}")
-
-        except Exception as e:
-            logging.error(f"❌ Erro ao fechar posição Nado: {e}")
-            raise
 
     async def apply_trailing_stop(self, symbol, current_price):
         # 1. Verifica se há posição aberta
