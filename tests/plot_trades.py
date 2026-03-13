@@ -805,7 +805,6 @@ class PlotTrades:
 
         for i in range(1, n):
             dates_num = mdates.date2num(dates[i])
-            print("AQUII", i, direction[i])
             # BUY: direção muda de 0 -> 1 e fechamento acima do TS anterior
             if direction[i] == 1:
 
@@ -843,9 +842,12 @@ class PlotTrades:
 
         # Candles
         for i in range(n):
-            color = 'green' if direction[i] == 1 else 'red'
+            color = '#26a69a' if closes[i] >= opens[i] else '#ef5350'
             ax.plot([dates[i], dates[i]], [lows[i], highs[i]], color='black', linewidth=1)  # high-low
             ax.plot([dates[i], dates[i]], [opens[i], closes[i]], color=color, linewidth=5)   # body
+            #ax.plot([i, i], [lows[i], highs[i]], color='white', linewidth=1, alpha=0.4)
+            #ax.bar(i, abs(closes[i] - opens[i]), bottom=min(opens[i], closes[i]), width=width, color=color, zorder=3)
+
 
         ax.set_xlabel("Date")
         ax.set_ylabel("Price")
@@ -1286,7 +1288,7 @@ class PlotTrades:
                 zorder=6
             )
 
-        for idx, val in zip(entry_sell_idx, context_sell_val):
+        for idx, val in zip(entry_sell_idx, entry_sell_val):
             ax1.text(
                 idx, 
                 val, 
@@ -1486,6 +1488,7 @@ async def main():
         #PlotTrades.plot_double_rsi_signals(ohlcv, pair.symbol)
         PlotTrades.plot_double_bb_rsi_logic(ohlcv, pair.symbol)
         #PlotTrades.plot_soheil_pko_strategy(ohlcv, pair.symbol)
+        #PlotTrades.plot_market_structure_rsi(ohlcv, pair.symbol)
         
         
 

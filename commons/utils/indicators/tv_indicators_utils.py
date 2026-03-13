@@ -741,7 +741,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
     def market_structure(self):
         highs = np.array(self.highs)
         lows = np.array(self.lows)
-        swing_high, swing_low = self.find_swings()
+        swing_high, swing_low = self.find_swings(10, 10)
 
         last_HL = np.full(len(highs), np.nan)
         last_LH = np.full(len(highs), np.nan)

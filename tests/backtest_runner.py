@@ -293,7 +293,7 @@ class ExchangeClientMock(ExchangeClient):
     async def simulate_tp_sl(self, candle: Ohlcv, symbol):
 
         position = self.positions.get(symbol)
-        
+        print("AQUIII", candle)
         if position:
             side = position["side"]
             sl = position["sl"]
@@ -362,9 +362,9 @@ class ExchangeClientMock(ExchangeClient):
         # --- MESMOS DEGRAUS QUE DEFINIMOS PARA A NADO/HL ---
         if pnl_pct >= 0.02:    # Lucro > 4.5%
             adjustment = 0.015
-        elif pnl_pct >= 0.01:   # Lucro > 3%
+        elif pnl_pct >= 0.004:   # Lucro > 3%
             adjustment = 0.006
-        elif pnl_pct >= 0.004:  # Lucro > 1.5%
+        elif pnl_pct >= 0.001:  # Lucro > 1.5%
             adjustment = 0.001 # Breakeven
 
         if adjustment > 0:
@@ -504,16 +504,16 @@ class BacktestRunner:
         for i in range(strategy.REQUIRED_CANDLES_200, len(self.ohlcv)):
             #candles_slice = self.ohlcv[:i]  # candles até i-1 fechados
             current_candle = self.ohlcv[i]  # vela em que vais abrir posição no início
-
+            
             exchange_client.update_candles(self.pair.symbol, current_candle, i)
             
-            await exchange_client.simulate_tp_sl(OhlcvWrapper(self.ohlcv).get_candle(i), self.pair.symbol)
-            
+            await exchange_client.simulate_tp_sl(OhlcvWrapper(self.ohlcv).get_candle(i-1), self.pair.symbol)
+            #print("AQUIIII", current_candle, OhlcvWrapper(self.ohlcv).get_candle(i-1))
             signal = await bot.run_pair(self.pair)
             signals.append({'signal': signal, 'index': i - 1, 'candle': current_candle})
             
 
-            #if i == 584:
+            #if i == 322:
             #   break
 
         #print(signals)
@@ -560,7 +560,7 @@ class BacktestRunner:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("ETH/USDC:USDC")
+    pair = get_pair_by_symbol("SOL/USDC:USDC")
 
     if pair != None:
 

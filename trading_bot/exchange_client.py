@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -19,6 +20,7 @@ class ExchangeClient(ExchangeBase):
         self.exchange = exchange
         self.wallet_address = wallet_address
         self.helpers = TradingHelpers()
+        self.active_trailing_levels = {}
 
     async def fetch_ohlcv(
         self,
@@ -431,6 +433,8 @@ class ExchangeClient(ExchangeBase):
         logging.info("Aplicar trailing stop")
         pos = await self.get_open_position(symbol)
         if not pos or abs(pos.size) < 1e-8:
+            # Se a posição fechou, limpamos o estado para este símbolo
+            self.active_trailing_levels.pop(symbol, None)
             logging.info("Sem posição ou size < 1e-8")
             return
         
@@ -455,7 +459,10 @@ class ExchangeClient(ExchangeBase):
             adjustment = 0.001     # Garante 0.1% (Paga as taxas e sobra $3-$5)
             logging.info("🛡️ Break-even ativo! Taxas cobertas e lucro mínimo garantido.")
 
-        if adjustment > 0:
+        # 2. O PULO DO GATO: Verificar se já aplicamos este ajuste (ou um superior)
+        last_applied = self.active_trailing_levels.get(symbol, 0)
+
+        if adjustment > last_applied:
             # 4. Calcula os novos preços baseados no ajuste uniforme
             if side == 'buy':
                 new_sl = entry_price * (1 + adjustment)
@@ -466,9 +473,13 @@ class ExchangeClient(ExchangeBase):
 
             logging.info(f"🔄 [Trailing] Reajustando proteções para {symbol} (+{adjustment:.2%})")
 
+            # Atualizamos o estado ANTES de enviar para evitar duplicidade em caso de lag
+            self.active_trailing_levels[symbol] = adjustment
+
             # 5. O PULO DO GATO: Reutiliza o teu método de proteções
             # Primeiro cancelamos as ordens de proteção antigas para não duplicar
             await self.cancel_all_orders(symbol)
+            await asyncio.sleep(0.5) # Pequena folga para a API processar
 
             
             # Chamamos o método que tu já tens pronto e validado!
@@ -479,5 +490,10 @@ class ExchangeClient(ExchangeBase):
                 sl_price=new_sl,
                 tp_price=new_tp
             )
+        else:
+            # Se cair aqui, significa que o SL já está no nível correto 
+            # ou o lucro ainda não subiu o suficiente para o próximo degrau.
+            if adjustment > 0:
+                logging.info(f"✅ Trailing em {symbol} já garantido em {adjustment:.2%}. Aguardando próximo nível.")
 
    

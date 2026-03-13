@@ -110,146 +110,95 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
 
         signals = np.zeros(n)
 
-        is_trigger_buy = False # Esta variável controla a repetição
-        is_trigger_sell = False
-
-        bbw = self.bbw(bb_short_period, bb_short_std_dev) * 1000
-        plano_zero = np.zeros(len(closes))
-        gap_index = self.calculate_gap(bbw, plano_zero)
-
         final_scores, smooth_scores = self.calculate_super_score()
-        for i in range(1, n):
 
-            # 1. CONDIÇÃO DE ROMPIMENTO (BREAKOUT)
-            # Usamos as bandas azuis (20 períodos) para o gatilho curto
-            breakout_up = closes[i] > bb20_up[i]
-            breakout_down = closes[i] < bb20_low[i]
-
-
-            # A regra: Tem de haver um aumento de força de pelo menos 10%
-            is_strong_impulse = (gap_index[i] - gap_index[i-1]) >= 15
-
-
-            # 2. CÁLCULO DE INCLINAÇÃO (SLOPE)
-            # Usamos uma janela de 2 para ser mais responsivo, mas filtramos a força
-           
-            slope_bbw = (bbw[i] - bbw[i-1]) / (bbw[i-1] if bbw[i-1] != 0 else 1)
-            #volatility_confirm = bbw[i] > bbw[i-1] and slope_bbw > 0.30
-            volatility_confirm = bbw[i] > bbw[i-1] and gap_index[i] > gap_index[i-1] and is_strong_impulse
-
-            #print("AQUII", i, gap_index[i], gap_index[i] - gap_index[i-1])
-            """
-
-            # Definir o período de observação
-            lookback = 3 
-
-            # Calcular o Slope médio das últimas X velas
-            # (bbw[i] - bbw[i-lookback]) dá-nos a tendência real da abertura das bandas
-            avg_slope_bbw = (bbw[i] - bbw[i-lookback]) / (bbw[i-lookback] if bbw[i-lookback] != 0 else 1)
-
-            # Confirmamos se a volatilidade está a crescer de forma sustentada
-            volatility_confirm = avg_slope_bbw > 0.5
-             """
+        # 1. CHAMA O TEU NOVO MÉTODO (O Arqueólogo)
+        levels = self.get_significant_levels(highs, lows, window=30)
         
-            # 4. LÓGICA DE MOMENTUM REFINADA
-            is_bullish_momentum = (
-                breakout_up and 
-                volatility_confirm and
-                not is_trigger_buy
-            )
+        # 2. SEPARA AS MURALHAS (Últimos 5 suportes e 5 resistências)
+        last_supports = [l['price'] for l in levels if l['type'] == 'S'][-5:]
+        last_resistances = [l['price'] for l in levels if l['type'] == 'R'][-5:]
 
-            # (Repetir lógica similar para Bearish...)
-            is_bearish_momentum = (
-                breakout_down and
-                volatility_confirm and
-                not is_trigger_sell
-            )
-
-            # REVERSÃO PARA ALTA (BULL)
-            # Se o oscilador bull começar a subir e cruzar um threshold (ex: 20 ou 50)
-            """
-            if is_bullish_momentum:
-                trend_buy_idx.append(i)
-                trend_buy_val.append(lows[i])
-                signals[i] = 1
-                is_trigger_buy = True
-
-            # REVERSÃO PARA BAIXA (BEAR)
-            if is_bearish_momentum:
-                trend_sell_idx.append(i)
-                trend_sell_val.append(highs[i])
-                signals[i] = -1
-                is_trigger_sell = True
-
-            if bbw[i] < bbw[i-1]:
-                is_trigger_buy = False
-                is_trigger_sell = False
-            """
-            # Definimos os 3 candles da sequência:
-            # i-2 (Passado próximo)
-            # i-1 (O bico do cone)
-            # i   (O candle atual de confirmação)
-
+        lookback_momentum = 2  # Quantos candles o sinal do Score "vale"
+        
+        for i in range(1, n):
+            
             # 1. CONTEXTO DE EXTREMO (Ainda usamos as bandas para filtrar ruído)
-            zona_venda = highs[i-1] > bb80_up[i-1] or highs[i-1] > bb20_up[i-1]
-            zona_compra = lows[i-1] < bb80_low[i-1] or lows[i-1] < bb20_low[i-1]
+            #zona_venda = highs[i-1] > bb80_up[i-1] or highs[i-1] > bb20_up[i-1]
+            #zona_compra = lows[i-1] < bb80_low[i-1] or lows[i-1] < bb20_low[i-1]
+            extreme_buy_zone = bb80_low[i] > bb20_low[i]
+            extreme_sell_zone = bb80_up[i] < bb20_up[i]
 
-            # 2. PIVOT DE SELL (TOPO)
-            # -2 sobe: highs[i-2] > highs[i-3] (opcional, mas confirma força)
-            # -1 sobe acima do -2: highs[i-1] > highs[i-2]
-            #  0 cai abaixo do -1: closes[i] < lows[i-1]  <-- A quebra da estrutura
-            if zona_venda:
-                if highs[i-1] > highs[i-2]: # O bico subiu
-                    if closes[i] < lows[i-1]: # O atual engoliu a mínima do bico
-                        entry_sell_idx.append(i)
-                        entry_sell_val.append(highs[i-1] * 1.001)
-                        # Opcional: signals[i] = -1
 
-            # 3. PIVOT DE BUY (FUNDO)
-            # -1 desce abaixo do -2: lows[i-1] < lows[i-2]
-            #  0 sobe acima do -1: closes[i] > highs[i-1] <-- A quebra da estrutura
-            if zona_compra:
-                if lows[i-1] < lows[i-2]: # O bico desceu
-                    if closes[i] > highs[i-1]: # O atual rompeu a máxima do bico
+            # --- LÓGICA DE COMPRA (BUY) ---
+            if extreme_buy_zone:
+                # Pivot de 3 velas (O Bico)
+                is_pivot_buy = lows[i-1] < lows[i-2] and lows[i-1] < lows[i]
+                # Confirmação de Força e Score
+                has_strength = closes[i] > opens[i-1] and closes[i] > highs[i-1]
+
+                valid_momentum_buy = any(
+                    (final_scores[j-1] <= smooth_scores[j-1] and  # Estava abaixo da média
+                    final_scores[j] > smooth_scores[j] and       # Cruzou para cima
+                    (final_scores[j-1] <= -60 or final_scores[j] <= -60)) # Garante que ocorreu no pânico
+                    for j in range(max(1, i - lookback_momentum), i + 1)
+                )
+
+                if is_pivot_buy and has_strength and valid_momentum_buy:
+                    current_bottom = lows[i-1]
+                    relative_position = (current_bottom - bb20_low[i-1]) / (bb20_up[i-1] - bb20_low[i-1])
+                    in_extreme_buy = relative_position <= 0.05 # Aceita até 5% acima da banda (margem dinâmica)
+                    # Filtro de Memória S/R
+                    close_to_support = any(abs(current_bottom - s) / s <= in_extreme_buy for s in last_supports)
+                    is_fresh_low = current_bottom < min(last_supports) if last_supports else True
+
+                    if (close_to_support or is_fresh_low):
                         entry_buy_idx.append(i)
-                        entry_buy_val.append(lows[i-1] * 0.999)
-                        # Opcional: signals[i] = 1
-            """
-            # 1. ZONA DE CONE (Obrigatório estar fora ou tocar na BB80)
-            in_extreme_zone_bear = highs[i-2] > bb80_up[i-2] or highs[i-1] > bb80_up[i-1]
-            in_extreme_zone_bull = lows[i-2] < bb80_low[i-2] or lows[i-1] < bb80_low[i-1]
+                        entry_buy_val.append(current_bottom)
+                        signals[i] = 1
+                        # Atualiza memória
+                        last_supports.append(current_bottom)
+                        last_supports = last_supports[-5:]
 
-            # 2. LÓGICA DE VENDA (SELL) - Quebra de Estrutura no Topo
-            if in_extreme_zone_bear:
-                # Identificamos o Pivot High (O bico do cone) em i-1 ou i-2
-                # E verificamos se o candle atual (i) quebrou a mínima do candle que fez o topo
-                topo_do_cone = max(highs[i-1], highs[i-2])
-                gatilho_venda = min(lows[i-1], lows[i-2]) # A mínima do bico
-                
-                # Quebra de Estrutura: Preço atual fecha abaixo da mínima do bico
-                if closes[i] < gatilho_venda and closes[i] < ltf_basis[i]:
-                    # Confirmamos que a banda 20 já começou a apontar para baixo
-                    if bb20_up[i] < bb20_up[i-1]:
+            # --- LÓGICA DE VENDA (SELL) ---
+            if extreme_sell_zone:
+                # Pivot de 3 velas (O Bico)
+                is_pivot_sell = highs[i-1] > highs[i-2] and highs[i-1] > highs[i]
+                # Confirmação de Força e Score
+                has_strength = closes[i] < opens[i-1] and closes[i] < closes[i-1]
+
+                valid_momentum_sell = any(
+                    (final_scores[j-1] >= smooth_scores[j-1] and  # Estava acima da média
+                    final_scores[j] < smooth_scores[j] and       # Cruzou para baixo
+                    (final_scores[j-1] >= 60 or final_scores[j] >= 60)) # Garante que ocorreu no extremo
+                    for j in range(max(1, i - lookback_momentum), i + 1)
+                )
+
+                if is_pivot_sell and has_strength and valid_momentum_sell:
+                    current_top = highs[i-1]
+
+                    # 1. Calculas a posição relativa (igual ao Buy)
+                    relative_position = (current_top - bb20_low[i-1]) / (bb20_up[i-1] - bb20_low[i-1])
+
+                    # 2. O filtro de extremo muda para o topo
+                    # Aceita se o preço estiver nos 5% finais da banda ou acima dela
+                    in_extreme_sell = relative_position >= 0.95
+                    
+                    
+                    # Filtro de Memória S/R
+                    close_to_resistence = any(abs(current_top - r) / r <= in_extreme_sell for r in last_resistances)
+                    is_fresh_high = current_top > max(last_resistances) if last_resistances else True
+
+                    if close_to_resistence or is_fresh_high:
                         entry_sell_idx.append(i)
-                        entry_sell_val.append(highs[i-1]) # Sinal visual no topo
-                        in_extreme_zone_bear = False
+                        entry_sell_val.append(current_top)
+                        signals[i] = -1
+                        # Atualiza memória
+                        last_resistances.append(current_top)
+                        last_resistances = last_resistances[-5:]
 
-            # 3. LÓGICA DE COMPRA (BUY) - Quebra de Estrutura no Fundo
-            if in_extreme_zone_bull:
-                # Identificamos o Pivot Low em i-1 ou i-2
-                fundo_do_cone = min(lows[i-1], lows[i-2])
-                gatilho_compra = max(highs[i-1], highs[i-2]) # A máxima do bico
-                
-                # Quebra de Estrutura: Preço atual fecha acima da máxima do bico
-                if closes[i] > gatilho_compra and closes[i] > ltf_basis[i]:
-                    # Confirmamos que a banda 20 já curvou para cima
-                    if bb20_low[i] > bb20_low[i-1]:
-                        entry_buy_idx.append(i)
-                        entry_buy_val.append(lows[i-1])
-                        in_extreme_zone_bull = False
             """
             # --- PASSO 1: CONTEXTO (SETAS) ---
-            """
             if lows[i] < bb80_low[i]:
                 if bb20_low[i-1] < bb20_low[i] and closes[i] > ltf_basis[i]:
                     entry_buy_idx.append(i)
@@ -262,6 +211,7 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
                     entry_sell_idx.append(i)
                     entry_sell_val.append(highs[i] * 1.003) # Ligeiramente acima
                     in_extreme_zone_bear = False
+            
             """
             """
             if bb20_low[i-1] < bb80_low[i-1] and bb20_low[i] >= bb80_low[i]:
@@ -427,4 +377,18 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
         dynamic_signal = np.array(dynamic_signal)
             
         return bull_pct, bear_pct, slope_ma_14, polarity_osc, bbw_puro
+    
+
+    # 1. Função para detetar níveis históricos (SR)
+    # ltf_highs/lows são os teus dados de mercado
+    def get_significant_levels(self, highs, lows, window=30):
+        sr_levels = []
+        for i in range(window, len(highs) - window):
+            # Se for o máximo num raio de 'window' velas, é uma Resistência
+            if highs[i] == max(highs[i-window : i+window]):
+                sr_levels.append({'type': 'R', 'price': highs[i], 'idx': i})
+            # Se for o mínimo, é um Suporte
+            if lows[i] == min(lows[i-window : i+window]):
+                sr_levels.append({'type': 'S', 'price': lows[i], 'idx': i})
+        return sr_levels
         

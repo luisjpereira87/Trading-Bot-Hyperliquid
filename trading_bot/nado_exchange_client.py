@@ -70,6 +70,8 @@ class NadoExchangeClient(ExchangeBase):
         self._pairs_cache = pairs
         self._market_map = {}
 
+        self.active_trailing_levels = {}
+
     
     async def _get_market_id(self, symbol: str) -> int | None:
         try:
@@ -892,6 +894,7 @@ class NadoExchangeClient(ExchangeBase):
         logging.info("Aplicar trailing stop")
         pos = await self.get_open_position(symbol)
         if not pos or abs(pos.size) < 1e-8:
+            self.active_trailing_levels.pop(symbol, None)
             logging.info("Sem posição ou size < 1e-8")
             return
 
@@ -917,7 +920,10 @@ class NadoExchangeClient(ExchangeBase):
             adjustment = 0.001     # Garante 0.1% (Paga as taxas e sobra $3-$5)
             logging.info("🛡️ Break-even ativo! Taxas cobertas e lucro mínimo garantido.")
 
-        if adjustment > 0:
+        # 2. O PULO DO GATO: Verificar se já aplicamos este ajuste (ou um superior)
+        last_applied = self.active_trailing_levels.get(symbol, 0)
+
+        if adjustment > last_applied:
             # 4. Calcula os novos preços baseados no ajuste uniforme
             if side == 'buy':
                 new_sl = entry_price * (1 + adjustment)
@@ -928,13 +934,16 @@ class NadoExchangeClient(ExchangeBase):
 
             logging.info(f"🔄 [Trailing] Reajustando proteções para {symbol} (+{adjustment:.2%})")
 
+            # Atualizamos o estado ANTES de enviar para evitar duplicidade em caso de lag
+            self.active_trailing_levels[symbol] = adjustment
+
             # 5. O PULO DO GATO: Reutiliza o teu método de proteções
             # Primeiro cancelamos as ordens de proteção antigas para não duplicar
             await self.cancel_all_orders(symbol)
 
             # 2. O PULO DO GATO: Pequena pausa para a Nado atualizar o saldo disponível
             # Sem isto, o motor de risco da Nado acha que estás a duplicar ordens
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(0.5)
             
             product_id = await self._get_market_id(symbol)
             
@@ -947,6 +956,11 @@ class NadoExchangeClient(ExchangeBase):
                 sl_price=new_sl,
                 tp_price=new_tp
             )
+        else:
+            # Se cair aqui, significa que o SL já está no nível correto 
+            # ou o lucro ainda não subiu o suficiente para o próximo degrau.
+            if adjustment > 0:
+                logging.info(f"✅ Trailing em {symbol} já garantido em {adjustment:.2%}. Aguardando próximo nível.")
 
         
     
