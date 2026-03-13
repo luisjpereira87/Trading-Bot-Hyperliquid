@@ -401,10 +401,11 @@ class ExchangeClient(ExchangeBase):
                     type='market', # Se quer que execute a mercado ao tocar no preço
                     side=close_side,
                     amount=amount,
-                    price=None,
+                    price=sl_price,
                     params={
                         'stopLossPrice': sl_price, # Usar triggerPrice em vez de stopPrice
-                        'reduceOnly': True
+                        'reduceOnly': True,
+                        'slippage': 0.05 # Opcional: define 5% de tolerância
                     }
                 )
 
@@ -418,7 +419,7 @@ class ExchangeClient(ExchangeBase):
                     type='market',
                     side=close_side,
                     amount=amount,
-                    price=None,
+                    price=tp_price,
                     params={
                         'takeProfitPrice': tp_price,
                         'reduceOnly': True
