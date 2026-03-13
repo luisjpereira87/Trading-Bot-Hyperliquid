@@ -27,6 +27,7 @@ from nado_protocol.trigger_client.types.models import (LastPriceAbove,
                                                        PriceTriggerData,
                                                        TriggerCriteria)
 from nado_protocol.utils.expiration import OrderType
+from nado_protocol.utils.nonce import gen_order_nonce
 from nado_protocol.utils.order import OrderAppendixTriggerType, build_appendix
 from nado_protocol.utils.subaccount import Subaccount, SubaccountParams
 
@@ -54,6 +55,7 @@ class NadoExchangeClient(ExchangeBase):
         # 2. Criar o cliente de forma simples
         # O helper 'create_nado_client' já instancia internamente o Indexer, Engine, etc.
         # Substitui "devnet" por "mainnet" (ou o nome da rede Ink) quando fores para produção
+        
         self.client = create_nado_client(NadoClientMode.TESTNET, self.signer)
 
         self.wallet_address = wallet_address
@@ -708,7 +710,14 @@ class NadoExchangeClient(ExchangeBase):
             price_step = market_data["price_step"]
             size_step = market_data["size_step"]
 
-            base_nonce = int(time.time() * 1000)
+            # Em vez de subtrair, vamos SOMAR 10 segundos (10.000 ms)
+            # Isto diz à Nado: "Esta assinatura é válida por mais 10 segundos"
+            # É a forma mais comum de resolver drift em containers Docker/Railway
+            now_ms = int(time.time() * 1000)
+            base_nonce = now_ms + 10000 
+
+            logging.info(f"🚀 [FORCE-FUTURE] Usando Nonce com Folga: {base_nonce}")
+
 
             # 1. Limpeza de Preço
             def clean_price(p):
@@ -725,7 +734,7 @@ class NadoExchangeClient(ExchangeBase):
             clean_size_x18 = (amount_raw_x18 // size_step_x18) * size_step_x18
             
             # Quantidade de fecho com sinal oposto
-            close_amount = -clean_size_x18 if side == Signal.BUY else clean_size_x18
+            close_amount = -clean_size_x18 if side == 'buy' else clean_size_x18
 
             # Subaccount comum
             subaccount = SubaccountParams(subaccount_owner=self.wallet_address, subaccount_name="default")
@@ -738,7 +747,7 @@ class NadoExchangeClient(ExchangeBase):
                 sl_trigger_str = f"{int(round(sl_fixed * X18_SCALE)):.0f}"
                 
                 # Slippage agressivo para garantir fecho (Slippage que discutimos antes)
-                slippage = 0.95 if side == Signal.BUY else 1.05
+                slippage = 0.95 if side == 'buy' else 1.05
                 exec_price_x18 = int(round(clean_price(sl_fixed * slippage) * X18_SCALE))
 
                 sl_params = PlaceTriggerOrderParams(
@@ -747,20 +756,22 @@ class NadoExchangeClient(ExchangeBase):
                         sender=subaccount, amount=close_amount, priceX18=exec_price_x18,
                         expiration=int(time.time() + 86400 * 30), # 30 dias
                         appendix=build_appendix(OrderType.DEFAULT, reduce_only=True, trigger_type=OrderAppendixTriggerType.PRICE),
-                        nonce=base_nonce
+                        nonce=gen_order_nonce()
                     ),
                     trigger=PriceTrigger(price_trigger=PriceTriggerData(
-                        price_requirement=LastPriceBelow(last_price_below=sl_trigger_str) if side == Signal.BUY 
+                        price_requirement=LastPriceBelow(last_price_below=sl_trigger_str) if side == 'buy' 
                         else LastPriceAbove(last_price_above=sl_trigger_str)
                     )),
-                    signature=None, id=None, digest=None, spot_leverage=None
+                        signature=None, id=None, digest=None, spot_leverage=None
                 )
                 res_sl = self.client.market.place_trigger_order(params=sl_params)
                 logging.info(f"🛑 SL configurado: {sl_fixed}, res_sl={res_sl}")
 
+            time.sleep(1.0) # Pausa obrigatória
             # ---------------------------------------------------------
             # 2. TAKE PROFIT (Também como Trigger Order para evitar Erro 2064)
             # ---------------------------------------------------------
+            
             if tp_price:
                 tp_fixed = clean_price(tp_price)
                 tp_trigger_str = f"{int(round(tp_fixed * X18_SCALE)):.0f}"
@@ -775,11 +786,10 @@ class NadoExchangeClient(ExchangeBase):
                         sender=subaccount, amount=close_amount, priceX18=tp_exec_price_x18,
                         expiration=int(time.time() + 86400 * 30),
                         appendix=build_appendix(OrderType.DEFAULT, reduce_only=True, trigger_type=OrderAppendixTriggerType.PRICE),
-                        nonce=base_nonce+1
+                        nonce=gen_order_nonce()
                     ),
                     trigger=PriceTrigger(price_trigger=PriceTriggerData(
-                        # Se estou BUY, lucro está ACIMA. Se estou SELL, lucro está ABAIXO.
-                        price_requirement=LastPriceAbove(last_price_above=tp_trigger_str) if side == Signal.BUY 
+                        price_requirement=LastPriceAbove(last_price_above=tp_trigger_str) if side == 'buy' 
                         else LastPriceBelow(last_price_below=tp_trigger_str)
                     )),
                     signature=None, id=None, digest=None, spot_leverage=None
