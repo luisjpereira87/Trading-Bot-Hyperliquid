@@ -705,6 +705,13 @@ class NadoExchangeClient(ExchangeBase):
     """
     async def _place_protections(self, symbol, product_id, size, side, sl_price, tp_price):
         try:
+
+            # 1. Converte para string e coloca tudo em minúsculas
+            side_str = str(side).lower()
+
+            # 2. Cria um booleano simples para usar no resto da função
+            is_buy = 'buy' in side_str
+
             X18_SCALE = 10**18
             market_data = await self.get_market_meta(symbol)
             if not market_data: return
@@ -712,23 +719,22 @@ class NadoExchangeClient(ExchangeBase):
             price_step = market_data["price_step"]
             size_step = market_data["size_step"]
 
-            # Em vez de subtrair, vamos SOMAR 10 segundos (10.000 ms)
-            # Isto diz à Nado: "Esta assinatura é válida por mais 10 segundos"
-            # É a forma mais comum de resolver drift em containers Docker/Railway
-            now_ms = int(time.time() * 1000)
-            base_nonce = now_ms + 10000 
-
-            logging.info(f"🚀 [FORCE-FUTURE] Usando Nonce com Folga: {base_nonce}")
+            def force_precision(price):
+                # O operador // faz a divisão inteira pelo step, removendo decimais inválidos
+                # O round final limpa qualquer imprecisão residual do float do Python
+                return float(round((price // price_step) * price_step, 8))
 
 
+            """
+        
             # 1. Limpeza de Preço
             def clean_price(p):
                 return (p // price_step) * price_step
-
+            """
             # 2. LIMPEZA DE QUANTIDADE (AMOUNT) - O SEGREDO DO ERRO 2064
             # Usamos math.floor para NUNCA arredondar para cima. 
             # Se a posição é 0.195, enviamos 0.195 ou 0.19499, nunca 0.1950001
-            import math
+
             size_step_x18 = int(round(size_step * X18_SCALE))
             
             # Forçamos o arredondamento para BAIXO (floor)
@@ -736,7 +742,7 @@ class NadoExchangeClient(ExchangeBase):
             clean_size_x18 = (amount_raw_x18 // size_step_x18) * size_step_x18
             
             # Quantidade de fecho com sinal oposto
-            close_amount = -clean_size_x18 if side == 'buy' else clean_size_x18
+            close_amount = -clean_size_x18 if is_buy else clean_size_x18
 
             # Subaccount comum
             subaccount = SubaccountParams(subaccount_owner=self.wallet_address, subaccount_name="default")
@@ -745,62 +751,87 @@ class NadoExchangeClient(ExchangeBase):
             # 1. STOP LOSS (Trigger Order)
             # ---------------------------------------------------------
             if sl_price:
+                """
                 sl_fixed = clean_price(sl_price)
                 sl_trigger_str = f"{int(round(sl_fixed * X18_SCALE)):.0f}"
                 
                 # Slippage agressivo para garantir fecho (Slippage que discutimos antes)
                 slippage = 0.95 if side == 'buy' else 1.05
                 exec_price_x18 = int(round(clean_price(sl_fixed * slippage) * X18_SCALE))
+                """
+
+                # AGORA (Correção):
+                # 1. Limpa o preço de gatilho
+                sl_trigger = force_precision(sl_price)
+                sl_trigger_str = f"{int(round(sl_trigger * X18_SCALE)):.0f}"
+                
+                # 2. Calcula o slippage e LIMPA de seguida
+                slippage_factor = 0.95 if is_buy else 1.05
+                sl_exec_price = force_precision(sl_trigger * slippage_factor) # <--- AQUI está a mudança
+                
+                # 3. Converte para X18
+                sl_exec_x18 = int(round(sl_exec_price * X18_SCALE))
 
                 sl_params = PlaceTriggerOrderParams(
                     product_id=product_id,
                     order=OrderParams(
-                        sender=subaccount, amount=close_amount, priceX18=exec_price_x18,
+                        sender=subaccount, amount=close_amount, priceX18=sl_exec_x18,
                         expiration=int(time.time() + 86400 * 30), # 30 dias
                         appendix=build_appendix(OrderType.DEFAULT, reduce_only=True, trigger_type=OrderAppendixTriggerType.PRICE),
                         nonce=gen_order_nonce()
                     ),
                     trigger=PriceTrigger(price_trigger=PriceTriggerData(
-                        price_requirement=LastPriceBelow(last_price_below=sl_trigger_str) if side == 'buy' 
+                        price_requirement=LastPriceBelow(last_price_below=sl_trigger_str) if is_buy
                         else LastPriceAbove(last_price_above=sl_trigger_str)
                     )),
                         signature=None, id=None, digest=None, spot_leverage=None
                 )
                 res_sl = self.client.market.place_trigger_order(params=sl_params)
-                logging.info(f"🛑 SL configurado: {sl_fixed}, res_sl={res_sl}")
+                logging.info(f"🛑 SL configurado: {sl_trigger} (Exec: {sl_exec_price})")
 
-            time.sleep(1.0) # Pausa obrigatória
+            await asyncio.sleep(1.2)
             # ---------------------------------------------------------
             # 2. TAKE PROFIT (Também como Trigger Order para evitar Erro 2064)
             # ---------------------------------------------------------
             
             if tp_price:
+
+                """
                 tp_fixed = clean_price(tp_price)
                 tp_trigger_str = f"{int(round(tp_fixed * X18_SCALE)):.0f}"
                 
                 # No TP, o preço de execução pode ser o próprio TP (ou ligeiramente pior para garantir)
                 # Como é TP, queremos vender ao preço ou melhor, usamos o fixo.
                 tp_exec_price_x18 = int(round(tp_fixed * X18_SCALE))
+                """
+                tp_trigger = force_precision(tp_price)
+                tp_trigger_str = f"{int(round(tp_trigger * X18_SCALE)):.0f}"
+                
+                # No TP o preço de execução costuma ser o próprio trigger
+                tp_exec_price = force_precision(tp_trigger) # Limpeza por segurança
+                tp_exec_x18 = int(round(tp_exec_price * X18_SCALE))
 
                 tp_trigger_params = PlaceTriggerOrderParams(
                     product_id=product_id,
                     order=OrderParams(
-                        sender=subaccount, amount=close_amount, priceX18=tp_exec_price_x18,
+                        sender=subaccount, amount=close_amount, priceX18=tp_exec_x18,
                         expiration=int(time.time() + 86400 * 30),
                         appendix=build_appendix(OrderType.DEFAULT, reduce_only=True, trigger_type=OrderAppendixTriggerType.PRICE),
                         nonce=gen_order_nonce()
                     ),
                     trigger=PriceTrigger(price_trigger=PriceTriggerData(
-                        price_requirement=LastPriceAbove(last_price_above=tp_trigger_str) if side == 'buy' 
+                        price_requirement=LastPriceAbove(last_price_above=tp_trigger_str) if is_buy 
                         else LastPriceBelow(last_price_below=tp_trigger_str)
                     )),
                     signature=None, id=None, digest=None, spot_leverage=None
                 )
                 res_tp = self.client.market.place_trigger_order(params=tp_trigger_params)
-                logging.info(f"🎯 TP configurado: {tp_fixed}, res_tp={res_tp}")
+
+                logging.info(f"🎯 TP configurado: {tp_trigger} Exec: {tp_exec_x18}")
 
         except Exception as e:
             logging.error(f"❌ Erro fatal no _place_protections: {e}")
+            
 
     async def cancel_all_orders(self, symbol: str):
         try:
