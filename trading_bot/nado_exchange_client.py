@@ -3,6 +3,7 @@ import logging
 import math
 import time
 from datetime import datetime
+from decimal import Decimal
 
 from eth_account import Account
 from eth_account.signers.local import LocalAccount
@@ -34,6 +35,7 @@ from nado_protocol.utils.subaccount import Subaccount, SubaccountParams
 from commons.enums.signal_enum import Signal
 from commons.enums.timeframe_enum import TimeframeEnum
 from commons.helpers.trading_helpers import TradingHelpers
+from commons.helpers.trailing_stop_helpers import TrailingStopHelpers
 from commons.models.ohlcv_format_dclass import OhlcvFormat
 from commons.models.open_position_dclass import OpenPosition
 from commons.models.opened_order_dclass import OpenedOrder
@@ -590,119 +592,7 @@ class NadoExchangeClient(ExchangeBase):
             logging.error(f"❌ Erro fatal no place_entry_order (Nado): {e}")
             raise
 
-    """
-    async def _place_protections(self, symbol, product_id, size, side, sl_price, tp_price):
-        try:
-            X18_SCALE = 10**18
-            
-            # 1. Recuperar os metadados sincronizados do mercado
-            market_data = await self.get_market_meta(symbol)
-        
-            if not market_data:
-                logging.error(f"❌ Metadados não encontrados para {symbol}. Abortando proteções.")
-                return
-
-            price_step = market_data["price_step"] # Ex: BTC=1.0, ETH=0.1, SOL=0.01
-            size_step = market_data["size_step"]
-
-            # 2. Função de Limpeza Rigorosa (Resolve Erro 2000)
-            def clean_price(p):
-                # Arredonda para baixo respeitando o tick size (incremento) do par
-                # Ex BTC: 69839.72 // 1.0 * 1.0 = 69839.0
-                return (p // price_step) * price_step
-
-            sl_fixed = clean_price(sl_price)
-            tp_fixed = clean_price(tp_price)
-            
-            # --- 🛠️ CORREÇÃO DO ERRO 2001: Limpeza da Quantidade (Amount) ---
-            size_step_x18 = int(round(size_step * X18_SCALE))
-            # Garantimos que o size é um múltiplo exato do incremento da exchange
-            clean_size_x18 = (int(round(size * X18_SCALE)) // size_step_x18) * size_step_x18
-            
-            # Quantidade de fecho com sinal correto
-            close_amount = -clean_size_x18 if side == Signal.BUY else clean_size_x18
-            # ---------------------------------------------------------------
-
-            # ---------------------------------------------------------
-            # 1. STOP LOSS (Trigger Order)
-            # ---------------------------------------------------------
-            if sl_fixed:
-                try:
-                    # Formatação i128 para o Trigger (Resolve Erro i128)
-                    # O segredo é o :.0f para não enviar ".0" na string
-                    sl_trigger_str = f"{int(round(sl_fixed * X18_SCALE)):.0f}"
-                    
-                    # Preço de execução (Limit) com slippage de 5%
-                    slippage = 0.95 if side == Signal.BUY else 1.05
-                    exec_price_raw = clean_price(sl_fixed * slippage)
-                    exec_price_x18 = int(round(exec_price_raw * X18_SCALE))
-
-                    sl_params = PlaceTriggerOrderParams(
-                        product_id=product_id,
-                        order=OrderParams(
-                            sender=SubaccountParams(subaccount_owner=self.wallet_address, subaccount_name="default"),
-                            amount=close_amount,
-                            priceX18=exec_price_x18,
-                            expiration=int(time.time() + 86400),
-                            appendix=build_appendix(
-                                order_type=OrderType.DEFAULT, 
-                                reduce_only=True, 
-                                trigger_type=OrderAppendixTriggerType.PRICE
-                            ),
-                            nonce=None 
-                        ),
-                        trigger=PriceTrigger(
-                            price_trigger=PriceTriggerData(
-                                price_requirement=LastPriceBelow(last_price_below=sl_trigger_str) 
-                                if side == Signal.BUY else LastPriceAbove(last_price_above=sl_trigger_str)
-                            )
-                        ),
-                        signature=None, id=None, digest=None, spot_leverage=None
-                    )
-                    
-                    res_sl = self.client.market.place_trigger_order(params=sl_params)
-                    logging.info(f"🛑 Stop Loss confirmado em {sl_fixed} | Digest: {getattr(res_sl, 'digest', 'OK')}")
-                    
-                except Exception as e:
-                    logging.error(f"❌ Erro ao configurar SL: {e}")
-
-            # ---------------------------------------------------------
-            # 2. TAKE PROFIT (Limit Order)
-            # ---------------------------------------------------------
-            if tp_fixed:
-                try:
-                    # 1. Calculamos o valor bruto em X18
-                    raw_tp_x18 = tp_fixed * X18_SCALE
-                    
-                    # 2. LIMPEZA TOTAL: Arredondamos e forçamos a divisibilidade pelo step da exchange
-                    # Convertemos o p_step para escala X18 também
-                    p_step_x18 = int(price_step * X18_SCALE)
-                    
-                    # Esta fórmula garante que o número final é INTEIRO e DIVISÍVEL pelo step
-                    tp_price_x18 = int((int(round(tp_fixed * X18_SCALE)) // p_step_x18) * p_step_x18)
-
-                    tp_params = PlaceOrderParams(
-                        product_id=product_id,
-                        order=OrderParams(
-                            sender=SubaccountParams(subaccount_owner=self.wallet_address, subaccount_name="default"),
-                            amount=close_amount,
-                            priceX18=tp_price_x18,
-                            expiration=int(time.time() + 86400),
-                            appendix=build_appendix(order_type=OrderType.DEFAULT, reduce_only=True),
-                            nonce=None
-                        ),
-                        signature=None, id=None, digest=None, spot_leverage=None
-                    )
-                    
-                    res_tp = self.client.market.place_order(params=tp_params)
-                    logging.info(f"🎯 Take Profit confirmado em {tp_fixed} | Digest: {getattr(res_tp, 'digest', 'OK')}")
-                    
-                except Exception as e:
-                    logging.error(f"❌ Erro ao configurar TP: {e}")
-
-        except Exception as e:
-            logging.error(f"❌ Erro fatal no _place_protections: {e}")
-    """
+    
     async def _place_protections(self, symbol, product_id, size, side, sl_price, tp_price):
         try:
 
@@ -711,83 +601,65 @@ class NadoExchangeClient(ExchangeBase):
 
             # 2. Cria um booleano simples para usar no resto da função
             is_buy = 'buy' in side_str
-
-            X18_SCALE = 10**18
+            
             market_data = await self.get_market_meta(symbol)
             if not market_data: return
 
             price_step = market_data["price_step"]
             size_step = market_data["size_step"]
-
-            def force_precision(price):
-                # O operador // faz a divisão inteira pelo step, removendo decimais inválidos
-                # O round final limpa qualquer imprecisão residual do float do Python
-                return float(round((price // price_step) * price_step, 8))
-
-
-            """
-        
-            # 1. Limpeza de Preço
-            def clean_price(p):
-                return (p // price_step) * price_step
-            """
-            # 2. LIMPEZA DE QUANTIDADE (AMOUNT) - O SEGREDO DO ERRO 2064
-            # Usamos math.floor para NUNCA arredondar para cima. 
-            # Se a posição é 0.195, enviamos 0.195 ou 0.19499, nunca 0.1950001
-
-            size_step_x18 = int(round(size_step * X18_SCALE))
             
-            # Forçamos o arredondamento para BAIXO (floor)
-            amount_raw_x18 = int(size * X18_SCALE)
-            clean_size_x18 = (amount_raw_x18 // size_step_x18) * size_step_x18
-            
-            # Quantidade de fecho com sinal oposto
-            close_amount = -clean_size_x18 if is_buy else clean_size_x18
+            def to_clean_x18(value: float, step: float) -> int:
+                """
+                1. Limpa o valor para respeitar o tick size (price_step ou size_step).
+                2. Converte para a escala X18 com precisão Decimal.
+                """
+                # Passo 1: Limpeza matemática (Arredondamento por baixo para o step mais próximo)
+                # Ex: 2100.12345 com step 0.01 -> 2100.12
+                clean_val = float(round((value // step) * step, 8))
+                
+                # Passo 2: A lógica oficial da Nado (Decimal + str) para evitar lixo binário
+                return int(Decimal(str(clean_val)) * Decimal(10**18))
 
             # Subaccount comum
             subaccount = SubaccountParams(subaccount_owner=self.wallet_address, subaccount_name="default")
+
+            # 3. Preparar a Quantidade (Amount) - Negativa para Long, Positiva para Short
+            raw_amount = -size if is_buy else size
+            amount_x18 = to_clean_x18(raw_amount, size_step)
 
             # ---------------------------------------------------------
             # 1. STOP LOSS (Trigger Order)
             # ---------------------------------------------------------
             if sl_price:
-                """
-                sl_fixed = clean_price(sl_price)
-                sl_trigger_str = f"{int(round(sl_fixed * X18_SCALE)):.0f}"
-                
-                # Slippage agressivo para garantir fecho (Slippage que discutimos antes)
-                slippage = 0.95 if side == 'buy' else 1.05
-                exec_price_x18 = int(round(clean_price(sl_fixed * slippage) * X18_SCALE))
-                """
 
-                # AGORA (Correção):
-                # 1. Limpa o preço de gatilho
-                sl_trigger = force_precision(sl_price)
-                sl_trigger_str = f"{int(round(sl_trigger * X18_SCALE)):.0f}"
-                
-                # 2. Calcula o slippage e LIMPA de seguida
+                sl_trigger_x18 = to_clean_x18(sl_price, price_step)
+            
+                # Preço de Execução (Limit) com Slippage de 5%
                 slippage_factor = 0.95 if is_buy else 1.05
-                sl_exec_price = force_precision(sl_trigger * slippage_factor) # <--- AQUI está a mudança
-                
-                # 3. Converte para X18
-                sl_exec_x18 = int(round(sl_exec_price * X18_SCALE))
+                sl_limit_price = sl_price * slippage_factor
+                sl_limit_x18 = to_clean_x18(sl_limit_price, price_step)
 
                 sl_params = PlaceTriggerOrderParams(
                     product_id=product_id,
                     order=OrderParams(
-                        sender=subaccount, amount=close_amount, priceX18=sl_exec_x18,
+                        sender=subaccount, 
+                        amount=amount_x18, 
+                        priceX18=sl_limit_x18,
                         expiration=int(time.time() + 86400 * 30), # 30 dias
-                        appendix=build_appendix(OrderType.DEFAULT, reduce_only=True, trigger_type=OrderAppendixTriggerType.PRICE),
+                        appendix=build_appendix(
+                            OrderType.DEFAULT, 
+                            reduce_only=True, 
+                            trigger_type=OrderAppendixTriggerType.PRICE),
                         nonce=gen_order_nonce()
                     ),
                     trigger=PriceTrigger(price_trigger=PriceTriggerData(
-                        price_requirement=LastPriceBelow(last_price_below=sl_trigger_str) if is_buy
-                        else LastPriceAbove(last_price_above=sl_trigger_str)
+                        price_requirement=LastPriceBelow(last_price_below=str(sl_trigger_x18)) if is_buy
+                        else LastPriceAbove(last_price_above=str(sl_trigger_x18))
                     )),
                         signature=None, id=None, digest=None, spot_leverage=None
                 )
                 res_sl = self.client.market.place_trigger_order(params=sl_params)
-                logging.info(f"🛑 SL configurado: {sl_trigger} (Exec: {sl_exec_price})")
+                logging.info(f"🛑 SL configurado: {sl_price} (Limit X18: {sl_limit_x18})")
 
             await asyncio.sleep(1.2)
             # ---------------------------------------------------------
@@ -796,38 +668,29 @@ class NadoExchangeClient(ExchangeBase):
             
             if tp_price:
 
-                """
-                tp_fixed = clean_price(tp_price)
-                tp_trigger_str = f"{int(round(tp_fixed * X18_SCALE)):.0f}"
+                # Preço de Gatilho
+                tp_trigger_x18 = to_clean_x18(tp_price, price_step)
                 
-                # No TP, o preço de execução pode ser o próprio TP (ou ligeiramente pior para garantir)
-                # Como é TP, queremos vender ao preço ou melhor, usamos o fixo.
-                tp_exec_price_x18 = int(round(tp_fixed * X18_SCALE))
-                """
-                tp_trigger = force_precision(tp_price)
-                tp_trigger_str = f"{int(round(tp_trigger * X18_SCALE)):.0f}"
-                
-                # No TP o preço de execução costuma ser o próprio trigger
-                tp_exec_price = force_precision(tp_trigger) # Limpeza por segurança
-                tp_exec_x18 = int(round(tp_exec_price * X18_SCALE))
+                # No TP, preço de execução costuma ser igual ao gatilho
+                tp_limit_x18 = tp_trigger_x18
 
                 tp_trigger_params = PlaceTriggerOrderParams(
                     product_id=product_id,
                     order=OrderParams(
-                        sender=subaccount, amount=close_amount, priceX18=tp_exec_x18,
+                        sender=subaccount, amount=amount_x18, priceX18=tp_limit_x18,
                         expiration=int(time.time() + 86400 * 30),
                         appendix=build_appendix(OrderType.DEFAULT, reduce_only=True, trigger_type=OrderAppendixTriggerType.PRICE),
                         nonce=gen_order_nonce()
                     ),
                     trigger=PriceTrigger(price_trigger=PriceTriggerData(
-                        price_requirement=LastPriceAbove(last_price_above=tp_trigger_str) if is_buy 
-                        else LastPriceBelow(last_price_below=tp_trigger_str)
+                        price_requirement=LastPriceAbove(last_price_above=str(tp_trigger_x18)) if is_buy 
+                        else LastPriceBelow(last_price_below=str(tp_trigger_x18))
                     )),
                     signature=None, id=None, digest=None, spot_leverage=None
                 )
                 res_tp = self.client.market.place_trigger_order(params=tp_trigger_params)
 
-                logging.info(f"🎯 TP configurado: {tp_trigger} Exec: {tp_exec_x18}")
+                logging.info(f"🎯 TP configurado: {tp_price} (Trigger X18: {tp_trigger_x18})")
 
         except Exception as e:
             logging.error(f"❌ Erro fatal no _place_protections: {e}")
@@ -930,33 +793,24 @@ class NadoExchangeClient(ExchangeBase):
             return
 
         entry_price = float(pos.entry_price)
-        side = pos.side
+        # --- AJUSTE 1: Normalização do Side ---
+        side_str = str(pos.side).lower()
+        is_buy = 'buy' in side_str
         
         # 2. Calcula o lucro atual
-        pnl_pct = (current_price - entry_price) / entry_price if side == 'buy' else (entry_price - current_price) / entry_price
+        pnl_pct = (current_price - entry_price) / entry_price if is_buy else (entry_price - current_price) / entry_price
 
+        logging.info(f"pnl_pct={pnl_pct} side={side_str} current_price={current_price} entry_price={entry_price}")
 
-        logging.info(f"pnl_pct={pnl_pct} side={side} current_price={current_price} entry_price={entry_price}")
-        # 3. Define o ajuste uniforme (Exemplo: sobe 1% no SL e 1% no TP)
-        adjustment = 0
-        if pnl_pct >= 0.02:        # Se sobe 2% (Lucro 20%)
-            adjustment = 0.015     # Garante 1.5% (Lucro 15% -> ~$52)
-            logging.info("🔥 Meta de 2% atingida! Stop subiu para garantir 1.5%")
-
-        elif pnl_pct >= 0.01:      # Se sobe 1% (Lucro 10%)
-            adjustment = 0.006     # Garante 0.6% (Lucro 6% -> ~$20)
-            logging.info("💰 Meta de 1% atingida! Stop subiu para garantir 0.6%")
-
-        elif pnl_pct >= 0.004:     # Se sobe 0.4% (Lucro 4%)
-            adjustment = 0.001     # Garante 0.1% (Paga as taxas e sobra $3-$5)
-            logging.info("🛡️ Break-even ativo! Taxas cobertas e lucro mínimo garantido.")
+        adjustment, icon, log = TrailingStopHelpers.get_trailing_adjustment(pnl_pct)
+        logging.info(log)
 
         # 2. O PULO DO GATO: Verificar se já aplicamos este ajuste (ou um superior)
         last_applied = self.active_trailing_levels.get(symbol, 0)
 
         if adjustment > last_applied:
             # 4. Calcula os novos preços baseados no ajuste uniforme
-            if side == 'buy':
+            if is_buy:
                 new_sl = entry_price * (1 + adjustment)
                 new_tp = entry_price * (1.05 + adjustment) # Alvo original de 5% + ajuste
             else:
@@ -983,7 +837,7 @@ class NadoExchangeClient(ExchangeBase):
                 symbol=symbol,
                 product_id=product_id,
                 size=abs(pos.size),
-                side=side,
+                side=side_str,
                 sl_price=new_sl,
                 tp_price=new_tp
             )
