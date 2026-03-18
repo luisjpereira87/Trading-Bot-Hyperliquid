@@ -775,6 +775,7 @@ class NadoExchangeClient(ExchangeBase):
             )
             
             digest = getattr(order_response, 'digest', 'unknown')
+            self.active_trailing_levels.pop(symbol, None)
             logging.info(f"✅ Posição fechada com sucesso! Digest: {digest}")
 
         except Exception as e:

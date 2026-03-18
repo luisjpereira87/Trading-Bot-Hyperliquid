@@ -7,6 +7,7 @@ import ccxt.async_support as ccxt
 from commons.enums.signal_enum import Signal
 from commons.enums.timeframe_enum import TimeframeEnum
 from commons.helpers.trading_helpers import TradingHelpers
+from commons.helpers.trailing_stop_helpers import TrailingStopHelpers
 from commons.models.ohlcv_format_dclass import OhlcvFormat
 from commons.models.open_position_dclass import OpenPosition
 from commons.models.opened_order_dclass import OpenedOrder
@@ -376,6 +377,7 @@ class ExchangeClient(ExchangeBase):
                 price,
                 params={'reduceOnly': True}
             )
+            self.active_trailing_levels.pop(symbol, None)
             logging.info(f"✅ Ordem de fechamento enviada: {order.get('info')}") # type: ignore
 
         except Exception as e:
@@ -447,18 +449,9 @@ class ExchangeClient(ExchangeBase):
 
         logging.info(f"pnl_pct={pnl_pct} side={side} current_price={current_price} entry_price={entry_price}")
         # 3. Define o ajuste uniforme (Exemplo: sobe 1% no SL e 1% no TP)
-        adjustment = 0
-        if pnl_pct >= 0.02:        # Se sobe 2% (Lucro 20%)
-            adjustment = 0.015     # Garante 1.5% (Lucro 15% -> ~$52)
-            logging.info("🔥 Meta de 2% atingida! Stop subiu para garantir 1.5%")
 
-        elif pnl_pct >= 0.01:      # Se sobe 1% (Lucro 10%)
-            adjustment = 0.006     # Garante 0.6% (Lucro 6% -> ~$20)
-            logging.info("💰 Meta de 1% atingida! Stop subiu para garantir 0.6%")
-
-        elif pnl_pct >= 0.004:     # Se sobe 0.4% (Lucro 4%)
-            adjustment = 0.001     # Garante 0.1% (Paga as taxas e sobra $3-$5)
-            logging.info("🛡️ Break-even ativo! Taxas cobertas e lucro mínimo garantido.")
+        adjustment, icon, log = TrailingStopHelpers.get_trailing_adjustment(pnl_pct)
+        logging.info(log)
 
         # 2. O PULO DO GATO: Verificar se já aplicamos este ajuste (ou um superior)
         last_applied = self.active_trailing_levels.get(symbol, 0)
