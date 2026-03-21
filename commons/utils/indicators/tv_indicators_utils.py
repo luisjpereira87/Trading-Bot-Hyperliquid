@@ -14,13 +14,6 @@ from commons.utils.ohlcv_wrapper import OhlcvWrapper
 class TvIndicatorsUtils(BaseIndicatorsUtils):
     def __init__(self, ohlcv: OhlcvWrapper, mode='ta'):
         super().__init__(ohlcv, mode)
-        self.ohlcv = ohlcv
-        self.mode = mode
-        self.opens = ohlcv.opens
-        self.highs = ohlcv.highs
-        self.lows = ohlcv.lows
-        self.closes = ohlcv.closes
-        self.volumes = ohlcv.volumes
 
     def stop_atr_tradingview(self, period=1, multiplier=3.0):
         highs = np.array(self.ohlcv.highs)
@@ -738,10 +731,10 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
 
         return swing_high, swing_low
     
-    def market_structure(self):
+    def market_structure(self, left=10, right=10):
         highs = np.array(self.highs)
         lows = np.array(self.lows)
-        swing_high, swing_low = self.find_swings(10, 10)
+        swing_high, swing_low = self.find_swings(left, right)
 
         last_HL = np.full(len(highs), np.nan)
         last_LH = np.full(len(highs), np.nan)

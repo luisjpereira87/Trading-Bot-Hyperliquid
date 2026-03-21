@@ -8,7 +8,7 @@ import matplotlib.dates as mdates
 import numpy as np
 import pandas as pd
 from ccxt.async_support import hyperliquid
-from matplotlib import pyplot as plt
+from matplotlib import pyplot as plt, patches
 from matplotlib.collections import LineCollection
 from matplotlib.colors import to_rgba
 from matplotlib.markers import MarkerStyle
@@ -1190,39 +1190,68 @@ class PlotTrades:
 
 
     @staticmethod
-    def plot_double_bb_rsi_logic(ohlcv, symbol: str):
+    def plot_double_bb_rsi_logic(ohlcv, ohlcv_highter, symbol: str):
         opens, highs, lows, closes = ohlcv.opens, ohlcv.highs, ohlcv.lows, ohlcv.closes
         n = len(closes)
         indices = np.arange(n)
 
         # 1. Indicadores
         indicatorsUtils = CustomIndicatorsUtils(ohlcv)
-        rsi, rsi_ema = indicatorsUtils.rsi(14)
+        rsi, rsi_ema = indicatorsUtils.rsi()
+        #rsi1, rsi_ema1 = indicatorsUtils1.rsi()
+        #last_HL, last_LH = tvIndicatorsUtils.market_structure(3, 2)
+        # --- CÁLCULO DOS CANAIS ---
+        # Podes usar 3.0 para exaustão extrema ou 2.0 para zona de alerta
+        #k_up, k_mid, k_low = indicatorsUtils.keltner_channels( period=20, multiplier=3.0)
+        #k_up80, k_mid80, k_low80 = indicatorsUtils.keltner_channels(period=80, multiplier=3.0)
 
-        double_bb = indicatorsUtils.double_bb_rsi_logic()
+        double_bb = indicatorsUtils.double_bb_rsi_logic(ohlcv_highter)
         bb20_up = double_bb['bbshort_up']
         bb20_low = double_bb['bbshort_low']
         bb20_mid = double_bb['bbshort_mid']
         bb80_up = double_bb['bblong_up']
         bb80_low = double_bb['bblong_low']
+        bb80_mid = double_bb['bblong_mid']
         signals = double_bb['signals']
         entry_buy_idx = double_bb['entry_buy_idx']
         entry_buy_val = double_bb['entry_buy_val']
         entry_sell_idx = double_bb['entry_sell_idx']
         entry_sell_val = double_bb['entry_sell_val']
 
-        context_buy_idx = double_bb['context_buy_idx']
-        context_buy_val = double_bb['context_buy_val']
-        context_sell_idx = double_bb['context_sell_idx']
-        context_sell_val = double_bb['context_sell_val']
-
         super_score, ema_score = indicatorsUtils.calculate_super_score()
+        ema200 = indicatorsUtils.ema(200)
 
         bull_pct, bear_pct, slope_ma_14, polarity_osc, signal_line = indicatorsUtils.calculate_lux_bb_oscillator()
 
         # --- PLOTAGEM ---
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 10), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
 
+        """
+        # 1. DESENHO DAS CAIXAS DE ESTRUTURA (Pivots)
+        left, right = 5, 5
+        for i in range(left, n - right):
+            # Detecção de Pivot Low (HL) para desenhar a caixa
+            if all(lows[i] <= lows[i - k] for k in range(1, left + 1)) and \
+                    all(lows[i] < lows[i + k] for k in range(1, right + 1)):
+                # Criar retângulo: x=início do pivot, y=mínimo, largura=11 velas, altura=corpo do pivot
+                rect_h = max(highs[i - left:i + right]) - lows[i]
+                rect = patches.Rectangle((i - left, lows[i]), left + right, rect_h,
+                                         linewidth=1, edgecolor='green', facecolor='green', alpha=0.1, zorder=1)
+                ax1.add_patch(rect)
+
+            # Detecção de Pivot High (LH)
+            if all(highs[i] >= highs[i - k] for k in range(1, left + 1)) and \
+                    all(highs[i] > highs[i + k] for k in range(1, right + 1)):
+                rect_h = highs[i] - min(lows[i - left:i + right])
+                rect = patches.Rectangle((i - left, min(lows[i - left:i + right])), left + right, rect_h,
+                                         linewidth=1, edgecolor='red', facecolor='red', alpha=0.1, zorder=1)
+                ax1.add_patch(rect)
+
+        # 2. LINHAS DE ESCADA (Last HL / Last LH)
+        # 'where=post' garante que a linha só muda quando o pivot é confirmado
+        ax1.step(indices, last_HL, color='#26a69a', linewidth=1, alpha=0.8, where='post', label='Structure HL')
+        ax1.step(indices, last_LH, color='#ef5350', linewidth=1, alpha=0.8, where='post', label='Structure LH')
+        """
         # Desenho dos Candles (Simplificado)
         width = 0.6
         for i in range(n):
@@ -1236,40 +1265,25 @@ class PlotTrades:
         ax1.plot(indices, bb20_mid, color='cyan', alpha=0.3)
         ax1.plot(indices, bb80_up, color='orange', linewidth=1.5, alpha=0.6, label='BB 80 (1h Projection)')
         ax1.plot(indices, bb80_low, color='orange', linewidth=1.5, alpha=0.6)
-        
+        ax1.plot(indices, bb80_mid, color='orange', linewidth=1.5, alpha=0.6)
+
+        ax1.plot(indices, bb80_mid, color='orange', linewidth=1.5, alpha=0.6)
+
+        ax1.plot(indices, ema200, color='red', linewidth=1.5, alpha=0.6)
+
+        # --- PLOT NO AX1 (Onde está o preço) ---
+        # Vamos desenhar apenas a linha superior (Up) que é o teu foco para o SELL
+        #ax1.plot(indices, k_up, color='green', linestyle='--', linewidth=1.5, label='Keltner ATR 3.0', alpha=0.8)
+
+        # Opcional: sombrear a zona entre a média e o topo para veres o "vácuo"
+        #ax1.fill_between(indices, k_mid, k_up, color='magenta', alpha=0.05)
+
+
         # Preenchimento entre as bandas da 1h (zona de exaustão extrema)
         ax1.fill_between(indices, bb80_low, bb80_up, color='orange', alpha=0.03)
 
-        ax1.scatter(context_buy_idx, context_buy_val, marker='^', color='lime', s=150, zorder=5, label='CONFLUENCE BUY')
-        ax1.scatter(context_sell_idx, context_sell_val, marker='v', color='red', s=150, zorder=5, label='CONFLUENCE SELL')
-
-        for idx, val in zip(context_buy_idx, context_buy_val):
-            ax1.text(
-                idx, 
-                val, 
-                f"Idx {idx}", # Usamos o idx real do ponto
-                fontsize=8,
-                ha='center',
-                va='top',
-                color='darkgreen',
-                bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
-                zorder=6
-            )
-
-        for idx, val in zip(context_sell_idx, context_sell_val):
-            ax1.text(
-                idx, 
-                val, 
-                f"Idx {idx}", 
-                fontsize=8,
-                ha='center',
-                va='bottom', # Para o sell, talvez seja melhor 'bottom' para ficar acima da seta
-                color='darkred',
-                bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
-                zorder=6
-            )
-
         # 2. Plot dos Círculos (Entrada Real/Gatilho) - Símbolo sólido e marcante
+
         ax1.scatter(entry_buy_idx, entry_buy_val, marker='o', color='#00ff00', 
                     s=150, edgecolors='black', linewidth=1.5, label='ENTRADA (Evolução)')
         ax1.scatter(entry_sell_idx, entry_sell_val, marker='o', color='#ff0000', 
@@ -1300,23 +1314,24 @@ class PlotTrades:
                 bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
                 zorder=6
             )
-
         ax1.set_facecolor('#131722')
         ax1.grid(True, color='#2a2e39', alpha=0.5)
         ax1.legend()
 
         # RSI 6
-        """
+
         ax2.plot(indices, rsi, color='#9b59b6', linewidth=2)
+        #ax2.plot(indices, rsi_higher, color='#368921', linewidth=2)
         ax2.plot(indices, rsi_ema, color="#368921", linewidth=2)
+        # ax2.plot(indices, rsi_ema, color="#368921", linewidth=2)
         ax2.axhline(70, color='red', linestyle='--', alpha=0.3)
         ax2.axhline(50, color='yellow', linestyle='--', alpha=0.3)
         ax2.axhline(30, color='green', linestyle='--', alpha=0.3)
         ax2.set_facecolor('#131722')
         ax2.set_ylim(0, 100)
-        """
 
-       
+
+        """
         # Super score
         ax2.plot(indices, super_score, color='#9b59b6', linewidth=2, label='Super Score')
         ax2.plot(indices, ema_score, color="#137169", linewidth=2, label='Ema score')
@@ -1331,6 +1346,7 @@ class PlotTrades:
         # 4. Preenchimento de Cor (Opcional, mas ajuda muito a ver a força)
         ax2.fill_between(indices, 0, super_score, where=(super_score >= 0), color='green', alpha=0.2)
         ax2.fill_between(indices, 0, super_score, where=(super_score < 0), color='red', alpha=0.2)
+        """
         """
 
 
@@ -1473,11 +1489,12 @@ class PlotTrades:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("BTC/USDC:USDC")
+    pair = get_pair_by_symbol("SOL/USDC:USDC")
 
     if pair:
 
-        ohlcv = await PlotTrades.get_historical_ohlcv(pair, TimeframeEnum.M15, 740)
+        ohlcv = await PlotTrades.get_historical_ohlcv(pair, TimeframeEnum.M15, 1000)
+        ohlcvHigher = await PlotTrades.get_historical_ohlcv(pair, TimeframeEnum.H1, 1000)
 
         #PlotTrades.plot_supertrend_with_signals(ohlcv, pair.symbol)
         #PlotTrades.plot_smart_money_flow_cloud(ohlcv, pair.symbol)
@@ -1486,7 +1503,7 @@ async def main():
         #PlotTrades.plot_smart_money_breakout(ohlcv, pair.symbol)
         #PlotTrades.plot_sha_macd_raw_signals(ohlcv, pair.symbol)
         #PlotTrades.plot_double_rsi_signals(ohlcv, pair.symbol)
-        PlotTrades.plot_double_bb_rsi_logic(ohlcv, pair.symbol)
+        PlotTrades.plot_double_bb_rsi_logic(ohlcv, ohlcvHigher, pair.symbol)
         #PlotTrades.plot_soheil_pko_strategy(ohlcv, pair.symbol)
         #PlotTrades.plot_market_structure_rsi(ohlcv, pair.symbol)
         

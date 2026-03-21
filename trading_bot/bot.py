@@ -17,6 +17,7 @@ from commons.utils.config_loader import PairConfig
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from strategies.strategy_manager import StrategyManager  # Para cálculo ATR
 from trading_bot.exchange_base import ExchangeBase
+from trading_bot.exit_logic.exit_logic_ema_based import ExitLogicEmaBased
 from trading_bot.exit_logic.exit_logic_trailing_stop import \
     ExitLogicTrailingStop
 

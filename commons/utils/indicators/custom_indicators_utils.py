@@ -5,19 +5,15 @@ import numpy as np
 import pandas as pd
 
 from commons.utils.indicators.base_indicators_utils import BaseIndicatorsUtils
+from commons.utils.indicators.tv_indicators_utils import TvIndicatorsUtils
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 
 
 class CustomIndicatorsUtils(BaseIndicatorsUtils):
     def __init__(self, ohlcv: OhlcvWrapper, mode='ta'):
         super().__init__(ohlcv, mode)
-        self.ohlcv = ohlcv
-        self.mode = mode
-        self.opens = ohlcv.opens
-        self.highs = ohlcv.highs
-        self.lows = ohlcv.lows
-        self.closes = ohlcv.closes
-        self.volumes = ohlcv.volumes
+
+        self.tvIndicators = TvIndicatorsUtils(ohlcv)
 
 
     def smooth_band(self, raw_data, period):
@@ -74,7 +70,7 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
         indices = np.arange(n)
         
         # 1. Calcula as bandas "brutas"
-        bb20_up_raw, bb20_basis_raw, bb20_low_raw = self.bollinger_bands(period=bb_short_period, std_dev=bb_short_std_dev)
+        #bb20_up_raw, bb20_basis_raw, bb20_low_raw = self.bollinger_bands(period=bb_short_period, std_dev=bb_short_std_dev)
         bb80_up_raw, bb80_basis_raw, bb80_low_raw = self.bollinger_bands(period=bb_long_period, std_dev=bb_long_std_dev)
 
         # 2. Suavização Inteligente (Evitando o problema do zero inicial)
@@ -95,8 +91,8 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
         bb20_low_raw = ltf_basis - (ltf_mult * std_20)
         
         # 4. Suavização Final (Como fizemos antes)
-        bb20_up = self.smooth_band(bb20_up_raw, 5)
-        bb20_low = self.smooth_band(bb20_low_raw, 5)
+        bb20_up = bb20_up_raw
+        bb20_low = bb20_low_raw
 
         bb80_up = self.smooth_band(bb80_up_raw, 20)
         bb80_low = self.smooth_band(bb80_low_raw, 20)
@@ -105,132 +101,46 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
         entry_buy_idx, entry_buy_val = [], []
         entry_sell_idx, entry_sell_val = [], []
 
-        trend_buy_idx, trend_buy_val = [], []
-        trend_sell_idx, trend_sell_val = [], []
-
         signals = np.zeros(n)
-
-        final_scores, smooth_scores = self.calculate_super_score()
-
-        # 1. CHAMA O TEU NOVO MÉTODO (O Arqueólogo)
-        levels = self.get_significant_levels(highs, lows, window=30)
-        
-        # 2. SEPARA AS MURALHAS (Últimos 5 suportes e 5 resistências)
-        last_supports = [l['price'] for l in levels if l['type'] == 'S'][-5:]
-        last_resistances = [l['price'] for l in levels if l['type'] == 'R'][-5:]
-
-        lookback_momentum = 2  # Quantos candles o sinal do Score "vale"
-        
+        rsi, rsi_ema = self.rsi()
+        adx = self.adx()
+        #self.set_ohlcv(ohlcv_higher)
+        #rsi_higher, rsi_ema_higher = self.rsi(56)
+        #super_score, super_score_ema = self.calculate_super_score()
         for i in range(1, n):
-            
-            # 1. CONTEXTO DE EXTREMO (Ainda usamos as bandas para filtrar ruído)
-            #zona_venda = highs[i-1] > bb80_up[i-1] or highs[i-1] > bb20_up[i-1]
-            #zona_compra = lows[i-1] < bb80_low[i-1] or lows[i-1] < bb20_low[i-1]
-            extreme_buy_zone = bb80_low[i] > bb20_low[i]
-            extreme_sell_zone = bb80_up[i] < bb20_up[i]
+            extreme_buy_setup = bb80_low[i] > bb20_low[i] and lows[i] < bb80_low[i]
+            extreme_sell_setup = bb80_up[i] < bb20_up[i] and highs[i] > bb80_up[i]
 
+            extreme_oversold = any(rsi[j] < 30 for j in range(i - 3, i + 1))
+            extreme_overbought = any(rsi[j] > 70 for j in range(i - 3, i + 1))
 
-            # --- LÓGICA DE COMPRA (BUY) ---
-            if extreme_buy_zone:
-                # Pivot de 3 velas (O Bico)
-                is_pivot_buy = lows[i-1] < lows[i-2] and lows[i-1] < lows[i]
-                # Confirmação de Força e Score
-                has_strength = closes[i] > opens[i-1] and closes[i] > highs[i-1]
-
-                valid_momentum_buy = any(
-                    (final_scores[j-1] <= smooth_scores[j-1] and  # Estava abaixo da média
-                    final_scores[j] > smooth_scores[j] and       # Cruzou para cima
-                    (final_scores[j-1] <= -60 or final_scores[j] <= -60)) # Garante que ocorreu no pânico
-                    for j in range(max(1, i - lookback_momentum), i + 1)
-                )
-
-                if is_pivot_buy and has_strength and valid_momentum_buy:
-                    current_bottom = lows[i-1]
-                    relative_position = (current_bottom - bb20_low[i-1]) / (bb20_up[i-1] - bb20_low[i-1])
-                    in_extreme_buy = relative_position <= 0.05 # Aceita até 5% acima da banda (margem dinâmica)
-                    # Filtro de Memória S/R
-                    close_to_support = any(abs(current_bottom - s) / s <= in_extreme_buy for s in last_supports)
-                    is_fresh_low = current_bottom < min(last_supports) if last_supports else True
-
-                    if (close_to_support or is_fresh_low):
-                        entry_buy_idx.append(i)
-                        entry_buy_val.append(current_bottom)
-                        signals[i] = 1
-                        # Atualiza memória
-                        last_supports.append(current_bottom)
-                        last_supports = last_supports[-5:]
-
-            # --- LÓGICA DE VENDA (SELL) ---
-            if extreme_sell_zone:
-                # Pivot de 3 velas (O Bico)
-                is_pivot_sell = highs[i-1] > highs[i-2] and highs[i-1] > highs[i]
-                # Confirmação de Força e Score
-                has_strength = closes[i] < opens[i-1] and closes[i] < closes[i-1]
-
-                valid_momentum_sell = any(
-                    (final_scores[j-1] >= smooth_scores[j-1] and  # Estava acima da média
-                    final_scores[j] < smooth_scores[j] and       # Cruzou para baixo
-                    (final_scores[j-1] >= 60 or final_scores[j] >= 60)) # Garante que ocorreu no extremo
-                    for j in range(max(1, i - lookback_momentum), i + 1)
-                )
-
-                if is_pivot_sell and has_strength and valid_momentum_sell:
-                    current_top = highs[i-1]
-
-                    # 1. Calculas a posição relativa (igual ao Buy)
-                    relative_position = (current_top - bb20_low[i-1]) / (bb20_up[i-1] - bb20_low[i-1])
-
-                    # 2. O filtro de extremo muda para o topo
-                    # Aceita se o preço estiver nos 5% finais da banda ou acima dela
-                    in_extreme_sell = relative_position >= 0.95
-                    
-                    
-                    # Filtro de Memória S/R
-                    close_to_resistence = any(abs(current_top - r) / r <= in_extreme_sell for r in last_resistances)
-                    is_fresh_high = current_top > max(last_resistances) if last_resistances else True
-
-                    if close_to_resistence or is_fresh_high:
-                        entry_sell_idx.append(i)
-                        entry_sell_val.append(current_top)
-                        signals[i] = -1
-                        # Atualiza memória
-                        last_resistances.append(current_top)
-                        last_resistances = last_resistances[-5:]
-
-            """
-            # --- PASSO 1: CONTEXTO (SETAS) ---
-            if lows[i] < bb80_low[i]:
-                if bb20_low[i-1] < bb20_low[i] and closes[i] > ltf_basis[i]:
+            if extreme_buy_setup and extreme_oversold:
+                if bb20_low[i] > bb20_low[i - 1] and closes[i] > ltf_basis[i]:
+                    signals[i] = 1
                     entry_buy_idx.append(i)
-                    entry_buy_val.append(lows[i] * 0.997) # Ligeiramente abaixo para não sobrepor
-                    in_extreme_zone_bull = False 
+                    entry_buy_val.append(lows[i])
 
-            
-            if highs[i] > bb80_up[i]:
-                if bb20_up[i-1] > bb20_up[i] and closes[i] < ltf_basis[i]:
+            elif extreme_sell_setup  and extreme_overbought:
+                if bb20_up[i] < bb20_up[i - 1] and closes[i] < ltf_basis[i]:
+                    signals[i] = -1
                     entry_sell_idx.append(i)
-                    entry_sell_val.append(highs[i] * 1.003) # Ligeiramente acima
-                    in_extreme_zone_bear = False
-            
-            """
-            """
-            if bb20_low[i-1] < bb80_low[i-1] and bb20_low[i] >= bb80_low[i]:
-                entry_buy_idx.append(i)
-                entry_buy_val.append(lows[i] * 0.997) # Ligeiramente abaixo para não sobrepor
-                in_extreme_zone_bull = False 
+                    entry_sell_val.append(highs[i])
 
-            
-            if bb20_up[i-1] > bb80_up[i-1] and bb20_up[i] <= bb80_up[i]:
-                entry_sell_idx.append(i)
-                entry_sell_val.append(highs[i] * 1.003) # Ligeiramente acima
-                in_extreme_zone_bear = False
-            """
+            # --- SINAL EXTRA: CRUZAMENTO DE MOMENTUM ---
+            if rsi[i] < rsi_ema[i] and rsi[i-1] >= rsi_ema[i-1] and rsi[i] < 60:
+                if closes[i] < bb80_basis_raw[i] and abs(rsi[i] - rsi_ema[i]) > 5:  # Confirmação pelo preço/Kalman
+                    signals[i] = -1
+                    entry_sell_idx.append(i)
+                    entry_sell_val.append(highs[i])
+                    #print(f"Sinal Extra Venda no Idx {i}")
 
-            # --- RESET DE SEGURANÇA ---
-
-            #if closes[i] > ltf_basis[i]: in_extreme_zone_bull = False
-            #if closes[i] < ltf_basis[i]: in_extreme_zone_bear = False
-
+            # Compra Extra (Fundo Confirmado)
+            if rsi[i] > rsi_ema[i] and rsi[i-1] <= rsi_ema[i-1] and rsi[i] > 60:
+                if closes[i] > bb80_basis_raw[i] and abs(rsi[i] - rsi_ema[i]) > 5:
+                    signals[i] = 1
+                    entry_buy_idx.append(i)
+                    entry_buy_val.append(lows[i])
+                    #print(f"Sinal Extra Compra no Idx {i}")
 
         return {
             'bbshort_up': bb20_up,
@@ -238,15 +148,12 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
             'bbshort_mid': ltf_basis,
             'bblong_up': bb80_up,
             'bblong_low': bb80_low,
+            'bblong_mid': bb80_basis_raw,
             'signals': signals,
             'entry_buy_idx': entry_buy_idx,
             'entry_buy_val': entry_buy_val,
             'entry_sell_idx': entry_sell_idx,
-            'entry_sell_val': entry_sell_val,
-            'context_buy_idx': trend_buy_idx,
-            'context_buy_val': trend_buy_val,
-            'context_sell_idx': trend_sell_idx,
-            'context_sell_val': trend_sell_val
+            'entry_sell_val': entry_sell_val
         }
     
     def calculate_super_score(self, smooth_period=5):
@@ -391,4 +298,28 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
             if lows[i] == min(lows[i-window : i+window]):
                 sr_levels.append({'type': 'S', 'price': lows[i], 'idx': i})
         return sr_levels
+
+    def keltner_channels(self, period=20, multiplier=3.0):
+        """
+        Calcula os Keltner Channels baseados em ATR.
+        """
+
+        close, high, low = pd.Series(self.closes), pd.Series(self.highs), pd.Series(self.lows)
+        # 1. Calcular a EMA da base (Linha Central)
+        basis = close.ewm(span=period, adjust=False).mean()
+
+        # 2. Calcular o True Range (TR) para o ATR
+        tr1 = high - low
+        tr2 = abs(high - close.shift(1))
+        tr3 = abs(low - close.shift(1))
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+
+        # 3. Calcular o ATR (Média do TR)
+        atr = tr.ewm(span=period, adjust=False).mean()
+
+        # 4. Calcular as Bandas
+        keltner_up = basis + (multiplier * atr)
+        keltner_down = basis - (multiplier * atr)
+
+        return keltner_up, basis, keltner_down
         

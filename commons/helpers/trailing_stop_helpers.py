@@ -5,7 +5,8 @@ class TrailingStopHelpers:
     TRAILING_STRATEGY = [
         {"target": 0.02,  "secure": 0.015, "icon": "🔥", "name": "META_2", "log": "🔥 Meta de 2% atingida! Stop subiu para garantir 1.5%"},
         {"target": 0.01,  "secure": 0.006, "icon": "💰", "name": "META_1", "log": "💰 Meta de 1% atingida! Stop subiu para garantir 0.6%"},
-        {"target": 0.004, "secure": 0.001, "icon": "🛡️", "name": "BREAK_EVEN", "log": "🛡️ Break-even ativo! Taxas cobertas e lucro mínimo garantido."}
+        {"target": 0.004, "secure": 0.001, "icon": "🛡️", "name": "BREAK_EVEN", "log": "🛡️ Break-even ativo! Taxas cobertas e lucro mínimo garantido."},
+        {"target": 0.002, "secure": 0.0, "icon": "🐌", "name": "LATERAL_EXIT", "log": "🐌 Break-even ativo! Taxas cobertas."}
     ]
 
     @staticmethod

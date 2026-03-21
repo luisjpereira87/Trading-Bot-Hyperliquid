@@ -93,6 +93,8 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
         double_bb = indicators.double_bb_rsi_logic()
         signals = double_bb['signals']
 
+        #signals = indicators.market_structure_rsi()
+
         entry_price = 0
         profits = []
         min_profit_threshold = 0.001
@@ -122,12 +124,12 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
                 signal_indicator=signals[i],
             )
 
-            if signals[i] == 1 and signals[i-1] != 1: 
+            if signals[i] == 1 and signals[i-1] != 1:
                 current_signal = Signal.BUY
             elif signals[i] == -1 and signals[i-1] != -1:
                 current_signal = Signal.SELL
    
-            if current_signal is not None and current_signal != last_signal:
+            if current_signal is not None:
                 trend_signal[i] = current_signal
                 last_signal = current_signal
                 entry_price = closes[i]

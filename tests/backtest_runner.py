@@ -338,6 +338,7 @@ class ExchangeClientMock(ExchangeClient):
                 return candle
             
     async def apply_trailing_stop(self, symbol, current_price):
+        pass
         """
         Lógica de Trailing Stop para o Backtest.
         Atualiza o SL e TP no estado interno da posição.
@@ -350,7 +351,7 @@ class ExchangeClientMock(ExchangeClient):
 
         entry_price = pos['entryPrice']
         side = pos['side']
-        
+
         # Calcular PNL Percentual
         if side == 'buy':
             pnl_pct = (current_price - entry_price) / entry_price
@@ -362,9 +363,11 @@ class ExchangeClientMock(ExchangeClient):
         # --- MESMOS DEGRAUS QUE DEFINIMOS PARA A NADO/HL ---
         if pnl_pct >= 0.02:    # Lucro > 4.5%
             adjustment = 0.015
-        elif pnl_pct >= 0.004:   # Lucro > 3%
+        elif pnl_pct >= 0.01:   # Lucro > 3%
             adjustment = 0.006
-        elif pnl_pct >= 0.001:  # Lucro > 1.5%
+        elif pnl_pct >= 0.004:  # Lucro > 1.5%
+            adjustment = 0.002 # Breakeven
+        elif pnl_pct >= 0.002:  # Lucro > 1.5%
             adjustment = 0.001 # Breakeven
 
         if adjustment > 0:
@@ -504,17 +507,17 @@ class BacktestRunner:
         for i in range(strategy.REQUIRED_CANDLES_200, len(self.ohlcv)):
             #candles_slice = self.ohlcv[:i]  # candles até i-1 fechados
             current_candle = self.ohlcv[i]  # vela em que vais abrir posição no início
-            
+
             exchange_client.update_candles(self.pair.symbol, current_candle, i)
-            
+
             await exchange_client.simulate_tp_sl(OhlcvWrapper(self.ohlcv).get_candle(i-1), self.pair.symbol)
             #print("AQUIIII", current_candle, OhlcvWrapper(self.ohlcv).get_candle(i-1))
             signal = await bot.run_pair(self.pair)
             signals.append({'signal': signal, 'index': i - 1, 'candle': current_candle})
             
 
-            #if i == 322:
-            #   break
+            #if i == 350:
+            #$  break
 
         #print(signals)
         if is_plot:
@@ -524,7 +527,7 @@ class BacktestRunner:
         exchange_client.generate_detailed_report(exchange_client.trades)
         summary = exchange_client.get_performance_summary()
         return summary
-    
+
     # Função para obter candles históricos (ajuste para o seu projeto)
     async def get_historical_ohlcv(self, timeframe: TimeframeEnum, limit: int = 5, train: bool = False):
         if len(self.ohlcv) > 0:
@@ -560,7 +563,7 @@ class BacktestRunner:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("SOL/USDC:USDC")
+    pair = get_pair_by_symbol("ETH/USDC:USDC")
 
     if pair != None:
 
