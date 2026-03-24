@@ -346,6 +346,7 @@ class ExchangeClient(ExchangeBase):
             )
             return
 
+        self.active_trailing_levels.pop(symbol, None)
         await self.place_entry_order(symbol, leverage, entry_amount, price_ref, side, sl, tp)
 
     async def close_position(self, symbol: str, amount: float, side: Signal):

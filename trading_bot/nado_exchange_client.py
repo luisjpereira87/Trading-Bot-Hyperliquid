@@ -465,6 +465,7 @@ class NadoExchangeClient(ExchangeBase):
                 )
                 return None
 
+            self.active_trailing_levels.pop(symbol, None)
             # 5. Executar
             return await self.place_entry_order(
                 symbol=symbol,
