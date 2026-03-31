@@ -6,10 +6,12 @@ import joblib
 import numpy as np
 import pandas as pd
 from ta.momentum import RSIIndicator, StochasticOscillator
+from ta.trend import ADXIndicator
 from ta.volatility import AverageTrueRange
 
 from commons.enums.mode_enum import ModeEnum
 from commons.models.strategy_params_dclass import StrategyParams
+from commons.utils.indicators.custom_indicators_utils import CustomIndicatorsUtils
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from trading_bot.exchange_base import ExchangeBase
 from trading_bot.exchange_client import ExchangeClient
@@ -38,12 +40,12 @@ class MLStrategy(StrategyBase):
         self.model = None
         self.scaler = None
         self.last_train_len = 0
-        self.confidence_threshold = 0.55
+        self.confidence_threshold = 0.70
         self.price_ref: float = 0.0
 
         self.model_loaded = False
-        
-        self.model_dir = os.path.join("machine_learning", "models")
+        self.base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        self.model_dir = os.path.join(self.base_dir, "trading-bot","machine_learning", "models")
         os.makedirs(self.model_dir, exist_ok=True)
         self.model_path = os.path.join(self.model_dir, f"modelo_{self.model_type.value.lower()}.pkl")
         self.keras_model_path = os.path.join(self.model_dir, f"modelo_{self.model_type.value.lower()}.keras")
@@ -133,6 +135,24 @@ class MLStrategy(StrategyBase):
 
     
     def calculate_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        # 1. Converter para o Wrapper (mesma lógica de correção do timestamp que fizemos)
+        df_temp = df.copy()
+        if pd.api.types.is_datetime64_any_dtype(df_temp['timestamp']):
+            df_temp['timestamp'] = df_temp['timestamp'].astype('int64') // 10 ** 6
+
+        # 2. Calcular os teus indicadores proprietários
+        custom_utils = CustomIndicatorsUtils(OhlcvWrapper(df_temp.values.tolist()))
+
+        # SuperTrend
+        _, _, _, _, _, direction, _ = custom_utils.supertrend()
+        # Super Score
+        final_scores, _ = custom_utils.calculate_super_score()
+
+        # 3. Injetar de volta no DF original
+        df['super_score'] = final_scores
+        df['st_direction'] = direction
+
+
         df = df.copy()
         df['ema9'] = df['close'].ewm(span=9, adjust=False).mean()
         df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
@@ -143,6 +163,33 @@ class MLStrategy(StrategyBase):
         df['stoch_k'] = stoch.stoch()
         df['stoch_d'] = stoch.stoch_signal()
         df['pct_change'] = df['close'].pct_change()
+
+        # --- NOVOS INDICADORES (ADICIONAR ESTAS LINHAS) ---
+
+        # 1. Z-Score
+        df['mean_20'] = df['close'].rolling(window=20).mean()
+        df['std_20'] = df['close'].rolling(window=20).std()
+        df['z_score'] = (df['close'] - df['mean_20']) / df['std_20']
+
+        # 2. Volume Relativo
+        df['vol_ema'] = df['volume'].ewm(span=20).mean()
+        df['relative_volume'] = df['volume'] / df['vol_ema']
+
+        # 3. Bollinger Width (Spread de médias)
+        df['bb_width'] = (df['ema21'] - df['ema9']) / df['ema21']
+
+        # 4. Tendência de Longo Prazo
+        df['ema_200'] = df['close'].ewm(span=200).mean()
+        df['above_ema200'] = (df['close'] > df['ema_200']).astype(int)
+
+        # 5. Momentum e ROC
+        df['momentum'] = df['close'].pct_change(periods=3)
+        df['roc'] = df['close'].pct_change(periods=10)
+
+        # --- FILTRO ADX (Simples e Eficaz) ---
+        adx_inst = ADXIndicator(df['high'], df['low'], df['close'], window=14)
+        df['adx'] = adx_inst.adx()
+
         return df
 
     def compute_sl_tp(self, price: float, atr: float, confidence: float, direction: Signal)-> tuple[float | None, float | None]:
@@ -169,7 +216,11 @@ class MLStrategy(StrategyBase):
         df = self.calculate_features(df).dropna()
         if self.model_type == MLModelType.LSTM:
             window_size = 10  # deve ser consistente com treino
-            features = df[['rsi', 'atr', 'macd', 'pct_change', 'ema9', 'ema21', 'stoch_k', 'stoch_d']].values
+            features = df[[
+                    'rsi', 'atr', 'macd', 'pct_change', 'ema9', 'ema21', 'stoch_k', 'stoch_d',
+                    'z_score', 'relative_volume', 'bb_width', 'above_ema200', 'momentum', 'roc', 'adx',
+                    'super_score', 'st_direction'
+                ]].values
             if len(features) < window_size:
                 logging.warning("⚠️ Dados insuficientes para predição LSTM. Retornando HOLD.")
                 return SignalResult(Signal.HOLD, None, None, None)
@@ -214,11 +265,14 @@ class MLStrategy(StrategyBase):
         else:
             # Seu código atual para RF, XGB, MLP (features 2D)
             latest = df.iloc[-1]
-            features = pd.DataFrame([[
-                latest['rsi'], latest['atr'], latest['macd'],
-                latest['pct_change'], latest['ema9'], latest['ema21'],
-                latest['stoch_k'], latest['stoch_d']
-            ]], columns=['rsi', 'atr', 'macd', 'pct_change', 'ema9', 'ema21', 'stoch_k', 'stoch_d'])
+            cols = [
+                "rsi", "atr", "macd", "pct_change", "ema9", "ema21", "stoch_k", "stoch_d",
+                "z_score", "relative_volume", "bb_width", "above_ema200", "momentum", "roc", "adx",
+                'super_score', 'st_direction'
+            ]
+
+            # Criar o DataFrame com os valores de 'latest'
+            features = pd.DataFrame([[latest[col] for col in cols]], columns=cols)
 
             if features.isnull().values.any():
                 logging.warning("⚠️ Features contêm NaNs. Retornando 'hold'.")
@@ -232,6 +286,7 @@ class MLStrategy(StrategyBase):
             close_price = latest['close']
             atr = latest['atr']
 
+            """
             if self.aggressive_mode:
                 if idx == 2:
                     sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.BUY)
@@ -240,12 +295,13 @@ class MLStrategy(StrategyBase):
                     sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.SELL)
                     return SignalResult(Signal.SELL, sl, tp, confidence, proba[0])
             else:
-                if idx == 2 and proba[2] > self.confidence_threshold:
-                    sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.BUY)
-                    return SignalResult(Signal.BUY, sl, tp, confidence, proba[2])
-                elif idx == 0 and proba[0] > self.confidence_threshold:
-                    sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.SELL)
-                    return SignalResult(Signal.SELL, sl, tp, confidence, proba[0])
+            """
+            if idx == 2 and proba[2] > self.confidence_threshold:
+                sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.BUY)
+                return SignalResult(Signal.BUY, sl, tp, confidence, proba[2])
+            elif idx == 0 and proba[0] > self.confidence_threshold:
+                sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.SELL)
+                return SignalResult(Signal.SELL, sl, tp, confidence, proba[0])
 
             return SignalResult(Signal.HOLD, None, None, confidence, proba[1])
 

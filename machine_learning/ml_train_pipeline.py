@@ -19,7 +19,12 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.utils import compute_class_weight
 from ta.momentum import RSIIndicator, StochasticOscillator
+from ta.trend import ADXIndicator
 from ta.volatility import AverageTrueRange
+
+from commons.utils.indicators.custom_indicators_utils import CustomIndicatorsUtils
+from commons.utils.indicators.indicators_utils import IndicatorsUtils
+from commons.utils.ohlcv_wrapper import OhlcvWrapper
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # ou '3'
 import tensorflow as tf
@@ -52,7 +57,7 @@ class MLTrainer:
 
     def _init_model(self):
         if self.model_type == MLModelType.RANDOM_FOREST:
-            return RandomForestClassifier(random_state=42)
+            return RandomForestClassifier(n_estimators=200, class_weight='balanced_subsample', random_state=42)
         elif self.model_type == MLModelType.XGBOOST:
             return XGBClassifier(eval_metric='mlogloss', random_state=42)
         elif self.model_type == MLModelType.MLP:
@@ -89,7 +94,7 @@ class MLTrainer:
     async def fetch_ohlcv(self, symbol):
         exchange = hyperliquid({
             "enableRateLimit": True,
-            "testnet": True,
+            "testnet": False,
         })
         logging.info(f"🔁 Baixando {self.CANDLE_LIMIT} candles para {symbol}...")
 
@@ -117,10 +122,31 @@ class MLTrainer:
             logging.info(f"✅ CSV salvo em: {csv_path}")
 
         await exchange.close()
+
+
         return df
 
     def prepare_dataset(self, df):
+
+        # Criamos uma cópia temporária para não estragar o DF original
+        df_temp = df.copy()
+
+        # Se o timestamp já for datetime, convertemos de volta para milissegundos (int)
+        if pd.api.types.is_datetime64_any_dtype(df_temp['timestamp']):
+            df_temp['timestamp'] = df_temp['timestamp'].astype('int64') // 10 ** 6
+
+        custom_indicators = CustomIndicatorsUtils(OhlcvWrapper(df_temp.values.tolist()))
+        supertrend, trend, final_upperband, final_lowerband, supertrend_smooth, direction, perf_score = custom_indicators.supertrend()
+
+        final_scores, smooth_scores = custom_indicators.calculate_super_score()
         df = df.copy()
+
+        # --- NOVIDADE: Injetar os teus indicadores no DF ---
+        # Garantimos que os tamanhos batem (dropna pode ser necessário depois)
+        df["super_score"] = final_scores
+        df["st_direction"] = direction  # 1 para alta, -1 para baixa
+        # --------------------------------------------------
+
         df["ema9"] = df["close"].ewm(span=9).mean()
         df["ema21"] = df["close"].ewm(span=21).mean()
         df["macd"] = df["ema9"] - df["ema21"]
@@ -131,32 +157,70 @@ class MLTrainer:
         df["stoch_d"] = stoch.stoch_signal()
         df["pct_change"] = df["close"].pct_change()
 
-        df["future_return"] = df["close"].shift(-3) / df["close"] - 1
+        df["future_return"] = df["close"].shift(-20) / df["close"] - 1
+
+
+        df["target_vol"] = df["atr"] * 2 / df["close"]
         df["label"] = np.select(
-            [df["future_return"] > 0.003, df["future_return"] < -0.003],
+            [df["future_return"] > df["target_vol"], df["future_return"] < -df["target_vol"]],
             [2, 0], default=1
         )
+        """
+        df["label"] = np.select(
+            [df["future_return"] > 0.006, df["future_return"] < -0.006],
+            [2, 0], default=1
+        )
+        """
         df['momentum'] = df['close'].pct_change(periods=3)
         df['roc'] = df['close'].pct_change(periods=10)
+
+        # 1. Z-Score (Distância da Média em Desvios Padrão)
+        # Diz ao modelo se o preço está "caro" ou "barato" em relação à média
+        df['mean_20'] = df['close'].rolling(window=20).mean()
+        df['std_20'] = df['close'].rolling(window=20).std()
+        df['z_score'] = (df['close'] - df['mean_20']) / df['std_20']
+
+        # 2. Volume Relativo
+        # Reversões com volume baixo são geralmente falsas
+        df['vol_ema'] = df['volume'].ewm(span=20).mean()
+        df['relative_volume'] = df['volume'] / df['vol_ema']
+
+        # 3. Bandas de Bollinger (Largura)
+        # Ajuda o modelo a detetar "Squeezes" de volatilidade
+        df['bb_width'] = (df['ema21'] - df['ema9']) / df['ema21']  # Simples spread de médias
+
+        # 4. Tendência de Longo Prazo
+        # O modelo precisa saber se a tendência macro é de alta ou baixa
+        df['ema_200'] = df['close'].ewm(span=200).mean()
+        df['above_ema200'] = (df['close'] > df['ema_200']).astype(int)
+
+        # --- 2. Filtro de Lateralização (ADX) ---
+        adx_inst = ADXIndicator(df['high'], df['low'], df['close'], window=14)
+        df['adx'] = adx_inst.adx()
+
         df = df.dropna()
 
-        features = df[["rsi", "atr", "macd", "pct_change", "ema9", "ema21", "stoch_k", "stoch_d"]]
+        features = df[[
+            "rsi", "atr", "macd", "pct_change", "ema9", "ema21", "stoch_k", "stoch_d",
+            "z_score", "relative_volume", "bb_width", "above_ema200", "momentum", "roc", "adx",
+            "super_score", "st_direction"
+        ]]
         labels = df["label"]
 
         print(df[['close', 'rsi', 'macd', 'ema9', 'ema21', 'stoch_k', 'stoch_d']].tail(15))
         
-        smote = SMOTE(random_state=42)
-        features_res, labels_res = smote.fit_resample(features, labels) # type: ignore
+        #smote = SMOTE(random_state=42)
+        #features_res, labels_res = smote.fit_resample(features, labels) # type: ignore
 
         if self.save_csv:
             os.makedirs(self.DATA_DIR, exist_ok=True)
             dataset_path = os.path.join(self.DATA_DIR, f"dataset_{self.model_type.value.lower()}.csv")
-            df_full = features_res.copy()
-            df_full["label"] = labels_res
-            df_full.to_csv(dataset_path, index=False)
+            #df_full = features_res.copy()
+            #df_full["label"] = labels_res
+            df.to_csv(dataset_path, index=False)
             logging.info(f"✅ Dataset balanceado salvo em: {dataset_path}")
 
-        return features_res, labels_res
+        return features, labels
 
     def build_lstm_model(self, input_shape, num_classes, lstm_units=50, dropout_rate=0.2):
         model = Sequential()
@@ -285,6 +349,9 @@ class MLTrainer:
     def train_and_save_model(self, features, labels):
         os.makedirs(os.path.dirname(self.MODEL_PATH), exist_ok=True)
 
+        # --- ALTERAÇÃO 1: SPLIT TEMPORAL (Para todos os modelos) ---
+        # Em vez de random_state, cortamos os últimos 20% dos dados para validação
+        split_idx = int(len(features) * 0.8)
         if self.model_type == MLModelType.LSTM:
              # Cria sequências
             window_size = 30
@@ -318,14 +385,18 @@ class MLTrainer:
             logging.info(f"💾 Modelo LSTM salvo em: {model_path_keras}")
             logging.info(f"💾 Scaler salvo em: {scaler_path}")
             return
-        
-        # Para RF, XGBoost e MLP
-        X_train, X_val, y_train, y_val = train_test_split(
-            features, labels, test_size=0.2, random_state=42, stratify=labels
-        )
 
-        logging.info(f"📊 Distribuição das classes no treino: {np.bincount(y_train)}")
-        logging.info(f"📊 Distribuição das classes na validação: {np.bincount(y_val)}")
+        # ALTERAR AQUI: Split temporal para RF/XGB (Sem baralhar os candles)
+        X_train_raw, X_val = features.iloc[:split_idx], features.iloc[split_idx:]
+        y_train_raw, y_val = labels.iloc[:split_idx], labels.iloc[split_idx:]
+
+        # ALTERAR AQUI: Aplicar o SMOTE APENAS no treino
+        logging.info("⚖️ Aplicando SMOTE apenas nos dados de treino...")
+        smote = SMOTE(random_state=42)
+        X_train, y_train = smote.fit_resample(X_train_raw, y_train_raw)
+
+        logging.info(f"📊 Distribuição após SMOTE (Treino): {np.bincount(y_train)}")
+        logging.info(f"📊 Distribuição Real (Validação): {np.bincount(y_val)}")
 
         # Modelos clássicos (RF, XGB, MLP)
         model = self._init_model()
