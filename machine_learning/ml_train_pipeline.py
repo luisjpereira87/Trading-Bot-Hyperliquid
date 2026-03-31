@@ -25,6 +25,7 @@ from ta.volatility import AverageTrueRange
 from commons.utils.indicators.custom_indicators_utils import CustomIndicatorsUtils
 from commons.utils.indicators.indicators_utils import IndicatorsUtils
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
+from commons.utils.paths import get_model_path
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # ou '3'
 import tensorflow as tf
@@ -52,7 +53,7 @@ class MLTrainer:
 
         self.base_dir = os.path.dirname(os.path.abspath(__file__))
         self.DATA_DIR = os.path.join(self.base_dir, "data")
-        self.MODEL_PATH = os.path.join(self.base_dir, "models", f"modelo_{model_type.value.lower()}.pkl")
+        self.MODEL_PATH = get_model_path(self.model_type.value)
         self.IMG_DIR = os.path.join(self.base_dir, "img")
 
     def _init_model(self):

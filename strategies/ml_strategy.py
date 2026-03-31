@@ -13,6 +13,7 @@ from commons.enums.mode_enum import ModeEnum
 from commons.models.strategy_params_dclass import StrategyParams
 from commons.utils.indicators.custom_indicators_utils import CustomIndicatorsUtils
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
+from commons.utils.paths import get_model_path, get_scaler_path
 from trading_bot.exchange_base import ExchangeBase
 from trading_bot.exchange_client import ExchangeClient
 
@@ -47,9 +48,9 @@ class MLStrategy(StrategyBase):
         self.base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         self.model_dir = os.path.join(self.base_dir, "trading-bot","machine_learning", "models")
         os.makedirs(self.model_dir, exist_ok=True)
-        self.model_path = os.path.join(self.model_dir, f"modelo_{self.model_type.value.lower()}.pkl")
-        self.keras_model_path = os.path.join(self.model_dir, f"modelo_{self.model_type.value.lower()}.keras")
-        self.scaler_model_path = os.path.join(self.model_dir, f"modelo_{self.model_type.value.lower()}_scaler.pkl")
+        self.model_path = get_model_path(self.model_type.value, ".pkl")
+        self.keras_model_path = get_model_path(self.model_type.value, ".keras")
+        self.scaler_model_path = get_scaler_path(self.model_type.value)
         self.data_dir = "data"
         self.image_path = "img/imagem.png"
     

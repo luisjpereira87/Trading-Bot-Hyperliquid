@@ -11,3 +11,4 @@ mypy.ini
 machine_learning/data/*
 machine_learning/img/*
 machine_learning/models/*
+models_storage
