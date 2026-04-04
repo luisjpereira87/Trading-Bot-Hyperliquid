@@ -1190,7 +1190,7 @@ class PlotTrades:
 
 
     @staticmethod
-    def plot_double_bb_rsi_logic(ohlcv, ohlcv_highter, symbol: str):
+    def plot_double_bb_rsi_logic(ohlcv, symbol: str):
         opens, highs, lows, closes = ohlcv.opens, ohlcv.highs, ohlcv.lows, ohlcv.closes
         n = len(closes)
         indices = np.arange(n)
@@ -1205,7 +1205,7 @@ class PlotTrades:
         #k_up, k_mid, k_low = indicatorsUtils.keltner_channels( period=20, multiplier=3.0)
         #k_up80, k_mid80, k_low80 = indicatorsUtils.keltner_channels(period=80, multiplier=3.0)
 
-        double_bb = indicatorsUtils.double_bb_rsi_logic(ohlcv_highter)
+        double_bb = indicatorsUtils.double_bb_rsi_logic()
         bb20_up = double_bb['bbshort_up']
         bb20_low = double_bb['bbshort_low']
         bb20_mid = double_bb['bbshort_mid']
@@ -1221,7 +1221,9 @@ class PlotTrades:
         super_score, ema_score = indicatorsUtils.calculate_super_score()
         ema200 = indicatorsUtils.ema(200)
 
-        bull_pct, bear_pct, slope_ma_14, polarity_osc, signal_line = indicatorsUtils.calculate_lux_bb_oscillator()
+        #bull_pct, bear_pct, slope_ma_14, polarity_osc, signal_line = indicatorsUtils.calculate_lux_bb_oscillator()
+        #base_mult=2, min_mult=1.5, base_length=7
+        supertrend, trend, upperband, lowerband, supertrend_smooth, direction, perf_score = indicatorsUtils.supertrend()
 
         # --- PLOTAGEM ---
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 10), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
@@ -1269,7 +1271,10 @@ class PlotTrades:
 
         ax1.plot(indices, bb80_mid, color='orange', linewidth=1.5, alpha=0.6)
 
-        ax1.plot(indices, ema200, color='red', linewidth=1.5, alpha=0.6)
+        #ax1.plot(indices, ema200, color='red', linewidth=1.5, alpha=0.6)
+
+        ax1.plot(indices, upperband, color='green', linestyle='--', linewidth=1.5, alpha=0.6, label='Supertrend Upper')
+        ax1.plot(indices, lowerband, color='red', linestyle='--', linewidth=1.5, alpha=0.6, label='Supertrend Upper')
 
         # --- PLOT NO AX1 (Onde está o preço) ---
         # Vamos desenhar apenas a linha superior (Up) que é o teu foco para o SELL
@@ -1284,15 +1289,262 @@ class PlotTrades:
 
         # 2. Plot dos Círculos (Entrada Real/Gatilho) - Símbolo sólido e marcante
 
-        ax1.scatter(entry_buy_idx, entry_buy_val, marker='o', color='#00ff00', 
+        """
+        ax1.scatter(entry_buy_idx, entry_buy_val, marker='o', color='#00ff00',
                     s=150, edgecolors='black', linewidth=1.5, label='ENTRADA (Evolução)')
         ax1.scatter(entry_sell_idx, entry_sell_val, marker='o', color='#ff0000', 
                     s=150, edgecolors='black', linewidth=1.5)
+        """
+        margem = 0.001
+
+        # Criar máscaras booleanas para os cruzamentos
+
+        # TOPO: BB20 Upper ACIMA da BB80 Upper
+        topo_extremo = bb20_up > bb80_up
+        ax1.fill_between(range(len(bb20_up)), bb80_up, bb20_up,
+                         where=topo_extremo, color='red', alpha=0.3, label='Exaustão Topo')
+
+        # FUNDO: BB20 Low ABAIXO da BB80 Low (Aqui é onde costuma falhar)
+        fundo_extremo = bb20_low < bb80_low
+        ax1.fill_between(range(len(bb20_low)), bb80_low, bb20_low,
+                         where=fundo_extremo, color='green', alpha=0.3, label='Exaustão Fundo')
         
+        for i in range(1, len(direction)):
+            # 1. COMPRA NA EXAUSTÃO DE VENDA (Fundo)
+            # Se a tendência é de BAIXA, mas o preço tocou na banda de BAIXO
+
+            # 1. IDENTIFICAR AS ZONAS (Contexto que já tens no gráfico)
+            # 1. CONTEXTO: Estamos na Zona de Exaustão de Fundo (Pintada de Verde)?
+            na_zona_fundo = bb20_low[i] < bb80_low[i]
+
+
+            if na_zona_fundo:
+                # --- O CANDLE ANTERIOR (i-1) ---
+                # Ele foi de venda (vermelho) e tentou furar ou "sentou" na linha
+                bearish_attempt = closes[i - 1] < opens[i - 1]
+                support_tested = lows[i - 1] <= lowerband[i - 1]
+
+                # --- O CANDLE ATUAL (i) ---
+                # Ele é de reversão (verde) e recuperou a linha ou engoliu a queda
+                bottom_reversal = closes[i] > opens[i] and closes[i] > lowerband[i]
+
+                # Filtro de RSI (Exaustão confirmada)
+                rsi_exhausted = rsi[i] <= 40
+                prev_bear_body = opens[i - 1] - closes[i - 1]  # Tamanho da queda
+                bear_body_midpoint = closes[i - 1] + (prev_bear_body * 0.5)
+                price_action_buy = closes[i] > bear_body_midpoint
+
+                is_curve_bb_lower = bb20_low[i]> bb20_low[i-1]
+
+                lowerband_reversal = lowerband[i] > lowerband[i-1]
+
+                if (bearish_attempt and support_tested and bottom_reversal and is_curve_bb_lower):
+                    # Entrada de Alta Confiança
+                    ax1.scatter(i, lows[i], marker='$\u2131$', color='#00ff00', s=250, zorder=20)
+                    ax1.text(i, lows[i] - 0.4, f"REVERSÃO, idx {i}", color='green', fontsize=8, ha='center', fontweight='bold')
+                    print(f"✅ COMPRA: O candle {i - 1} testou a muralha e o candle {i} reverteu! lowerband[i]={lowerband[i]}, lowerband[i-1]={lowerband[i-1]}")
+
+            # --- LÓGICA ESPELHADA PARA O TOPO (VENDA) ---
+            na_zona_topo = bb20_up[i] > bb80_up[i]
+            if na_zona_topo:
+                bullish_attempt = closes[i - 1] > opens[i - 1]
+                resistance_tested = highs[i - 1] >= upperband[i - 1]
+                top_reversal = closes[i] < opens[i] and closes[i] < upperband[i]
+                prev_bull_body = closes[i - 1] - opens[i - 1]
+                bull_body_midpoint = opens[i - 1] + (prev_bull_body * 0.5)
+                price_action_sell = closes[i] < bull_body_midpoint
+                is_curve_bb_up = bb20_up[i] < bb20_up[i - 1]
+
+                if bullish_attempt and resistance_tested and top_reversal and is_curve_bb_up:
+                    ax1.scatter(i, highs[i], marker='$\u2131$', color='#ff0000', s=250, zorder=20)
+                    ax1.text(i, highs[i] + 0.4, f"REVERSÃO, idx {i}", color='red', fontsize=8, ha='center', fontweight='bold')
+                    print(f"✅ Venda: O candle {i - 1} testou a muralha e o candle {i} reverteu! upperband[i]={upperband[i]}, upperband[i-1]={upperband[i-1]}")
+
+
+
+            if closes[i-1] > upperband[i-1] and closes[i - 2] <= upperband[i - 2]:
+                if closes[i] > opens[i]:
+                    # TENDÊNCIA CONFIRMADA
+                    print("BUY", i, rsi[i])
+                    ax1.scatter(i, lows[i], marker='o', color='#00ff00', s=150, edgecolors='black')
+                    ax1.text(
+                        i,
+                        lows[i],
+                        f"Idx {i}, {perf_score[i]}",  # Usamos o idx real do ponto
+                        fontsize=8,
+                        ha='center',
+                        va='top',
+                        color='darkgreen',
+                        bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
+                        zorder=6
+                    )
+
+                """
+                elif closes[i] < opens[i]:
+                    # REJEIÇÃO DE ALTA -> OPORTUNIDADE DE VENDA (SHORT)
+                    #print(f"🔴 VENDER: Falso Rompimento de Alta no Idx {i}")
+                    ax1.scatter(i, highs[i], marker='x', color='#ff0000', s=100)  # Um 'X' para marcar o Fakeout
+                    ax1.text(
+                        i,
+                        highs[i],
+                        f"Idx {i}, {perf_score[i]}",
+                        fontsize=8,
+                        ha='center',
+                        va='bottom',  # Para o sell, talvez seja melhor 'bottom' para ficar acima da seta
+                        color='darkred',
+                        bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
+                        zorder=6
+                    )
+                """
+            # 2. VIRAGEM PARA BAIXA (Crossunder no i-1)
+            elif closes[i-1] < lowerband[i-1] and closes[i-2] >= lowerband[i-2]:
+                if closes[i] < opens[i]:
+                    print("SELL", i, rsi[i])
+                    # TENDÊNCIA CONFIRMADA
+                    ax1.scatter(i, highs[i], marker='o', color='#ff0000', s=150, edgecolors='black')
+                    ax1.text(
+                        i,
+                        highs[i],
+                        f"Idx {i}, {perf_score[i]}",
+                        fontsize=8,
+                        ha='center',
+                        va='bottom',  # Para o sell, talvez seja melhor 'bottom' para ficar acima da seta
+                        color='darkred',
+                        bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
+                        zorder=6
+                    )
+                """
+                elif closes[i] > opens[i]:
+                    # REJEIÇÃO DE BAIXA -> OPORTUNIDADE DE COMPRA (LONG)
+                    #print(f"🟢 COMPRAR: Falso Rompimento de Baixa (Bear Trap) no Idx {i}")
+                    ax1.scatter(i, lows[i], marker='x', color='#00ff00', s=100)
+                    ax1.text(
+                        i,
+                        lows[i],
+                        f"Idx {i}, {perf_score[i]}",  # Usamos o idx real do ponto
+                        fontsize=8,
+                        ha='center',
+                        va='top',
+                        color='darkgreen',
+                        bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
+                        zorder=6
+                    )
+                """
+            """
+            if direction[i] == 1:
+                if bb20_up[i] <= bb20_up[i-1] and upperband[i] <= upperband[i-1] and bb20_up[i-1] > upperband[i-1] and highs[i-1] >= upperband[i-1]:
+                    print("SELL", i, upperband[i], upperband[i - 1])
+                    ax1.scatter(i, highs[i], marker='o', color='#ff0000',
+                                s=150, edgecolors='black', linewidth=1.5)
+                    ax1.text(
+                        i,
+                        highs[i],
+                        f"Idx {i}, {perf_score[i]}",
+                        fontsize=8,
+                        ha='center',
+                        va='bottom',  # Para o sell, talvez seja melhor 'bottom' para ficar acima da seta
+                        color='darkred',
+                        bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
+                        zorder=6
+                    )
+            elif direction[i] == -1:
+                if bb20_low[i] >= bb20_low[i-1] and lowerband[i] >= lowerband[i-1] and bb20_low[i-1] < lowerband[i-1] and lows[i-1] <= lowerband[i-1]:
+                    print("BUY", i, lowerband[i], lowerband[i-1])
+                    ax1.scatter(i, lows[i], marker='o', color='#00ff00',
+                                s=150, edgecolors='black', linewidth=1.5)
+                    ax1.text(
+                        i,
+                        lows[i],
+                        f"Idx {i}, {perf_score[i]}",  # Usamos o idx real do ponto
+                        fontsize=8,
+                        ha='center',
+                        va='top',
+                        color='darkgreen',
+                        bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
+                        zorder=6
+                    )
+            """
+
+            """
+            if direction[i] == -1:
+                if lows[i] <= lowerband[i]:
+                    # Se o preço rejeitou a queda (fechou acima da mínima e RSI subiu)
+                    if closes[i] > lows[i] and rsi[i] > rsi_ema[i]:
+                        # GATILHO: O preço está a tentar "voltar para dentro"
+                        print(f"🟢 COMPRA (REVERSAL): Exaustão de venda no Idx {i}")
+                        # [Plotar sinal de compra aqui]
+                        ax1.scatter(i, lows[i], marker='o', color='#00ff00',
+                                    s=150, edgecolors='black', linewidth=1.5)
+                        ax1.text(
+                            i,
+                            lows[i],
+                            f"Idx {i}, {perf_score[i]}",  # Usamos o idx real do ponto
+                            fontsize=8,
+                            ha='center',
+                            va='top',
+                            color='darkgreen',
+                            bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
+                            zorder=6
+                        )
+
+            # 2. VENDA NA EXAUSTÃO DE COMPRA (Topo)
+            # Se a tendência é de ALTA, mas o preço tocou na banda de CIMA
+            elif direction[i] == 1:
+                if highs[i] >= upperband[i]:
+                    # Se o preço rejeitou a subida (deixou pavio e RSI caiu)
+                    if closes[i] < highs[i] and rsi[i] < rsi_ema[i]:
+                        print(f"🔴 VENDA (REVERSAL): Exaustão de compra no Idx {i}")
+                        # [Plotar sinal de venda aqui]
+                        ax1.scatter(i, highs[i], marker='o', color='#ff0000',
+                                    s=150, edgecolors='black', linewidth=1.5)
+                        ax1.text(
+                            i,
+                            highs[i],
+                            f"Idx {i}, {perf_score[i]}",
+                            fontsize=8,
+                            ha='center',
+                            va='bottom',  # Para o sell, talvez seja melhor 'bottom' para ficar acima da seta
+                            color='darkred',
+                            bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
+                            zorder=6
+                        )
+
+            """
+            """
+            if direction[i] == 1 and direction[i-1] == -1:
+                ax1.scatter(i, lows[i], marker='o', color='#00ff00',
+                            s=150, edgecolors='black', linewidth=1.5)
+                ax1.text(
+                    i,
+                    lows[i],
+                    f"Idx {i}, {perf_score[i]}",  # Usamos o idx real do ponto
+                    fontsize=8,
+                    ha='center',
+                    va='top',
+                    color='darkgreen',
+                    bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
+                    zorder=6
+                )
+            elif direction[i] == -1 and direction[i-1] == 1:
+                ax1.scatter(i, highs[i], marker='o', color='#ff0000',
+                            s=150, edgecolors='black', linewidth=1.5)
+                ax1.text(
+                    i,
+                    highs[i],
+                     f"Idx {i}, {perf_score[i]}",
+                    fontsize=8,
+                    ha='center',
+                    va='bottom',  # Para o sell, talvez seja melhor 'bottom' para ficar acima da seta
+                    color='darkred',
+                    bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
+                    zorder=6
+                )
+            """
+        """
         for idx, val in zip(entry_buy_idx, entry_buy_val):
             ax1.text(
-                idx, 
-                val, 
+                idx,
+                val,
                 f"Idx {idx}", # Usamos o idx real do ponto
                 fontsize=8,
                 ha='center',
@@ -1314,12 +1566,14 @@ class PlotTrades:
                 bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
                 zorder=6
             )
+        """
         ax1.set_facecolor('#131722')
         ax1.grid(True, color='#2a2e39', alpha=0.5)
         ax1.legend()
 
         # RSI 6
 
+        """
         ax2.plot(indices, rsi, color='#9b59b6', linewidth=2)
         #ax2.plot(indices, rsi_higher, color='#368921', linewidth=2)
         ax2.plot(indices, rsi_ema, color="#368921", linewidth=2)
@@ -1329,9 +1583,9 @@ class PlotTrades:
         ax2.axhline(30, color='green', linestyle='--', alpha=0.3)
         ax2.set_facecolor('#131722')
         ax2.set_ylim(0, 100)
-
-
         """
+
+
         # Super score
         ax2.plot(indices, super_score, color='#9b59b6', linewidth=2, label='Super Score')
         ax2.plot(indices, ema_score, color="#137169", linewidth=2, label='Ema score')
@@ -1346,7 +1600,7 @@ class PlotTrades:
         # 4. Preenchimento de Cor (Opcional, mas ajuda muito a ver a força)
         ax2.fill_between(indices, 0, super_score, where=(super_score >= 0), color='green', alpha=0.2)
         ax2.fill_between(indices, 0, super_score, where=(super_score < 0), color='red', alpha=0.2)
-        """
+
         """
 
 
@@ -1493,8 +1747,8 @@ async def main():
 
     if pair:
 
-        ohlcv = await PlotTrades.get_historical_ohlcv(pair, TimeframeEnum.M15, 1000)
-        ohlcvHigher = await PlotTrades.get_historical_ohlcv(pair, TimeframeEnum.H1, 1000)
+        ohlcv = await PlotTrades.get_historical_ohlcv(pair, TimeframeEnum.M15, 1200)
+        #ohlcvHigher = await PlotTrades.get_historical_ohlcv(pair, TimeframeEnum.H1, 1200)
 
         #PlotTrades.plot_supertrend_with_signals(ohlcv, pair.symbol)
         #PlotTrades.plot_smart_money_flow_cloud(ohlcv, pair.symbol)
@@ -1503,7 +1757,7 @@ async def main():
         #PlotTrades.plot_smart_money_breakout(ohlcv, pair.symbol)
         #PlotTrades.plot_sha_macd_raw_signals(ohlcv, pair.symbol)
         #PlotTrades.plot_double_rsi_signals(ohlcv, pair.symbol)
-        PlotTrades.plot_double_bb_rsi_logic(ohlcv, ohlcvHigher, pair.symbol)
+        PlotTrades.plot_double_bb_rsi_logic(ohlcv, pair.symbol)
         #PlotTrades.plot_soheil_pko_strategy(ohlcv, pair.symbol)
         #PlotTrades.plot_market_structure_rsi(ohlcv, pair.symbol)
         

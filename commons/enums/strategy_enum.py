@@ -8,6 +8,7 @@ class StrategyEnum(Enum):
     ML_XGBOOST = 'ml_xgboost'
     ML_MLP = 'ml_mlp'
     ML_LSTM = 'ml_lsmt'
+    ML_LIGHTGBM = 'ml_lightgbm'
     CROSS_EMA = 'cross_ema'
     LUXALGO_SUPERTREND = 'luxalgo_supertrend'
     CROSS_EMA_LINEAR_REGRESSION = 'cross_ema_linear_regression'

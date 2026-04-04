@@ -18,17 +18,23 @@ from trading_bot.exchange_base import ExchangeBase
 
 class ExchangeClient(ExchangeBase):
     def __init__(self, exchange: ccxt.hyperliquid, wallet_address):
+        super().__init__()
         self.exchange = exchange
         self.wallet_address = wallet_address
         self.helpers = TradingHelpers()
         self.active_trailing_levels = {}
 
+    def get_name(self):
+        return "hyperliquid"
+
     async def fetch_ohlcv(
         self,
         symbol: str,
         timeframe: TimeframeEnum = TimeframeEnum.M15,
+        since: int = None,
         limit: int = 14,
-        is_higher: bool = False
+        is_higher: bool = False,
+        is_training = False
     ) -> OhlcvFormat:
         try:
             now = self.exchange.milliseconds()
@@ -40,7 +46,8 @@ class ExchangeClient(ExchangeBase):
             # O TRUQUE: Recuamos apenas o estritamente necessário (ex: 198 candles)
             # para garantir que o 'limit=200' nunca seja atingido ANTES de chegar ao agora.
             # Se pedires 200 velas começando há 198 velas atrás, a 200ª será a atual.
-            since = now - (ms_per_candle * (limit - 2))
+            if since is None:
+                since = now - (ms_per_candle * (limit - 2))
             
             # Fetch timeframe principal
             ohlcv_data = await self.exchange.fetch_ohlcv(symbol, timeframe.value, since=since, limit=limit)

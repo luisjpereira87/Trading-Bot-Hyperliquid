@@ -7,3 +7,4 @@ class MLModelType(Enum):
     XGBOOST = 'XGBoost'
     MLP = 'MLP'
     LSTM = 'LSTM'
+    LIGHTGBM = 'LIGHTGBM'

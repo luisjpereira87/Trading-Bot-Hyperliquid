@@ -13,11 +13,11 @@ MODEL_STORAGE = os.getenv("STORAGE_PATH", os.path.join(BASE_DIR, "models_storage
 if not os.path.exists(MODEL_STORAGE):
     os.makedirs(MODEL_STORAGE, exist_ok=True)
 
-def get_model_path(model_type_value: str, extension=".pkl"):
+def get_model_path(model_type_value: str, exchange_name: str, extension=".pkl"):
     """Retorna o caminho completo e absoluto para o modelo."""
-    filename = f"modelo_{model_type_value.lower()}{extension}"
+    filename = f"modelo_{model_type_value.lower()}_{exchange_name}{extension}"
     return os.path.join(MODEL_STORAGE, filename)
 
-def get_scaler_path(model_type_value: str):
+def get_scaler_path(model_type_value: str, exchange_name: str):
     """Retorna o caminho para o scaler (específico para LSTM)."""
-    return os.path.join(MODEL_STORAGE, f"modelo_{model_type_value.lower()}_scaler.pkl")
+    return os.path.join(MODEL_STORAGE, f"modelo_{model_type_value.lower()}_{exchange_name}_scaler.pkl")

@@ -41,6 +41,8 @@ class StrategyManager(StrategyBase):
             self.strategy = MLStrategy(self.exchange, MLModelType.RANDOM_FOREST)
         elif self.name == StrategyEnum.ML_LSTM:
             self.strategy = MLStrategy(self.exchange, MLModelType.LSTM)
+        elif self.name == StrategyEnum.ML_LIGHTGBM:
+            self.strategy = MLStrategy(self.exchange, MLModelType.LIGHTGBM)
         elif self.name == StrategyEnum.CROSS_EMA_LINEAR_REGRESSION:
             self.strategy = CrossEmaLinearRegressionStrategy(self.exchange)
         else:

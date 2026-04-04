@@ -70,7 +70,7 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
         indices = np.arange(n)
         
         # 1. Calcula as bandas "brutas"
-        #bb20_up_raw, bb20_basis_raw, bb20_low_raw = self.bollinger_bands(period=bb_short_period, std_dev=bb_short_std_dev)
+        bb20_up_raw, bb20_basis_raw, bb20_low_raw = self.bollinger_bands(period=bb_short_period, std_dev=bb_short_std_dev)
         bb80_up_raw, bb80_basis_raw, bb80_low_raw = self.bollinger_bands(period=bb_long_period, std_dev=bb_long_std_dev)
 
         # 2. Suavização Inteligente (Evitando o problema do zero inicial)
@@ -126,6 +126,7 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
                     entry_sell_idx.append(i)
                     entry_sell_val.append(highs[i])
 
+            """
             # --- SINAL EXTRA: CRUZAMENTO DE MOMENTUM ---
             if rsi[i] < rsi_ema[i] and rsi[i-1] >= rsi_ema[i-1] and rsi[i] < 60:
                 if closes[i] < bb80_basis_raw[i] and abs(rsi[i] - rsi_ema[i]) > 5:  # Confirmação pelo preço/Kalman
@@ -141,7 +142,7 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
                     entry_buy_idx.append(i)
                     entry_buy_val.append(lows[i])
                     #print(f"Sinal Extra Compra no Idx {i}")
-
+            """
         return {
             'bbshort_up': bb20_up,
             'bbshort_low': bb20_low,

@@ -14,6 +14,7 @@ from commons.models.strategy_params_dclass import StrategyParams
 from commons.utils.indicators.custom_indicators_utils import CustomIndicatorsUtils
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from commons.utils.paths import get_model_path, get_scaler_path
+from machine_learning.market_brain import MarketBrain
 from trading_bot.exchange_base import ExchangeBase
 from trading_bot.exchange_client import ExchangeClient
 
@@ -30,7 +31,7 @@ from machine_learning.ml_train_pipeline import MLTrainer
 
 
 class MLStrategy(StrategyBase):
-    def __init__(self, exchange :ExchangeBase, model_type = MLModelType.RANDOM_FOREST):
+    def __init__(self, exchange: ExchangeBase, model_type = MLModelType.RANDOM_FOREST):
         super().__init__()
 
         self.exchange = exchange
@@ -48,9 +49,9 @@ class MLStrategy(StrategyBase):
         self.base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         self.model_dir = os.path.join(self.base_dir, "trading-bot","machine_learning", "models")
         os.makedirs(self.model_dir, exist_ok=True)
-        self.model_path = get_model_path(self.model_type.value, ".pkl")
-        self.keras_model_path = get_model_path(self.model_type.value, ".keras")
-        self.scaler_model_path = get_scaler_path(self.model_type.value)
+        self.model_path = get_model_path(self.model_type.value,self.exchange.get_name(), ".pkl")
+        self.keras_model_path = get_model_path(self.model_type.value,self.exchange.get_name(), ".keras")
+        self.scaler_model_path = get_scaler_path(self.model_type.value, self.exchange.get_name())
         self.data_dir = "data"
         self.image_path = "img/imagem.png"
     
@@ -72,7 +73,7 @@ class MLStrategy(StrategyBase):
 
     def get_sl_tp(self):
         pass
-            
+
     async def initialize(self, model_type: MLModelType):
         if self.model_loaded == True:
             return
@@ -80,26 +81,29 @@ class MLStrategy(StrategyBase):
         if self.model_type == MLModelType.LSTM:
             if os.path.exists(self.keras_model_path):
                 self.model = load_model(self.keras_model_path)
-                self.scaler = joblib.load(self.scaler_model_path) 
+                self.scaler = joblib.load(self.scaler_model_path)
                 self.model_loaded = True
                 logging.info(f"📥 Modelo LSTM carregado de '{self.keras_model_path}'")
             else:
                 logging.warning("⚠️ Modelo LSTM ainda não treinado, a executar treino...")
-                mlTrainer = MLTrainer(model_type, False, False)
+                mlTrainer = MLTrainer(self.exchange, model_type, False, False)
                 await mlTrainer.run()
                 logging.warning("✅ Modelo LSTM com treino finalizado")
                 self.model = load_model(self.keras_model_path)  # Recarrega após treino
-                self.scaler = joblib.load(self.scaler_model_path) 
+                self.scaler = joblib.load(self.scaler_model_path)
         else:
             if os.path.exists(self.model_path):
                 self.model = joblib.load(self.model_path)
+                self.scaler = joblib.load(self.scaler_model_path)
                 self.model_loaded = True
                 logging.info(f"📥 Modelo {self.model_type.value} carregado de '{self.model_path}'")
             else:
                 logging.warning(f"⚠️ Modelo {self.model_type.value} ainda não treinado, a executar treino...")
-                mlTrainer = MLTrainer(model_type, False, False)
+                mlTrainer = MLTrainer(self.exchange, model_type, False, False)
                 await mlTrainer.run()
                 logging.warning(f"✅ Modelo {self.model_type.value} com treino finalizado")
+                self.model = joblib.load(self.model_path)  # Recarrega após treino
+                self.scaler = joblib.load(self.scaler_model_path)
 
     def create_lstm_sequences(self, df: pd.DataFrame, window_size: int = 10) -> tuple[np.ndarray, np.ndarray]:
         """
@@ -134,70 +138,38 @@ class MLStrategy(StrategyBase):
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
         return df
 
-    
+
     def calculate_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        # 1. Converter para o Wrapper (mesma lógica de correção do timestamp que fizemos)
-        df_temp = df.copy()
-        if pd.api.types.is_datetime64_any_dtype(df_temp['timestamp']):
-            df_temp['timestamp'] = df_temp['timestamp'].astype('int64') // 10 ** 6
-
-        # 2. Calcular os teus indicadores proprietários
-        custom_utils = CustomIndicatorsUtils(OhlcvWrapper(df_temp.values.tolist()))
-
-        # SuperTrend
-        _, _, _, _, _, direction, _ = custom_utils.supertrend()
-        # Super Score
-        final_scores, _ = custom_utils.calculate_super_score()
-
-        # 3. Injetar de volta no DF original
-        df['super_score'] = final_scores
-        df['st_direction'] = direction
-
-
-        df = df.copy()
-        df['ema9'] = df['close'].ewm(span=9, adjust=False).mean()
-        df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
-        df['macd'] = df['ema9'] - df['ema21']
-        df['rsi'] = RSIIndicator(df['close']).rsi()
-        df['atr'] = AverageTrueRange(df['high'], df['low'], df['close']).average_true_range()
-        stoch = StochasticOscillator(df['high'], df['low'], df['close'], window=14, smooth_window=3)
-        df['stoch_k'] = stoch.stoch()
-        df['stoch_d'] = stoch.stoch_signal()
-        df['pct_change'] = df['close'].pct_change()
-
-        # --- NOVOS INDICADORES (ADICIONAR ESTAS LINHAS) ---
-
-        # 1. Z-Score
-        df['mean_20'] = df['close'].rolling(window=20).mean()
-        df['std_20'] = df['close'].rolling(window=20).std()
-        df['z_score'] = (df['close'] - df['mean_20']) / df['std_20']
-
-        # 2. Volume Relativo
-        df['vol_ema'] = df['volume'].ewm(span=20).mean()
-        df['relative_volume'] = df['volume'] / df['vol_ema']
-
-        # 3. Bollinger Width (Spread de médias)
-        df['bb_width'] = (df['ema21'] - df['ema9']) / df['ema21']
-
-        # 4. Tendência de Longo Prazo
-        df['ema_200'] = df['close'].ewm(span=200).mean()
-        df['above_ema200'] = (df['close'] > df['ema_200']).astype(int)
-
-        # 5. Momentum e ROC
-        df['momentum'] = df['close'].pct_change(periods=3)
-        df['roc'] = df['close'].pct_change(periods=10)
-
-        # --- FILTRO ADX (Simples e Eficaz) ---
-        adx_inst = ADXIndicator(df['high'], df['low'], df['close'], window=14)
-        df['adx'] = adx_inst.adx()
+        df, features = MarketBrain.add_indicators(df)
 
         return df
 
-    def compute_sl_tp(self, price: float, atr: float, confidence: float, direction: Signal)-> tuple[float | None, float | None]:
-        risk_factor = 1 + (confidence - 0.5) * 2
-        sl_distance = atr * 1.5 * risk_factor
-        tp_distance = atr * 2.5 * risk_factor
+    def compute_sl_tp(self, price: float, atr: float, confidence: float, direction: Signal) -> tuple[
+        float | None, float | None]:
+        """
+        Calcula Stop Loss e Take Profit dinâmicos baseados no ATR e Confiança do Modelo.
+        Estratégia: Stop curto e controlado (Hard Cap) com Take Profit longo (Fator 3.5).
+        """
+        if direction == Signal.HOLD or direction is None:
+            return None, None
 
+        # 1. Fator de Confiança (oscila entre 0.8 e 1.2 para não distorcer o ATR)
+        risk_factor = 0.8 + (confidence * 0.4)
+
+        # 2. Distâncias Base (ATR)
+        # Stop Loss mais "apertado" (1.2) para proteger o capital
+        # Take Profit mais "largo" (3.5) para deixar o lucro correr
+        sl_distance = atr * 1.2 * risk_factor
+        tp_distance = atr * 3.5 * risk_factor
+
+        # 3. SEGURANÇA MÁXIMA (Hard Cap no Prejuízo)
+        # Impede que o Stop Loss seja maior que 1.5% do preço de entrada,
+        # mesmo que a volatilidade (ATR) esteja altíssima.
+        max_sl_val = price * 0.015
+        if sl_distance > max_sl_val:
+            sl_distance = max_sl_val
+
+        # 4. Cálculo dos níveis de preço
         if direction == Signal.BUY:
             sl = price - sl_distance
             tp = price + tp_distance
@@ -207,104 +179,76 @@ class MLStrategy(StrategyBase):
         else:
             return None, None
 
-        return round(sl, 4), round(tp, 4)
+        # Arredondamento para 4 casas decimais (padrão da maioria das exchanges)
+        return round(float(sl), 4), round(float(tp), 4)
 
     def predict_signal(self, df: pd.DataFrame) -> SignalResult:
         if self.model is None:
-            logging.warning("⚠️ Modelo ainda não treinado.")
-            return SignalResult(Signal.HOLD, None, None, None)
+            logging.warning("⚠️ Modelo não carregado.")
+            return SignalResult(Signal.HOLD)
 
-        df = self.calculate_features(df).dropna()
+        # 1. Gerar indicadores (UMA ÚNICA VEZ)
+        # O MarketBrain já faz o dropna() internamente, então recebemos dados limpos
+        df_with_ind, features = MarketBrain.add_indicators(df, False)
+
+        if features.empty:
+            logging.warning("⚠️ Features vazias após MarketBrain (falta histórico/warm-up).")
+            return SignalResult(Signal.HOLD)
+
+        # --- LÓGICA LSTM ---
         if self.model_type == MLModelType.LSTM:
-            window_size = 10  # deve ser consistente com treino
-            features = df[[
-                    'rsi', 'atr', 'macd', 'pct_change', 'ema9', 'ema21', 'stoch_k', 'stoch_d',
-                    'z_score', 'relative_volume', 'bb_width', 'above_ema200', 'momentum', 'roc', 'adx',
-                    'super_score', 'st_direction'
-                ]].values
+            window_size = 30  # <--- TEM DE SER IGUAL AO TREINO
+
             if len(features) < window_size:
-                logging.warning("⚠️ Dados insuficientes para predição LSTM. Retornando HOLD.")
-                return SignalResult(Signal.HOLD, None, None, None)
-            
+                logging.warning(f"⚠️ Precisamos de {window_size} velas, mas só temos {len(features)}.")
+                return SignalResult(Signal.HOLD)
+
             if self.scaler is None:
-                logging.warning("Scaler não carregado, não é possível fazer predição LSTM")
-                return SignalResult(Signal.HOLD, None, None, None)
-            
-            X_input_raw = features[-window_size:]
-            # Escalar os dados aqui, usando self.scaler
-            X_input_scaled = self.scaler.transform(X_input_raw)  # assume scaler foi treinado com essas features na mesma ordem
+                logging.error("❌ Scaler não encontrado para LSTM!")
+                return SignalResult(Signal.HOLD)
 
-            X_input = np.expand_dims(X_input_scaled, axis=0)  # shape (1, window_size, n_features)
+            # Preparar a sequência (as últimas X velas)
+            X_input_raw = features.tail(window_size).values
+            X_input_scaled = self.scaler.transform(X_input_raw)
+            X_input = np.expand_dims(X_input_scaled, axis=0)  # Shape (1, 30, n_features)
 
-            proba = self.model.predict(X_input)[0]  # output shape (3,) p[baixa, neutro, alta]
-            logging.info(f"ML LSTM prob baixa: {proba[0]:.2f}, neutro: {proba[1]:.2f}, alta: {proba[2]:.2f}")
+            proba = self.model.predict(X_input, verbose=0)[0]
 
-            idx = proba.argmax()
-            confidence = proba[idx]
-            latest = df.iloc[-1]
-            close_price = latest['close']
-            atr = latest['atr']
-
-            logging.info(f"Classe prevista: {idx} (0=Baixa,1=Neutra,2=Alta), probabilidades: {proba}, confidence_threshold={self.confidence_threshold}")
-
-            if self.aggressive_mode:
-                if idx == 2:
-                    sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.BUY)
-                    return SignalResult(Signal.BUY, sl, tp, confidence)
-                elif idx == 0:
-                    sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.SELL)
-                    return SignalResult(Signal.SELL, sl, tp, confidence)
-            else:
-                if idx == 2 and proba[2] > self.confidence_threshold:
-                    sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.BUY)
-                    return SignalResult(Signal.BUY, sl, tp, confidence)
-                elif idx == 0 and proba[0] > self.confidence_threshold:
-                    sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.SELL)
-                    return SignalResult(Signal.SELL, sl, tp, confidence)
-
-            return SignalResult(Signal.HOLD, None, None, confidence)
+        # --- LÓGICA RF / XGB / MLP ---
         else:
-            # Seu código atual para RF, XGB, MLP (features 2D)
-            latest = df.iloc[-1]
-            cols = [
-                "rsi", "atr", "macd", "pct_change", "ema9", "ema21", "stoch_k", "stoch_d",
-                "z_score", "relative_volume", "bb_width", "above_ema200", "momentum", "roc", "adx",
-                'super_score', 'st_direction'
-            ]
+            # Pegar apenas a ÚLTIMA linha para predição em tempo real
+            latest_features = features.iloc[[-1]]
 
-            # Criar o DataFrame com os valores de 'latest'
-            features = pd.DataFrame([[latest[col] for col in cols]], columns=cols)
+            # Verificar se há NaNs na última linha (evita erro no predict)
+            if latest_features.isnull().values.any():
+                logging.warning("⚠️ Última linha contém NaNs. Aguardando mais dados.")
+                return SignalResult(Signal.HOLD)
 
-            if features.isnull().values.any():
-                logging.warning("⚠️ Features contêm NaNs. Retornando 'hold'.")
-                return SignalResult(Signal.HOLD, None, None, None)
+            features_scaled = self.scaler.transform(latest_features)
 
-            proba = self.model.predict_proba(features)[0]
-            logging.info(f"ML prob baixa: {proba[0]:.2f}, neutro: {proba[1]:.2f}, alta: {proba[2]:.2f}")
+            proba = self.model.predict_proba(features_scaled)[0]
 
-            idx = proba.argmax()
-            confidence = proba[idx]
-            close_price = latest['close']
-            atr = latest['atr']
+        # --- DECISÃO COMUM ---
+        idx = np.argmax(proba)
+        confidence = proba[idx]
 
-            """
-            if self.aggressive_mode:
-                if idx == 2:
-                    sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.BUY)
-                    return SignalResult(Signal.BUY, sl, tp, confidence, proba[2])
-                elif idx == 0:
-                    sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.SELL)
-                    return SignalResult(Signal.SELL, sl, tp, confidence, proba[0])
-            else:
-            """
-            if idx == 2 and proba[2] > self.confidence_threshold:
+        latest_row = df_with_ind.iloc[-2]
+        close_price = latest_row['close']
+        #print("AQUII", latest_row)
+        atr = latest_row['atr']
+
+        logging.info(
+            f"🤖 [{self.model_type.value}] Prob: L:{proba[0]:.2f} | N:{proba[1]:.2f} | H:{proba[2]:.2f} (Conf: {confidence:.2f})")
+
+        if confidence > self.confidence_threshold:
+            if idx == 2:  # ALTA
                 sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.BUY)
-                return SignalResult(Signal.BUY, sl, tp, confidence, proba[2])
-            elif idx == 0 and proba[0] > self.confidence_threshold:
+                return SignalResult(Signal.BUY, sl, tp, confidence)
+            elif idx == 0:  # BAIXA
                 sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.SELL)
-                return SignalResult(Signal.SELL, sl, tp, confidence, proba[0])
+                return SignalResult(Signal.SELL, sl, tp, confidence)
 
-            return SignalResult(Signal.HOLD, None, None, confidence, proba[1])
+        return SignalResult(Signal.HOLD, confidence=confidence)
 
     async def get_signal(self) -> SignalResult:
         if self.ohlcv is None and self.symbol is None:

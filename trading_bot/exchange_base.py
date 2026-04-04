@@ -15,9 +15,13 @@ class ExchangeBase(ABC):
 
     def __init__(self):
         self.profit_manager = ProfitManager()
+
+    @abstractmethod
+    def get_name(self):
+        return "Exchange"
     
     @abstractmethod
-    async def fetch_ohlcv(self, symbol: str, timeframe: TimeframeEnum, limit: int, is_higher: bool = False) -> OhlcvFormat:
+    async def fetch_ohlcv(self, symbol: str, timeframe: TimeframeEnum, since: int = None, limit: int = None, is_higher: bool = False, is_training = False) -> OhlcvFormat:
         pass
 
     @abstractmethod

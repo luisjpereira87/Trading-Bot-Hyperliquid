@@ -4,6 +4,9 @@ from typing import List
 
 import pandas as pd
 
+from commons.helpers.trailing_stop_helpers import TrailingStopHelpers
+from trading_bot.exchange_base import ExchangeBase
+
 ROOT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if ROOT_PATH not in sys.path:
     sys.path.insert(0, ROOT_PATH)
@@ -33,8 +36,9 @@ from trading_bot.exchange_client import ExchangeClient
 
 nest_asyncio.apply()
 
-class ExchangeClientMock(ExchangeClient):
+class ExchangeClientMock(ExchangeBase):
     def __init__(self, candles, candles_higher, pair: PairConfig, balance: float = 1000):
+        super().__init__()
         self.candles = candles
         self.candles_higher = candles_higher
         self.position = None
@@ -65,18 +69,35 @@ class ExchangeClientMock(ExchangeClient):
         start = max(0, current_index - window_size)
         return full_candles[start:end]
 
-    async def fetch_ohlcv(self, symbol, timeframe:TimeframeEnum =TimeframeEnum.M15, limit=100, is_higher: bool = False)->OhlcvFormat:
-        idx = self.current_index[symbol]
+    def get_name(self):
+        return "exchange_client_mock"
 
-        window = self.candles[symbol][:idx+1]  # incluir candle atual
-        window_higher = self.candles_higher[symbol][:idx+1]
-        wrapper = OhlcvWrapper(window)
-        self.current_candle = wrapper.get_current_candle()
-        self.last_closed_candle = wrapper.get_last_closed_candle()
-        self.current_price = self.current_candle.close
-        
-        print(f"[DEBUG fetch_ohlcv] idx usado={self.current_index[symbol]} | último close retornado={self.candles[symbol][self.current_index[symbol]][4]}")
-        return OhlcvFormat(OhlcvWrapper(window), OhlcvWrapper(window_higher))
+    async def fetch_ohlcv(self, symbol, timeframe:TimeframeEnum =TimeframeEnum.M15,since=None, limit=100, is_higher: bool = False, is_training = False)->OhlcvFormat:
+        if is_training:
+            exchange = hyperliquid({
+                "enableRateLimit": True,
+                "testnet": False,
+            })  # type: ignore
+            try:
+
+                candles = await exchange.fetch_ohlcv(symbol, timeframe, since=since, limit=limit)
+                return OhlcvFormat(OhlcvWrapper(candles), OhlcvWrapper(candles))
+
+            finally:
+                await exchange.close()
+
+        else:
+            idx = self.current_index[symbol]
+
+            window = self.candles[symbol][:idx+1]  # incluir candle atual
+            window_higher = self.candles_higher[symbol][:idx+1]
+            wrapper = OhlcvWrapper(window)
+            self.current_candle = wrapper.get_current_candle()
+            self.last_closed_candle = wrapper.get_last_closed_candle()
+            self.current_price = self.current_candle.close
+
+            print(f"[DEBUG fetch_ohlcv] idx usado={self.current_index[symbol]} | último close retornado={self.candles[symbol][self.current_index[symbol]][4]}")
+            return OhlcvFormat(OhlcvWrapper(window), OhlcvWrapper(window_higher))
     
     async def get_entry_price(self, symbol: str) -> float:
         idx = self.current_index[symbol]
@@ -110,6 +131,12 @@ class ExchangeClientMock(ExchangeClient):
 
     async def print_open_orders(self, symbol):
         pass
+
+    async def _place_protections(self, symbol: str, size: float, side: str, sl: float, tp: float):
+        pass
+
+    async def place_entry_order(self, symbol: str, leverage: float, entry_amount: float, price_ref: float, side: Signal, sl_price: (float|None) = None, tp_price: (float|None) = None) -> OpenedOrder:
+         pass
         
     async def calculate_entry_amount(self, price_ref, capital_amount):
         try:
@@ -293,7 +320,6 @@ class ExchangeClientMock(ExchangeClient):
     async def simulate_tp_sl(self, candle: Ohlcv, symbol):
 
         position = self.positions.get(symbol)
-        print("AQUIII", candle)
         if position:
             side = position["side"]
             sl = position["sl"]
@@ -344,7 +370,6 @@ class ExchangeClientMock(ExchangeClient):
         Atualiza o SL e TP no estado interno da posição.
         """
 
-        print("AQUIII ENTROU AQUI")
         pos = self.positions.get(symbol)
         if not pos:
             return
@@ -358,17 +383,8 @@ class ExchangeClientMock(ExchangeClient):
         else:
             pnl_pct = (entry_price - current_price) / entry_price
 
-        adjustment = 0
-        print(f"side={side} current_price={current_price} entry_price={entry_price} pnl_pct={pnl_pct}")
-        # --- MESMOS DEGRAUS QUE DEFINIMOS PARA A NADO/HL ---
-        if pnl_pct >= 0.02:    # Lucro > 4.5%
-            adjustment = 0.015
-        elif pnl_pct >= 0.01:   # Lucro > 3%
-            adjustment = 0.006
-        elif pnl_pct >= 0.004:  # Lucro > 1.5%
-            adjustment = 0.002 # Breakeven
-        elif pnl_pct >= 0.002:  # Lucro > 1.5%
-            adjustment = 0.001 # Breakeven
+        adjustment, icon, log = TrailingStopHelpers.get_trailing_adjustment(pnl_pct)
+        logging.info(log)
 
         if adjustment > 0:
             if side == 'buy':
@@ -511,13 +527,12 @@ class BacktestRunner:
             exchange_client.update_candles(self.pair.symbol, current_candle, i)
 
             await exchange_client.simulate_tp_sl(OhlcvWrapper(self.ohlcv).get_candle(i-1), self.pair.symbol)
-            #print("AQUIIII", current_candle, OhlcvWrapper(self.ohlcv).get_candle(i-1))
             signal = await bot.run_pair(self.pair)
             signals.append({'signal': signal, 'index': i - 1, 'candle': current_candle})
             
 
             #if i == 350:
-            #$  break
+            #    break
 
         #print(signals)
         if is_plot:
@@ -565,9 +580,9 @@ async def main():
 
     pair = get_pair_by_symbol("ETH/USDC:USDC")
 
-    if pair != None:
+    if pair is not None:
 
-        runner = BacktestRunner(StrategyEnum.CROSS_EMA_LINEAR_REGRESSION, TimeframeEnum.M15, pair, 750, 1000)
+        runner = BacktestRunner(StrategyEnum.ML_LIGHTGBM, TimeframeEnum.M15, pair, 750, 1000)
         
         await runner.run(True)
     #print(LoadParams.load_best_params_with_weights())

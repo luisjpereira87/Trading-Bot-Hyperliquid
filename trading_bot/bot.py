@@ -42,7 +42,7 @@ class TradingBot:
         symbol = pair.symbol
         leverage = int(pair.leverage)
         capital_pct = float(pair.capital)
-        ohlcv_obj: OhlcvFormat = await self.exchange_client.fetch_ohlcv(symbol, self.timeframe, self.strategy.REQUIRED_CANDLES_200, True)
+        ohlcv_obj: OhlcvFormat = await self.exchange_client.fetch_ohlcv(symbol, self.timeframe, None, self.strategy.REQUIRED_CANDLES_200, True)
 
         ohlcv = ohlcv_obj.ohlcv
         ohlcv_higher = ohlcv_obj.ohlcv_higher

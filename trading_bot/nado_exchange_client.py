@@ -51,6 +51,7 @@ from trading_bot.exchange_base import ExchangeBase
 class NadoExchangeClient(ExchangeBase):
     def __init__(self, private_key, rpc_url, wallet_address, pairs: list[PairConfig], subaccount_id=0):
         # 1. Criar o signer
+        super().__init__()
         self.signer: LocalAccount = Account.from_key(private_key)
         self.wallet_address = self.signer.address
         
@@ -132,8 +133,11 @@ class NadoExchangeClient(ExchangeBase):
     async def get_price_increment(self, symbol: str) -> float:
         meta = await self.get_market_meta(symbol)
         return meta["price_step"] if meta else 0.01
-    
 
+    def get_name(self):
+        return "nado"
+    
+    """
     async def fetch_ohlcv(self, symbol: str, timeframe: TimeframeEnum, limit: int = 14, is_higher: bool = False) -> OhlcvFormat:
         try:
             product_id = await self._get_market_id(symbol)
@@ -190,6 +194,87 @@ class NadoExchangeClient(ExchangeBase):
                 return OhlcvFormat(OhlcvWrapper([]), OhlcvWrapper([]))
 
             logging.info(f"📈 {symbol}: {len(raw_data)} velas obtidas. Última: {datetime.fromtimestamp(raw_data[-1][0] / 1000)}")
+
+            return OhlcvFormat(OhlcvWrapper(raw_data), OhlcvWrapper([]))
+
+        except Exception as e:
+            logging.error(f"❌ Erro fetch_ohlcv Nado para {symbol}: {e}")
+            raise
+        """
+
+    async def fetch_ohlcv(
+            self,
+            symbol: str,
+            timeframe: TimeframeEnum,
+            since: int = None,  # Novo parâmetro
+            limit: int = 14,
+            is_higher: bool = False,
+            is_training = False
+    ) -> OhlcvFormat:
+        try:
+            product_id = await self._get_market_id(symbol)
+            if product_id is None:
+                raise ValueError(f"ID não encontrado para {symbol}")
+
+            # 1. Mapeamento de Granularidade
+            granularity_map = {
+                "1m": IndexerCandlesticksGranularity.ONE_MINUTE,
+                "5m": IndexerCandlesticksGranularity.FIVE_MINUTES,
+                "15m": IndexerCandlesticksGranularity.FIFTEEN_MINUTES,
+                "1h": IndexerCandlesticksGranularity.ONE_HOUR,
+                "4h": IndexerCandlesticksGranularity.FOUR_HOURS,
+                "1d": IndexerCandlesticksGranularity.ONE_DAY,
+            }
+
+            nado_granularity = granularity_map.get(timeframe.value)
+
+            # 2. LÓGICA DE TEMPO (SINCE)
+            # O Indexer da Vertex/Nado costuma usar max_time para paginação.
+            # Se estiveres a fazer fetch histórico, o 'since' aqui servirá para
+            # calcular o ponto de partida.
+
+            max_time_param = None
+            if since is not None:
+                # O Indexer da Nado espera segundos, convertemos se vier em ms
+                max_time_param = int(since / 1000) if since > 10 ** 11 else int(since)
+                # NOTA: No Indexer, 'max_time' é o tempo do candle mais RECENTE da fatia.
+                # Para paginação histórica, vais querer avançar este valor.
+
+            params = IndexerCandlesticksParams(
+                product_id=product_id,
+                granularity=nado_granularity,
+                limit=limit,
+                submission_idx=None,
+                max_time=max_time_param  # No tempo real deixamos None para vir o "agora"
+            )
+
+            # Se for para treino e quiseres uma data específica:
+            if since is not None:
+                # Ajuste técnico: Se queres dados APÓS o since, o limit tratará de trazer X candles.
+                # Mas o Indexer da Nado puxa do presente para o passado.
+                pass
+
+                # 3. Chamada ao Indexer
+            response = self.client.context.indexer_client.get_candlesticks(params)
+
+            X18_SCALE = 10 ** 18
+            raw_data = []
+            for c in response.candlesticks:
+                if c.timestamp is not None:
+                    raw_data.append([
+                        int(c.timestamp) * 1000,
+                        float(c.open_x18) / X18_SCALE,
+                        float(c.high_x18) / X18_SCALE,
+                        float(c.low_x18) / X18_SCALE,
+                        float(c.close_x18) / X18_SCALE,
+                        float(c.volume) / X18_SCALE
+                    ])
+
+            # Ordenação Cronológica (ESSENCIAL para indicadores)
+            raw_data.sort(key=lambda x: x[0])
+
+            if not raw_data:
+                return OhlcvFormat(OhlcvWrapper([]), OhlcvWrapper([]))
 
             return OhlcvFormat(OhlcvWrapper(raw_data), OhlcvWrapper([]))
 

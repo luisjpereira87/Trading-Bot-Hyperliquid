@@ -11,21 +11,25 @@ import tensorflow as tf
 from ccxt.async_support import hyperliquid
 from imblearn.over_sampling import SMOTE
 from keras.callbacks import EarlyStopping
+from lightgbm import LGBMClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import (accuracy_score, classification_report,
                              confusion_matrix)
 from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.neural_network import MLPClassifier
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.utils import compute_class_weight
 from ta.momentum import RSIIndicator, StochasticOscillator
 from ta.trend import ADXIndicator
 from ta.volatility import AverageTrueRange
 
+from commons.enums.timeframe_enum import TimeframeEnum
 from commons.utils.indicators.custom_indicators_utils import CustomIndicatorsUtils
 from commons.utils.indicators.indicators_utils import IndicatorsUtils
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from commons.utils.paths import get_model_path
+from machine_learning.market_brain import MarketBrain
+from trading_bot.exchange_base import ExchangeBase
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # ou '3'
 import tensorflow as tf
@@ -42,18 +46,20 @@ logging.basicConfig(level=logging.INFO)
 
 
 class MLTrainer:
-    TIMEFRAME = "15m"
+    TIMEFRAME = TimeframeEnum.M15
     CANDLE_LIMIT = 10000
 
-    def __init__(self, model_type=MLModelType.RANDOM_FOREST, save_csv=False, save_img=False, use_gridsearch=False):
+    def __init__(self,exchange: ExchangeBase, model_type=MLModelType.RANDOM_FOREST, save_csv=False, save_img=False, use_gridsearch=False):
         self.model_type = model_type
         self.save_csv = save_csv
         self.save_img = save_img
         self.use_gridsearch = use_gridsearch
+        self.exchange = exchange
+        self.exchange_name = exchange.get_name()
 
         self.base_dir = os.path.dirname(os.path.abspath(__file__))
         self.DATA_DIR = os.path.join(self.base_dir, "data")
-        self.MODEL_PATH = get_model_path(self.model_type.value)
+        self.MODEL_PATH = get_model_path(self.model_type.value, self.exchange_name)
         self.IMG_DIR = os.path.join(self.base_dir, "img")
 
     def _init_model(self):
@@ -66,6 +72,31 @@ class MLTrainer:
         elif self.model_type == MLModelType.LSTM:
             # Para LSTM model, criaremos na train_and_save_model pois precisa input 3D
             return None
+        elif self.model_type == MLModelType.LIGHTGBM:
+
+            return LGBMClassifier(
+                n_estimators=500,
+                learning_rate=0.05,
+                num_leaves=31,
+                class_weight='balanced',
+                random_state=42,
+                importance_type='gain',
+            )
+            """
+            return LGBMClassifier(
+                n_estimators=1000,  # Mais árvores, mas cada uma contribui menos
+                learning_rate=0.01,  # Reduzimos para 0.01 (Aprende com calma e precisão)
+                max_depth=5,  # LIMITAMOS a profundidade (Cria regras simples e robustas)
+                num_leaves=15,  # Reduzimos a complexidade (Evita decorar ruído)
+                min_child_samples=20,  # OBRIGA a que cada regra tenha pelo menos 100 exemplos
+                reg_alpha=0.1,  # L1 Regularization (Remove features inúteis no momento)
+                reg_lambda=0.1,  # L2 Regularization (Suaviza os pesos do modelo)
+                class_weight='balanced',
+                random_state=42,
+                importance_type='gain',
+                verbosity=-1
+            )
+            """
         else:
             raise ValueError("Modelo desconhecido")
 
@@ -89,137 +120,101 @@ class MLTrainer:
                 'activation': ['relu', 'tanh'],
                 'alpha': [0.0001, 0.001]
             }
+        elif self.model_type == MLModelType.LIGHTGBM:
+            return {
+                'n_estimators': [100, 500],
+                'learning_rate': [0.01, 0.05, 0.1],
+                'num_leaves': [20, 31, 50],
+                'min_child_samples': [10, 20]
+            }
         else:
             return {}
 
     async def fetch_ohlcv(self, symbol):
-        exchange = hyperliquid({
-            "enableRateLimit": True,
-            "testnet": False,
-        })
-        logging.info(f"🔁 Baixando {self.CANDLE_LIMIT} candles para {symbol}...")
+        # 1. Definir um limite fixo para todas as janelas
+        LIMIT = 1000
+        ms_per_candle = 15 * 60 * 1000  # 15 min
 
-        # 1. Carregar candles antigos
-        since_timestamp = int(pd.Timestamp("2025-03-01").timestamp() * 1000)  # em ms
-        old_data = await exchange.fetch_ohlcv(symbol, timeframe=self.TIMEFRAME, since=since_timestamp, limit=self.CANDLE_LIMIT)
-        old_df = pd.DataFrame(old_data, columns=["timestamp", "open", "high", "low", "close", "volume"])
+        # Em vez de calcular "since" de forma arbitrária,
+        # vamos definir pontos de partida claros baseados no AGORA
+        now_ms = int(pd.Timestamp.now(tz='UTC').timestamp() * 1000)
 
-        # 2. Buscar candles recentes da exchange (últimos 500 candles, por ex)
-        since_timestamp1 = int(pd.Timestamp("2024-10-01").timestamp() * 1000) 
-        new_data = await exchange.fetch_ohlcv(symbol, timeframe=self.TIMEFRAME, since=since_timestamp1, limit=self.CANDLE_LIMIT)
-        new_df = pd.DataFrame(new_data, columns=["timestamp", "open", "high", "low", "close", "volume"])
-        
-        # 3. Concatenar e remover duplicados
-        df_total = pd.concat([old_df, new_df])
+        # Janelas:
+        # Current: termina agora
+        # Month: termina há 30 dias
+        # Quarter: termina há 90 dias
+        """
+        windows = [
+            ("current", now_ms - (LIMIT * ms_per_candle)),
+            ("last_month", now_ms - (pd.Timedelta(days=30).total_seconds() * 1000) - (LIMIT * ms_per_candle)),
+            ("last_quarter", now_ms - (pd.Timedelta(days=90).total_seconds() * 1000) - (LIMIT * ms_per_candle))
+        ]
+        """
+        windows = [
+            ("now", now_ms - (LIMIT * ms_per_candle)),
+            ("period_2", now_ms - (2 * LIMIT * ms_per_candle)),
+            ("period_3", now_ms - (3 * LIMIT * ms_per_candle)),
+            ("period_4", now_ms - (4 * LIMIT * ms_per_candle)),
+            ("period_5", now_ms - (5 * LIMIT * ms_per_candle))
+        ]
+
+        all_dfs = []
+        for name, start_time in windows:
+            # Loop de segurança para garantir que trazemos o LIMIT
+            ohlcv_data = await self.exchange.fetch_ohlcv(
+                symbol=symbol,
+                timeframe=self.TIMEFRAME,
+                since=int(start_time),
+                limit=LIMIT,
+                is_training=True
+            )
+
+            # Aceder aos dados (ajusta conforme a tua estrutura OhlcvWrapper)
+            actual_data = ohlcv_data.ohlcv if hasattr(ohlcv_data, 'ohlcv') else ohlcv_data
+
+            df_temp = pd.DataFrame(actual_data.ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
+
+            # Validação Crítica
+            if len(df_temp) < LIMIT:
+                logging.warning(
+                    f"⚠️ {symbol} - Janela '{name}' incompleta: {len(df_temp)}/{LIMIT}. Histórico insuficiente na Exchange?")
+
+            all_dfs.append(df_temp)
+            logging.info(f"✅ {symbol} - Janela '{name}' obtida: {len(df_temp)} candles.")
+
+        # Concatena logo aqui para garantir um DF único por moeda
+        final_df = pd.concat(all_dfs).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
+        return final_df
+
+        # --- PROCESSAMENTO FINAL ---
+        df_total = pd.concat(all_dfs)
+
+        # Importante: remover duplicados caso as janelas se sobreponham
         df_total = df_total.drop_duplicates(subset='timestamp').sort_values('timestamp').reset_index(drop=True)
 
-        df = pd.DataFrame(df_total, columns=["timestamp", "open", "high", "low", "close", "volume"])
-        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+        # Converter para Datetime para o CSV ficar legível
+        df_total["timestamp"] = pd.to_datetime(df_total["timestamp"], unit="ms")
 
         if self.save_csv:
             os.makedirs(self.DATA_DIR, exist_ok=True)
-            csv_path = os.path.join(self.DATA_DIR, f"ohlcv_data_{symbol.replace('/', '_').replace(':', '_')}.csv")
-            df.to_csv(csv_path, index=False)
-            logging.info(f"✅ CSV salvo em: {csv_path}")
+            file_symbol = symbol.replace('/', '_').replace(':', '_')
+            csv_path = os.path.join(self.DATA_DIR, f"training_{exchange_name}_{file_symbol}.csv")
+            df_total.to_csv(csv_path, index=False)
+            logging.info(f"💾 Dataset de treino consolidado: {csv_path} ({len(df_total)} candles)")
 
-        await exchange.close()
-
-
-        return df
+        return df_total
 
     def prepare_dataset(self, df):
+        # Calcula indicadores e labels apenas para esta moeda
+        df_with_ind, features_raw  = MarketBrain.add_indicators(df, is_training=True)
 
-        # Criamos uma cópia temporária para não estragar o DF original
-        df_temp = df.copy()
+        # GARANTIA ANTI-BATOTA:
+        # Forçamos o modelo a ver APENAS as colunas que decidimos
+        #features = features_raw[cols_model].copy()
 
-        # Se o timestamp já for datetime, convertemos de volta para milissegundos (int)
-        if pd.api.types.is_datetime64_any_dtype(df_temp['timestamp']):
-            df_temp['timestamp'] = df_temp['timestamp'].astype('int64') // 10 ** 6
-
-        custom_indicators = CustomIndicatorsUtils(OhlcvWrapper(df_temp.values.tolist()))
-        supertrend, trend, final_upperband, final_lowerband, supertrend_smooth, direction, perf_score = custom_indicators.supertrend()
-
-        final_scores, smooth_scores = custom_indicators.calculate_super_score()
-        df = df.copy()
-
-        # --- NOVIDADE: Injetar os teus indicadores no DF ---
-        # Garantimos que os tamanhos batem (dropna pode ser necessário depois)
-        df["super_score"] = final_scores
-        df["st_direction"] = direction  # 1 para alta, -1 para baixa
-        # --------------------------------------------------
-
-        df["ema9"] = df["close"].ewm(span=9).mean()
-        df["ema21"] = df["close"].ewm(span=21).mean()
-        df["macd"] = df["ema9"] - df["ema21"]
-        df["rsi"] = RSIIndicator(df["close"]).rsi()
-        df["atr"] = AverageTrueRange(df["high"], df["low"], df["close"]).average_true_range()
-        stoch = StochasticOscillator(df["high"], df["low"], df["close"])
-        df["stoch_k"] = stoch.stoch()
-        df["stoch_d"] = stoch.stoch_signal()
-        df["pct_change"] = df["close"].pct_change()
-
-        df["future_return"] = df["close"].shift(-20) / df["close"] - 1
-
-
-        df["target_vol"] = df["atr"] * 2 / df["close"]
-        df["label"] = np.select(
-            [df["future_return"] > df["target_vol"], df["future_return"] < -df["target_vol"]],
-            [2, 0], default=1
-        )
-        """
-        df["label"] = np.select(
-            [df["future_return"] > 0.006, df["future_return"] < -0.006],
-            [2, 0], default=1
-        )
-        """
-        df['momentum'] = df['close'].pct_change(periods=3)
-        df['roc'] = df['close'].pct_change(periods=10)
-
-        # 1. Z-Score (Distância da Média em Desvios Padrão)
-        # Diz ao modelo se o preço está "caro" ou "barato" em relação à média
-        df['mean_20'] = df['close'].rolling(window=20).mean()
-        df['std_20'] = df['close'].rolling(window=20).std()
-        df['z_score'] = (df['close'] - df['mean_20']) / df['std_20']
-
-        # 2. Volume Relativo
-        # Reversões com volume baixo são geralmente falsas
-        df['vol_ema'] = df['volume'].ewm(span=20).mean()
-        df['relative_volume'] = df['volume'] / df['vol_ema']
-
-        # 3. Bandas de Bollinger (Largura)
-        # Ajuda o modelo a detetar "Squeezes" de volatilidade
-        df['bb_width'] = (df['ema21'] - df['ema9']) / df['ema21']  # Simples spread de médias
-
-        # 4. Tendência de Longo Prazo
-        # O modelo precisa saber se a tendência macro é de alta ou baixa
-        df['ema_200'] = df['close'].ewm(span=200).mean()
-        df['above_ema200'] = (df['close'] > df['ema_200']).astype(int)
-
-        # --- 2. Filtro de Lateralização (ADX) ---
-        adx_inst = ADXIndicator(df['high'], df['low'], df['close'], window=14)
-        df['adx'] = adx_inst.adx()
-
-        df = df.dropna()
-
-        features = df[[
-            "rsi", "atr", "macd", "pct_change", "ema9", "ema21", "stoch_k", "stoch_d",
-            "z_score", "relative_volume", "bb_width", "above_ema200", "momentum", "roc", "adx",
-            "super_score", "st_direction"
-        ]]
-        labels = df["label"]
-
-        print(df[['close', 'rsi', 'macd', 'ema9', 'ema21', 'stoch_k', 'stoch_d']].tail(15))
-        
-        #smote = SMOTE(random_state=42)
-        #features_res, labels_res = smote.fit_resample(features, labels) # type: ignore
-
-        if self.save_csv:
-            os.makedirs(self.DATA_DIR, exist_ok=True)
-            dataset_path = os.path.join(self.DATA_DIR, f"dataset_{self.model_type.value.lower()}.csv")
-            #df_full = features_res.copy()
-            #df_full["label"] = labels_res
-            df.to_csv(dataset_path, index=False)
-            logging.info(f"✅ Dataset balanceado salvo em: {dataset_path}")
+        # Fundamental: Reset do índice para o modelo não decorar a "linha"
+        features = features_raw.reset_index(drop=True)
+        labels = df_with_ind["label"].reset_index(drop=True)
 
         return features, labels
 
@@ -349,6 +344,7 @@ class MLTrainer:
 
     def train_and_save_model(self, features, labels):
         os.makedirs(os.path.dirname(self.MODEL_PATH), exist_ok=True)
+        scaler_path = self.MODEL_PATH.replace(".pkl", "_scaler.pkl")
 
         # --- ALTERAÇÃO 1: SPLIT TEMPORAL (Para todos os modelos) ---
         # Em vez de random_state, cortamos os últimos 20% dos dados para validação
@@ -388,16 +384,28 @@ class MLTrainer:
             return
 
         # ALTERAR AQUI: Split temporal para RF/XGB (Sem baralhar os candles)
-        X_train_raw, X_val = features.iloc[:split_idx], features.iloc[split_idx:]
-        y_train_raw, y_val = labels.iloc[:split_idx], labels.iloc[split_idx:]
+        X_train_raw, X_val_raw = features.iloc[:split_idx], features.iloc[split_idx:]
+        y_train, y_val = labels.iloc[:split_idx], labels.iloc[split_idx:]
 
+        """
         # ALTERAR AQUI: Aplicar o SMOTE APENAS no treino
         logging.info("⚖️ Aplicando SMOTE apenas nos dados de treino...")
         smote = SMOTE(random_state=42)
         X_train, y_train = smote.fit_resample(X_train_raw, y_train_raw)
+        
 
         logging.info(f"📊 Distribuição após SMOTE (Treino): {np.bincount(y_train)}")
         logging.info(f"📊 Distribuição Real (Validação): {np.bincount(y_val)}")
+        """
+        scaler = StandardScaler()
+
+        # O Scaler aprende no treino e aplica-se na validação
+        X_train = scaler.fit_transform(X_train_raw)
+        X_val = scaler.transform(X_val_raw)
+
+        # Guardamos logo o scaler para não esquecer
+        joblib.dump(scaler, scaler_path)
+        logging.info(f"💾 Scaler salvo em: {scaler_path}")
 
         # Modelos clássicos (RF, XGB, MLP)
         model = self._init_model()
@@ -412,6 +420,11 @@ class MLTrainer:
                 model = grid.best_estimator_
                 logging.info(f"✅ Melhor modelo: {grid.best_params_}")
             else:
+                logging.info(f"🚀 Treinando {self.model_type.value} com parâmetros padrão...")
+                print(f"DEBUG - Features usadas: {features.columns.tolist()}")
+                print(f"🔥 COLUNAS QUE ESTÃO A IR PARA O TREINO: {X_train_raw.columns.tolist()}")
+                logging.info(f"Shape Treino: {X_train.shape}, Shape Validação: {X_val.shape}")
+                #print(X_train.columns.tolist())
                 model.fit(X_train, y_train)
 
             # Avaliação
@@ -482,25 +495,30 @@ class MLTrainer:
             return []
 
     async def run(self):
-        # Mantido igual ao seu original!
         pairs = self.load_pair_configs()
-        if not pairs:
-            logging.warning("Nenhum par carregado da configuração.")
-            return
+        features_list = []
+        labels_list = []
 
-        df_all = pd.DataFrame()
         for pair_cfg in pairs:
             symbol = pair_cfg.get("symbol")
-            if not symbol:
-                logging.warning("Par sem símbolo ignorado.")
-                continue
 
-            df = await self.fetch_ohlcv(symbol)
-            df["symbol"] = symbol  # opcional para futura análise
-            df_all = pd.concat([df_all, df], ignore_index=True)
+            # 1. Vai buscar os dados puros da corretora
+            df_raw = await self.fetch_ohlcv(symbol)
+            df_train_raw = df_raw.iloc[:-200].copy()
 
-        features, labels = self.prepare_dataset(df_all)
-        self.train_and_save_model(features, labels)
+            # 2. Prepara os dados DESTE par isoladamente (O gato morre aqui!)
+            # O MarketBrain.add_indicators corre aqui dentro, par por par
+            features_pair, labels_pair = self.prepare_dataset(df_train_raw)
+
+            features_list.append(features_pair)
+            labels_list.append(labels_pair)
+
+        # 3. Agora sim, juntas as peças limpas num único bloco de treino
+        features_final = pd.concat(features_list, ignore_index=True)
+        labels_final = pd.concat(labels_list, ignore_index=True)
+
+        # 4. Treinas o modelo com dados honestos
+        self.train_and_save_model(features_final, labels_final)
 
 
 
