@@ -67,8 +67,8 @@ async def run_bot():
     helpers = TradingHelpers()
     hl_client = ExchangeClient(exchange, wallet_address)
     nado_client = NadoExchangeClient(private_key, None, wallet_address, pairs)
-    hl_strategy = StrategyManager(hl_client, StrategyEnum.ML_LIGHTGBM)
-    nado_strategy = StrategyManager(nado_client, StrategyEnum.ML_LIGHTGBM)
+    hl_strategy = StrategyManager(hl_client, StrategyEnum.CROSS_EMA_LINEAR_REGRESSION)
+    nado_strategy = StrategyManager(nado_client, StrategyEnum.CROSS_EMA_LINEAR_REGRESSION)
     nado_bot = TradingBot(nado_client, nado_strategy, helpers, pairs, timeframe, 'NADO')
     hl_bot = TradingBot(hl_client, hl_strategy, helpers, pairs, timeframe, 'HYPERLIQUID')
 
