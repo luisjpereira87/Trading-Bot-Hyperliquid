@@ -1,27 +1,22 @@
+import json
 import logging
 import os
+from datetime import datetime, timedelta
 from typing import List
 
 import joblib
 import numpy as np
 import pandas as pd
-from ta.momentum import RSIIndicator, StochasticOscillator
-from ta.trend import ADXIndicator
-from ta.volatility import AverageTrueRange
 
 from commons.enums.mode_enum import ModeEnum
 from commons.models.strategy_params_dclass import StrategyParams
-from commons.utils.indicators.custom_indicators_utils import CustomIndicatorsUtils
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
-from commons.utils.paths import get_model_path, get_scaler_path
+from commons.utils.paths import get_model_path, get_scaler_path, get_bayesian_path
 from machine_learning.market_brain import MarketBrain
 from trading_bot.exchange_base import ExchangeBase
-from trading_bot.exchange_client import ExchangeClient
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # ou '3'
-import tensorflow as tf
 from tensorflow.keras.models import load_model  # type: ignore
-from xgboost import XGBClassifier
 
 from commons.enums.ml_model_enum import MLModelType
 from commons.enums.signal_enum import Signal
@@ -31,7 +26,7 @@ from machine_learning.ml_train_pipeline import MLTrainer
 
 
 class MLStrategy(StrategyBase):
-    def __init__(self, exchange: ExchangeBase, model_type = MLModelType.RANDOM_FOREST):
+    def __init__(self, exchange: ExchangeBase, model_type=MLModelType.RANDOM_FOREST, is_combined_model=True):
         super().__init__()
 
         self.exchange = exchange
@@ -40,21 +35,26 @@ class MLStrategy(StrategyBase):
         self.ohlcv: OhlcvWrapper
         self.symbol = None
         self.model = None
+        self.bayesian_model = None
         self.scaler = None
         self.last_train_len = 0
         self.confidence_threshold = 0.70
         self.price_ref: float = 0.0
+        self.exchange_name = None
 
         self.model_loaded = False
         self.base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        self.model_dir = os.path.join(self.base_dir, "trading-bot","machine_learning", "models")
+        self.model_dir = os.path.join(self.base_dir, "trading-bot", "machine_learning", "models")
         os.makedirs(self.model_dir, exist_ok=True)
-        self.model_path = get_model_path(self.model_type.value,self.exchange.get_name(), ".pkl")
-        self.keras_model_path = get_model_path(self.model_type.value,self.exchange.get_name(), ".keras")
-        self.scaler_model_path = get_scaler_path(self.model_type.value, self.exchange.get_name())
+        # self.model_path = get_model_path(self.model_type.value, self.exchange.get_name(), ".pkl")
+        # self.keras_model_path = get_model_path(self.model_type.value, self.exchange.get_name(), ".keras")
+        # self.scaler_model_path = get_scaler_path(self.model_type.value, self.exchange.get_name())
         self.data_dir = "data"
         self.image_path = "img/imagem.png"
-    
+        # self.BAYESIAN_PATH = get_bayesian_path(self.exchange.get_name())
+
+        self.is_combined_model = is_combined_model
+
     def required_init(self, ohlcv: OhlcvWrapper, ohlcv_higher: (OhlcvWrapper | None), symbol: str, price_ref: float):
         self.ohlcv = ohlcv
         self.symbol = symbol
@@ -67,43 +67,100 @@ class MLStrategy(StrategyBase):
 
     def set_candles(self, ohlcv):
         self.ohlcv = ohlcv
-    
+
     def set_higher_timeframe_candles(self, ohlcv_higher: List[list]):
-       pass
+        # TODO document why this method is empty
+        pass
 
     def get_sl_tp(self):
+        # TODO document why this method is empty
         pass
 
     async def initialize(self, model_type: MLModelType):
-        if self.model_loaded == True:
+        if self.model_loaded:
             return
 
-        if self.model_type == MLModelType.LSTM:
-            if os.path.exists(self.keras_model_path):
-                self.model = load_model(self.keras_model_path)
-                self.scaler = joblib.load(self.scaler_model_path)
-                self.model_loaded = True
-                logging.info(f"📥 Modelo LSTM carregado de '{self.keras_model_path}'")
-            else:
-                logging.warning("⚠️ Modelo LSTM ainda não treinado, a executar treino...")
-                mlTrainer = MLTrainer(self.exchange, model_type, False, False)
-                await mlTrainer.run()
-                logging.warning("✅ Modelo LSTM com treino finalizado")
-                self.model = load_model(self.keras_model_path)  # Recarrega após treino
-                self.scaler = joblib.load(self.scaler_model_path)
+        if self.is_combined_model:
+            keras_model_path = get_model_path(self.model_type.value, self.exchange_name, "MASTER", ".keras")
+            model_path = get_model_path(self.model_type.value, self.exchange_name, "MASTER", ".pkl")
+            scaler_model_path = get_scaler_path(self.model_type.value, self.exchange_name, "MASTER")
         else:
-            if os.path.exists(self.model_path):
-                self.model = joblib.load(self.model_path)
-                self.scaler = joblib.load(self.scaler_model_path)
-                self.model_loaded = True
-                logging.info(f"📥 Modelo {self.model_type.value} carregado de '{self.model_path}'")
+            symbol_clean = self.symbol.replace("/", "_").replace(":", "_")
+            keras_model_path = get_model_path(self.model_type.value, self.exchange_name, symbol_clean, ".keras")
+            model_path = get_model_path(self.model_type.value, self.exchange_name, symbol_clean, ".pkl")
+            scaler_model_path = get_scaler_path(self.model_type.value, self.exchange_name, symbol_clean)
+
+        # Define qual o caminho do ficheiro principal para validar a data
+        target_path = keras_model_path if model_type == MLModelType.LSTM else model_path
+
+        # Lógica de Re-treino: Existe e tem menos de 7 dias?
+        model_exists = os.path.exists(target_path)
+        is_fresh = False
+
+        if model_exists:
+            file_mod_time = os.path.getmtime(target_path)
+            last_modified = datetime.fromtimestamp(file_mod_time)
+            if datetime.now() < last_modified + timedelta(days=7):
+                is_fresh = True
             else:
-                logging.warning(f"⚠️ Modelo {self.model_type.value} ainda não treinado, a executar treino...")
-                mlTrainer = MLTrainer(self.exchange, model_type, False, False)
-                await mlTrainer.run()
-                logging.warning(f"✅ Modelo {self.model_type.value} com treino finalizado")
-                self.model = joblib.load(self.model_path)  # Recarrega após treino
-                self.scaler = joblib.load(self.scaler_model_path)
+                logging.info(
+                    f"📅 Modelo com mais de 7 dias ({last_modified.strftime('%Y-%m-%d')}). A forçar re-treino...")
+
+        # Se o modelo existe e é recente, carregamos
+        if model_exists and is_fresh:
+            if model_type == MLModelType.LSTM:
+                self.model = load_model(keras_model_path)
+                logging.info("📥 Modelo LSTM carregado e atualizado.")
+            else:
+                self.model = joblib.load(model_path)
+                # self.bayesian_model = self.load_bayesian_model()
+                logging.info(f"📥 Modelo {self.model_type.value} carregado e atualizado.")
+
+            self.scaler = joblib.load(scaler_model_path)
+            self.model_loaded = True
+
+        # Caso contrário (não existe ou está expirado), treinamos
+        else:
+            reason = "inexistente" if not model_exists else "expirado"
+            logging.warning(f"⚠️ Modelo {model_type.value} {reason}. A executar MLTrainer...")
+
+            mlTrainer = MLTrainer(self.exchange, model_type, False, False)
+            await mlTrainer.run()
+
+            # Após o treino, carregamos os novos ficheiros
+            if model_type == MLModelType.LSTM:
+                self.model = load_model(keras_model_path)
+            else:
+                self.model = joblib.load(model_path)
+                # self.bayesian_model = self.load_bayesian_model()
+
+            self.scaler = joblib.load(scaler_model_path)
+            self.model_loaded = True
+            logging.info(f"✅ Modelo {model_type.value} treinado e carregado com sucesso.")
+
+    def load_bayesian_model(self):
+        symbol_clean = self.symbol.replace("/", "_").replace(":", "_")
+        bayesian_path = get_bayesian_path(self.exchange.get_name(), symbol_clean)
+        # 1. Debug do Path
+        print(f"🔍 A tentar carregar de: {bayesian_path}")
+
+        # 2. Verificação de segurança do Path
+        if not bayesian_path or not os.path.exists(bayesian_path):
+            logging.error(f"❌ Path Inválido ou Inexistente: {bayesian_path}")
+            return None
+
+        # 3. Singleton Pattern: Só carrega se ainda não estiver na memória
+        if bayesian_path is not None:
+            try:
+                with open(bayesian_path, 'r') as f:
+                    # IMPORTANTE: Guardar no self para as próximas chamadas!
+                    self.bayesian_model = json.load(f)
+                    logging.info("🧠 Supervisor Bayesiano carregado com sucesso.")
+            except Exception as e:
+                logging.error(f"❌ Erro ao ler ficheiro JSON: {e}")
+                self.bayesian_model = None
+
+        return self.bayesian_model
 
     def create_lstm_sequences(self, df: pd.DataFrame, window_size: int = 10) -> tuple[np.ndarray, np.ndarray]:
         """
@@ -111,7 +168,7 @@ class MLStrategy(StrategyBase):
         Retorna X (3D numpy array) e y (1D array).
         """
         df = self.calculate_features(df).dropna()
-        
+
         # Criar labels (exemplo): 2=buy, 1=hold, 0=sell baseado em retorno futuro (3 períodos)
         df['future_return'] = df['close'].shift(-3) / df['close'] - 1
         conditions = [
@@ -127,8 +184,8 @@ class MLStrategy(StrategyBase):
 
         X, y = [], []
         for i in range(len(features) - window_size):
-            X.append(features[i:i+window_size])
-            y.append(labels[i+window_size])
+            X.append(features[i:i + window_size])
+            y.append(labels[i + window_size])
         X = np.array(X)
         y = np.array(y)
         return X, y
@@ -138,7 +195,6 @@ class MLStrategy(StrategyBase):
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
         return df
 
-
     def calculate_features(self, df: pd.DataFrame) -> pd.DataFrame:
         df, features = MarketBrain.add_indicators(df)
 
@@ -146,40 +202,30 @@ class MLStrategy(StrategyBase):
 
     def compute_sl_tp(self, price: float, atr: float, confidence: float, direction: Signal) -> tuple[
         float | None, float | None]:
-        """
-        Calcula Stop Loss e Take Profit dinâmicos baseados no ATR e Confiança do Modelo.
-        Estratégia: Stop curto e controlado (Hard Cap) com Take Profit longo (Fator 3.5).
-        """
         if direction == Signal.HOLD or direction is None:
             return None, None
 
-        # 1. Fator de Confiança (oscila entre 0.8 e 1.2 para não distorcer o ATR)
-        risk_factor = 0.8 + (confidence * 0.4)
+        # 1. Inverter a Confiança: Se confio muito, aceito menos erro (Stop mais curto)
+        # Se confidence for 1.0 (máx), fator é 0.8. Se for 0.0 (mín), fator é 1.2.
+        risk_factor = 1.2 - (confidence * 0.4)
 
-        # 2. Distâncias Base (ATR)
-        # Stop Loss mais "apertado" (1.2) para proteger o capital
-        # Take Profit mais "largo" (3.5) para deixar o lucro correr
-        sl_distance = atr * 1.2 * risk_factor
-        tp_distance = atr * 3.5 * risk_factor
+        # 2. Distâncias Realistas (Equilibrar a Respiração)
+        # Subimos o SL para 2.0 * ATR para sair do ruído (deixar a SOL respirar)
+        # Baixamos o TP para 2.5 * ATR (mais fácil de atingir em reversões)
+        sl_distance = atr * 2.0 * risk_factor
+        tp_distance = atr * 2.5 * risk_factor
 
-        # 3. SEGURANÇA MÁXIMA (Hard Cap no Prejuízo)
-        # Impede que o Stop Loss seja maior que 1.5% do preço de entrada,
-        # mesmo que a volatilidade (ATR) esteja altíssima.
-        max_sl_val = price * 0.015
-        if sl_distance > max_sl_val:
-            sl_distance = max_sl_val
+        # 3. Hard Cap Adaptativo por Ativo
+        # Em vez de 1.5% fixo, podes usar 2.5% para SOL/ETH e 1.2% para BTC
+        # Ou simplesmente confiar mais no ATR e menos no % fixo.
+        max_sl_pct = 0.025 if "SOL" in self.symbol else 0.015
+        sl_distance = min(sl_distance, price * max_sl_pct)
 
-        # 4. Cálculo dos níveis de preço
         if direction == Signal.BUY:
-            sl = price - sl_distance
-            tp = price + tp_distance
-        elif direction == Signal.SELL:
-            sl = price + sl_distance
-            tp = price - tp_distance
+            sl, tp = price - sl_distance, price + tp_distance
         else:
-            return None, None
+            sl, tp = price + sl_distance, price - tp_distance
 
-        # Arredondamento para 4 casas decimais (padrão da maioria das exchanges)
         return round(float(sl), 4), round(float(tp), 4)
 
     def predict_signal(self, df: pd.DataFrame) -> SignalResult:
@@ -232,13 +278,21 @@ class MLStrategy(StrategyBase):
         idx = np.argmax(proba)
         confidence = proba[idx]
 
-        latest_row = df_with_ind.iloc[-2]
+        latest_row = df_with_ind.iloc[-1]
         close_price = latest_row['close']
-        #print("AQUII", latest_row)
+        # print("AQUII", latest_row)
         atr = latest_row['atr']
 
         logging.info(
             f"🤖 [{self.model_type.value}] Prob: L:{proba[0]:.2f} | N:{proba[1]:.2f} | H:{proba[2]:.2f} (Conf: {confidence:.2f})")
+
+        # bayes_confidence = self.get_final_confidence(confidence, latest_row)
+
+        # 3. Decisão Final (A Média Ponderada)
+        # O Bayes atua como um filtro de sanidade
+        # final_score = (lgbm_buy_prob * 0.7) + (bayes_confidence * 0.3)
+
+        # print(f"bayes_confidence= {bayes_confidence}")
 
         if confidence > self.confidence_threshold:
             if idx == 2:  # ALTA
@@ -260,6 +314,42 @@ class MLStrategy(StrategyBase):
         logging.info(f"🚦 Sinal ML para {self.symbol}: {result}")
         return result
 
+    def get_final_confidence(self, lgbm_prob_class_2: float, current_data: dict) -> float:
+        """
+        Aplica o Teorema de Bayes para ajustar a confiança do LightGBM.
+        """
+        model = self.bayesian_model
+        print(model)
+        prior = model['prior_win']
 
+        # 1. Começamos com a "crença" do LightGBM
+        # Se o modelo está muito confiante, o likelihood é alto
+        likelihood_ratio = 1.0
 
+        # 2. Ajustamos pelas 6 âncoras
+        # Mapeamos o valor atual para o bin correspondente (mesma lógica do treino)
+        mappings = {
+            'rsi_bin': 'OVERSOLD' if current_data['rsi'] < 30 else (
+                'OVERBOUGHT' if current_data['rsi'] > 70 else 'NEUTRAL'),
+            'adx_bin': 'WEAK' if current_data['adx'] < 25 else ('STRONG' if current_data['adx'] < 50 else 'EXTREME'),
+            'score_bin': 'LOW' if current_data['super_score'] < 3 else (
+                'HIGH' if current_data['super_score'] > 7 else 'MID'),
+            'chop_bin': 'TRENDING' if current_data['choppiness'] < 38 else (
+                'CHOPPY' if current_data['choppiness'] > 61 else 'NORMAL'),
+            'ema_bin': 'BULL' if current_data['above_ema200'] == 1 else 'BEAR'
+            # ... adicionar relative_volume conforme a lógica de qcut
+        }
 
+        for feat, bin_val in mappings.items():
+            # P(Win | Atributo) vinda do histórico
+            p_attr = model['tables'].get(feat, {}).get(bin_val, prior)
+
+            # Se P(Atributo) > Prior, este indicador ajuda. Se for <, ele penaliza.
+            # Isto é uma simplificação robusta do ajuste bayesiano
+            likelihood_ratio *= (p_attr / prior)
+
+        # 3. Resultado Final: Confiança do Modelo * Força Estatística das Âncoras
+        final_prob = lgbm_prob_class_2 * likelihood_ratio
+
+        # Clipping para garantir que fica entre 0 e 1
+        return max(0.0, min(1.0, final_prob))
