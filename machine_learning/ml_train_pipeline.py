@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 import logging
@@ -163,59 +164,65 @@ class MLTrainer:
             return {}
 
     async def fetch_ohlcv(self, symbol):
-        # 1. Definir um limite fixo para todas as janelas
-        limit = 1500
-        ms_per_candle = 15 * 60 * 1000  # 15 min
+        limit_total = 1500
+        binance_max_limit = 1000  # Limite real da API Binance
+        ms_per_candle = 15 * 60 * 1000
 
-        # Em vez de calcular "since" de forma arbitrária,
-        # vamos definir pontos de partida claros baseados no AGORA
         now_ms = int(pd.Timestamp.now(tz='UTC').timestamp() * 1000)
 
+        # Definimos os pontos de partida para as 10 janelas
         windows = [
-            (f"period_{i}", now_ms - (i * limit * ms_per_candle))
+            (f"period_{i}", now_ms - (i * limit_total * ms_per_candle))
             for i in range(1, 11)
         ]
 
         all_dfs = []
-
-        exchange = binance({
-            "enableRateLimit": True,
-            "testnet": False,
-        })
+        exchange = binance({"enableRateLimit": True, "testnet": False})
 
         try:
             for name, start_time in windows:
-                # Loop de segurança para garantir que trazemos o LIMIT
+                window_data = []
+                current_since = int(start_time)
 
-                ohlcv_data = await exchange.fetch_ohlcv(symbol, self.TIMEFRAME, since=int(start_time), limit=limit)
+                # --- NOVO LOOP DE PAGINAÇÃO ---
+                while len(window_data) < limit_total:
+                    # Calcula quanto falta para chegar aos 1500
+                    remaining = limit_total - len(window_data)
+                    # Pede o mínimo entre o que falta e o máximo da Binance
+                    fetch_limit = min(remaining, binance_max_limit)
 
-                # Aceder aos dados (ajusta conforme a tua estrutura OhlcvWrapper)
-                # actual_data = ohlcv_data.ohlcv if hasattr(ohlcv_data, 'ohlcv') else ohlcv_data
+                    partial_data = await exchange.fetch_ohlcv(
+                        symbol, self.TIMEFRAME, since=current_since, limit=fetch_limit
+                    )
 
-                df_temp = pd.DataFrame(ohlcv_data,
-                                       columns=["timestamp", "open", "high", "low", "close", "volume"])
+                    if not partial_data:
+                        break
 
-                # Validação Crítica
-                if len(df_temp) < limit:
-                    logging.warning(
-                        f"⚠️ {symbol} - Janela '{name}' incompleta: {len(df_temp)}/{limit}. Histórico insuficiente na Exchange?")
+                    window_data.extend(partial_data)
+                    # Atualiza o current_since para o milissegundo após o último candle recebido
+                    current_since = partial_data[-1][0] + 1
+
+                    # Pequena pausa para não stressar a API (opcional com enableRateLimit)
+                    if len(window_data) < limit_total:
+                        await asyncio.sleep(0.1)
+                # ------------------------------
+
+                df_temp = pd.DataFrame(window_data, columns=["timestamp", "open", "high", "low", "close", "volume"])
+
+                if len(df_temp) < limit_total:
+                    logging.warning(f"⚠️ {symbol} - Janela '{name}' incompleta: {len(df_temp)}/{limit_total}")
 
                 all_dfs.append(df_temp)
-                # logging.info(f"✅ {symbol} - Janela '{name}' obtida: {len(df_temp)} candles.")
+
                 real_start = pd.to_datetime(df_temp['timestamp'].iloc[0], unit='ms').strftime('%Y-%m-%d %H:%M')
                 real_end = pd.to_datetime(df_temp['timestamp'].iloc[-1], unit='ms').strftime('%Y-%m-%d %H:%M')
-                since1 = pd.to_datetime(start_time, unit='ms').strftime('%Y-%m-%d %H:%M')
+                logging.info(f"✅ {symbol} [{name}] - Total: {len(df_temp)} candles (Paginado)")
 
-                logging.info(
-                    f"✅ {symbol} [{name}] - Recebido: {len(df_temp)} candles | De {real_start} até {real_end} | since={since1}")
         finally:
             await exchange.close()
 
-        # Concatena logo aqui para garantir um DF único por moeda
-
         final_df = pd.DataFrame(pd.concat(all_dfs, ignore_index=True)).drop_duplicates(
             subset=['timestamp']).sort_values('timestamp')
-
         return final_df
 
     def prepare_dataset(self, df):

@@ -163,7 +163,7 @@ class MarketBrain:
         return 100 * np.log10(atr_sum / high_low_diff) / np.log10(window)
 
     @staticmethod
-    def add_indicators(df: pd.DataFrame, is_training: bool = False):
+    def add_indicators_old(df: pd.DataFrame, is_training: bool = False):
         df = df.copy()
 
         df_temp = df.copy()
@@ -338,15 +338,20 @@ class MarketBrain:
 
         # 2. Remove ou preenche os valores nulos (NaN)
         # Se uma coluna nova precisa de X velas para aquecer, ela terá NaNs no topo
-        df.fillna(method='ffill', inplace=True)  # Repete o último valor válido
+        df.fillna(inplace=True)  # Repete o último valor válido
         df.fillna(0, inplace=True)  # Se ainda houver NaNs (no início), coloca 0
 
         cols_train = [c for c in cols_model if c != 'atr']
         if is_training:
-            window = 12
+
+            best_w, best_p, _ = MarketBrain.find_best_params(df, cols_train)
+            # window = 12
 
             # Definimos o alvo real que o teu bot persegue
-            min_profit_pct = 0.02  # 2%
+            # min_profit_pct = 0.02  # 2%
+
+            window = best_w
+            min_profit_pct = best_p
 
             for i in range(len(df) - window):
                 price_entry = df['close'].iloc[i]
@@ -375,9 +380,127 @@ class MarketBrain:
         return df, df[cols_train]
 
     @staticmethod
+    def add_indicators(df: pd.DataFrame, is_training: bool = False):
+        df = df.copy()
+
+        # --- 1. MÉTRICAS DE MOMENTUM (Para Tendência) ---
+        df['rsi'] = ta.momentum.rsi(df['close'], window=14)
+        # Relação de Médias (9 vs 50) - Indica se o "comboio" está a andar
+        df['ema_gap'] = (ta.trend.ema_indicator(df['close'], 9) / ta.trend.ema_indicator(df['close'], 50)) - 1
+
+        # --- 2. MÉTRICAS DE VOLATILIDADE (Para Reversão/Rompimento) ---
+        bb = ta.volatility.BollingerBands(df['close'], window=20)
+        df['bb_pband'] = bb.bollinger_pband()  # 1.0 = Topo da banda, 0.0 = Fundo
+        df['atr_norm'] = ta.volatility.average_true_range(df['high'], df['low'], df['close']) / df['close']
+
+        # --- 3. MÉTRICAS DE FORÇA (Volume) ---
+        df['vol_shock'] = df['volume'] / df['volume'].rolling(20).mean()
+
+        df["atr"] = AverageTrueRange(df["high"], df["low"], df["close"]).average_true_range()
+
+        df['ema_200'] = df['close'].ewm(span=200).mean()
+        df['above_ema200'] = (df['close'] > df['ema_200']).astype(int)
+
+        df["dist_ema200"] = (df["close"] - df["ema_200"]) / df["ema_200"]
+
+        df['mean_20'] = df['close'].rolling(window=20).mean()
+        df['std_20'] = df['close'].rolling(window=20).std()
+        df['z_score'] = (df['close'] - df['mean_20']) / df['std_20']
+
+        df['momentum'] = df['close'].pct_change(periods=3)
+        adx_i = ADXIndicator(df['high'], df['low'], df['close'], window=14)
+        df['adx'] = adx_i.adx()
+
+        df['price_change'] = df['close'].diff()
+        df['consecutive_downs'] = (df['price_change'] < 0).astype(int).rolling(window=2).sum()
+
+        # 2. Força da queda (Vela atual + Anterior)
+        df['last_2_candles_sum'] = df['close'].pct_change(periods=2)
+
+        # 3. Filtro de Volume na queda
+        df['down_volume_spike'] = (df['volume'] > df['volume'].rolling(20).mean()) & (df['price_change'] < 0)
+
+        df['rsi_ema'] = df['rsi'].rolling(window=14).mean()
+
+        # Opção A: Distância (valor contínuo - o LightGBM adora isto)
+        df['rsi_above_ema'] = df['rsi'] - df['rsi_ema']
+
+        df['price_velocity'] = df['close'].diff(2) / df['atr']
+
+        # 1. Calcula as EMAs
+        df['ema9'] = df['close'].ewm(span=9, adjust=False).mean()
+        df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
+
+        # 2. Diferença Relativa (Feature Contínua - O LGBM adora isto)
+        # Positivo = EMA9 acima | Negativo = EMA9 abaixo
+        df['ema_spread'] = (df['ema9'] - df['ema21']) / df['ema21'] * 100
+
+        # 3. Sinal de Cruzamento (O "Momento" do Cross)
+        # Comparamos o estado atual com o anterior (shift)
+        df['ema_cross_up'] = ((df['ema9'] > df['ema21']) & (df['ema9'].shift(1) <= df['ema21'].shift(1))).astype(int)
+        df['ema_cross_down'] = ((df['ema9'] < df['ema21']) & (df['ema9'].shift(1) >= df['ema21'].shift(1))).astype(int)
+
+        df['rsi_sma'] = df['rsi'].rolling(window=7).mean()
+        df['rsi_trend'] = df['rsi'] - df['rsi_sma']  # Se positivo, o momentum está a acelerar
+
+        df['vol_zscore'] = (df['volume'] - df['volume'].rolling(20).mean()) / df['volume'].rolling(20).std()
+
+        cols_model = ["rsi", "ema_gap", "bb_pband", "atr_norm", "vol_shock", "atr",
+                      "rsi_above_ema", "price_velocity", "ema_spread", "ema_cross_up", "ema_cross_down"
+                      ]
+
+        # 1. Trata os infinitos que os indicadores podem ter gerado
+        df.replace([np.inf, -np.inf], np.nan, inplace=True)
+
+        # Primeiro preenchemos para a frente (ffill) os indicadores que precisam de tempo
+        df.ffill(inplace=True)
+        # Depois preenchemos com 0 o início do dataset onde não há histórico anterior
+        df.fillna(0, inplace=True)
+
+        cols_train = [c for c in cols_model if c != 'atr']
+        if is_training:
+
+            df_discovery = df.iloc[:int(len(df) * 0.8)].copy()
+            best_w, best_p, _ = MarketBrain.find_best_params(df_discovery, cols_train)
+            # window = 12
+
+            # Definimos o alvo real que o teu bot persegue
+            # min_profit_pct = 0.02  # 2%
+
+            window = best_w
+            min_profit_pct = best_p
+
+            for i in range(len(df) - window):
+                price_entry = df['close'].iloc[i]
+
+                # Definimos os patamares de preço para este trade específico
+                target_buy = price_entry * (1 + min_profit_pct)
+                target_sell = price_entry * (1 - min_profit_pct)
+                stop_buy = price_entry - (df['atr'].iloc[i] * 1.5)  # Stop inicial continua no ATR
+                stop_sell = price_entry + (df['atr'].iloc[i] * 1.0)
+
+                future_segment = df.iloc[i + 1: i + window + 1]
+                max_high = future_segment['high'].max()
+                min_low = future_segment['low'].min()
+
+                # Lógica de COMPRA: O preço subiu 2% antes de bater no SL?
+                if (max_high >= target_buy) and (min_low > stop_buy):
+                    df.at[df.index[i], 'label'] = 2
+
+                # Lógica de VENDA: O preço caiu 2% antes de bater no SL?
+                elif (min_low <= target_sell) and (max_high < stop_sell):
+                    df.at[df.index[i], 'label'] = 0
+
+                else:
+                    df.at[df.index[i], 'label'] = 1
+
+        return df, df[cols_train]
+
+    @staticmethod
     def find_best_params(df: pd.DataFrame, features: list):
         import lightgbm as lgb
         from sklearn.metrics import f1_score
+        import numpy as np
 
         # --- 1. CONFIGURAÇÃO DA BUSCA ---
         profit_test = [0.015, 0.02, 0.025]
@@ -387,56 +510,88 @@ class MarketBrain:
         best_p = 0.02
         best_w = 12
 
-        print("🔍 Otimizando alvo e janela para encontrar a melhor Precision...")
+        # Extraímos os valores para arrays NumPy para velocidade extrema (e evitar overhead de memória)
+        close_prices = df['close'].values
+        high_prices = df['high'].values
+        low_prices = df['low'].values
+        atr_values = df['atr'].values
+
+        n_total = len(df)
+
+        print("🔍 Iniciando Busca de Hiper-parâmetros de Labeling...")
 
         for p_test in profit_test:
             for w_test in window_test:
-                # Criamos uma cópia temporária para rotular
-                temp_df = df.copy()
-                temp_df['label'] = 1
+                # Criamos apenas um array de labels (economiza RAM comparado a copiar o DF)
+                labels_temp = np.ones(n_total, dtype=int)
 
-                # --- TEU BLOCO DE LABELING (VERSÃO TESTE) ---
-                for i in range(len(temp_df) - w_test):
-                    price_entry = temp_df['close'].iloc[i]
+                # --- LOOP DE LABELING OTIMIZADO (NUMPY SLICING) ---
+                for i in range(n_total - w_test):
+                    price_entry = close_prices[i]
                     target_buy = price_entry * (1 + p_test)
                     target_sell = price_entry * (1 - p_test)
-                    stop_buy = price_entry - (temp_df['atr'].iloc[i] * 1.0)
-                    stop_sell = price_entry + (temp_df['atr'].iloc[i] * 1.0)
 
-                    future_segment = temp_df.iloc[i + 1: i + w_test + 1]
-                    max_high = future_segment['high'].max()
-                    min_low = future_segment['low'].min()
+                    # Usamos 1.2x ATR para dar margem ao ruído
+                    stop_buy = price_entry - (atr_values[i] * 1.2)
+                    stop_sell = price_entry + (atr_values[i] * 1.2)
 
-                    if (max_high >= target_buy) and (min_low > stop_buy):
-                        temp_df.at[temp_df.index[i], 'label'] = 2
-                    elif (min_low <= target_sell) and (max_high < stop_sell):
-                        temp_df.at[temp_df.index[i], 'label'] = 0
+                    # Slices rápidos do futuro
+                    f_high = high_prices[i + 1: i + w_test + 1]
+                    f_low = low_prices[i + 1: i + w_test + 1]
+
+                    # Lógica de validação do movimento
+                    if (f_high.max() >= target_buy) and (f_low.min() > stop_buy):
+                        labels_temp[i] = 2
+                    elif (f_low.min() <= target_sell) and (f_high.max() < stop_sell):
+                        labels_temp[i] = 0
 
                 # --- TREINO RÁPIDO DE VALIDAÇÃO ---
-                # Usamos os últimos 20% para validar se esta configuração funciona
-                df_clean = temp_df.dropna()
+                # Temporariamente adicionamos ao DF original para facilitar o split
+                df['temp_label'] = labels_temp
+
+                # Removemos NaNs apenas para o treino
+                df_clean = df.dropna(subset=features + ['temp_label'])
+
                 split = int(len(df_clean) * 0.8)
                 train_data = df_clean.iloc[:split]
-                test_data = df_clean.iloc[split:]
+                val_data = df_clean.iloc[split:]
 
-                if len(train_data['label'].unique()) < 3: continue  # Pula se não houver Buy/Sell suficientes
+                # Verificação de segurança: precisamos das 3 classes para o modelo aprender algo útil
+                if len(train_data['temp_label'].unique()) < 3:
+                    df.drop(columns=['temp_label'], inplace=True)
+                    continue
 
-                clf = lgb.LGBMClassifier(n_estimators=50, learning_rate=0.1, verbose=-1)
-                clf.fit(train_data[features], train_data['label'])
+                # Modelo ultra-rápido para teste (árvores rasas)
+                clf = lgb.LGBMClassifier(
+                    n_estimators=50,
+                    learning_rate=0.1,
+                    max_depth=4,
+                    num_leaves=15,
+                    verbose=-1
+                )
 
-                preds = clf.predict(test_data[features])
-                # F1-Score Macro apenas para as classes 0 e 2 (ignora o Hold no cálculo de performance)
-                f1 = f1_score(test_data['label'], preds, labels=[0, 2], average='macro', zero_division=0)
+                clf.fit(train_data[features], train_data['temp_label'])
 
+                # Avaliação
+                preds = clf.predict(val_data[features])
+
+                # Focamos no sucesso das operações Reais (Buy e Sell)
+                f1 = f1_score(val_data['temp_label'], preds, labels=[0, 2], average='macro', zero_division=0)
                 num_signals = (preds != 1).sum()
-                print(f"  > Teste {p_test * 100}%/{w_test}v: F1-Score = {f1:.4f} | Sinais = {num_signals}")
 
-                if f1 > best_f1 and num_signals > 5:  # Garante que existem sinais reais
+                print(f"  > Alvo {p_test * 100}% | Janela {w_test}: F1={f1:.4f} | Sinais={num_signals}")
+
+                # Critério de seleção: melhor F1 com um mínimo de sinais para evitar sorte
+                if f1 > best_f1 and num_signals > 5:
                     best_f1 = f1
                     best_p = p_test
                     best_w = w_test
 
-        return best_p, best_w, best_f1
+                # Limpeza da coluna temporária para o próximo loop
+                df.drop(columns=['temp_label'], inplace=True)
+
+        print(f"✅ Melhor combinação encontrada: Lucro {best_p * 100}% em {best_w} velas (F1: {best_f1:.4f})")
+        return best_w, best_p, best_f1
 
     @staticmethod
     def kalman_filter(data):
