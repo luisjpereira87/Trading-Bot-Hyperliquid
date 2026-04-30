@@ -551,7 +551,7 @@ class MLTrainer:
             "f1_macro": round(f1_score(y_val, y_val_pred, average='macro'), 4),
             "features_count": len(features.columns.tolist()),
             "model_signature": imp_hash,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now().timestamp(),
         }
 
         with open(metadata_path, 'w') as f:
