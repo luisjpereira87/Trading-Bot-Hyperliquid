@@ -87,13 +87,12 @@ class MLStrategy(StrategyBase):
             keras_model_path = get_model_path(self.model_type.value, self.exchange_name, "MASTER", ".keras")
             model_path = get_model_path(self.model_type.value, self.exchange_name, "MASTER", ".pkl")
             scaler_model_path = get_scaler_path(self.model_type.value, self.exchange_name, "MASTER")
-            # metadata = get_metadat_json_path(self.model_type.value, self.exchange_name, "MASTER")
+            metadata = get_metadat_json_path(self.model_type.value, self.exchange_name, "MASTER")
         else:
             keras_model_path = get_model_path(self.model_type.value, self.exchange_name, symbol_clean, ".keras")
             model_path = get_model_path(self.model_type.value, self.exchange_name, symbol_clean, ".pkl")
             scaler_model_path = get_scaler_path(self.model_type.value, self.exchange_name, symbol_clean)
-
-        metadata = get_metadat_json_path(self.model_type.value, self.exchange_name, symbol_clean)
+            metadata = get_metadat_json_path(self.model_type.value, self.exchange_name, symbol_clean)
 
         # Define qual o caminho do ficheiro principal para validar a data
         target_path = keras_model_path if model_type == MLModelType.LSTM else model_path
@@ -129,7 +128,12 @@ class MLStrategy(StrategyBase):
             else:
                 self.model = joblib.load(model_path)
                 # self.bayesian_model = self.load_bayesian_model()
-            self.metadata = metadata
+
+            if self.is_combined_model:
+                self.metadata = get_metadat_json_path(self.model_type.value, self.exchange_name, "MASTER")
+            else:
+                self.metadata = get_metadat_json_path(self.model_type.value, self.exchange_name, symbol_clean)
+
             self.scaler = joblib.load(scaler_model_path)
             self.model_loaded = True
             logging.info(f"✅ Modelo {model_type.value} treinado e carregado com sucesso.")
