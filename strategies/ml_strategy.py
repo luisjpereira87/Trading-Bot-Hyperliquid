@@ -102,7 +102,7 @@ class MLStrategy(StrategyBase):
         model_exists = os.path.exists(target_path)
 
         # Se o modelo existe e é recente, carregamos
-        if model_exists and metadata.is_fresh:
+        if model_exists and metadata and metadata.is_fresh:
             if model_type == MLModelType.LSTM:
                 self.model = load_model(keras_model_path)
                 logging.info("📥 Modelo LSTM carregado e atualizado.")
