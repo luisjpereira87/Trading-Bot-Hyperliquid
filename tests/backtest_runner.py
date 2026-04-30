@@ -2,8 +2,6 @@ import os
 import sys
 from typing import List
 
-import pandas as pd
-
 from commons.helpers.trailing_stop_helpers import TrailingStopHelpers
 from trading_bot.exchange_base import ExchangeBase
 
@@ -15,7 +13,7 @@ import asyncio
 import logging
 
 import nest_asyncio
-from ccxt.async_support import hyperliquid
+from ccxt.async_support import hyperliquid, binance
 
 from commons.enums.signal_enum import Signal
 from commons.enums.strategy_enum import StrategyEnum
@@ -32,9 +30,9 @@ from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from strategies.strategy_manager import StrategyManager
 from tests.plot_trades import PlotTrades
 from trading_bot.bot import TradingBot
-from trading_bot.exchange_client import ExchangeClient
 
 nest_asyncio.apply()
+
 
 class ExchangeClientMock(ExchangeBase):
     def __init__(self, candles, candles_higher, pair: PairConfig, balance: float = 1000):
@@ -43,7 +41,7 @@ class ExchangeClientMock(ExchangeBase):
         self.candles_higher = candles_higher
         self.position = None
         self.balance = balance
-        self.positions = {} 
+        self.positions = {}
         self.current_index = {symbol: 0 for symbol in candles.keys()}
         self.total_pnl = 0.0  # USDC
         self.num_wins = 0
@@ -52,16 +50,16 @@ class ExchangeClientMock(ExchangeBase):
         self.trades = []
         self.id = 0
         self.stop_loss_orders = {}
-        self.closed_orders:List[ClosedOrder] = []
-        self.current_candle:Ohlcv
-        self.last_closed_candle:Ohlcv
+        self.closed_orders: List[ClosedOrder] = []
+        self.current_candle: Ohlcv
+        self.last_closed_candle: Ohlcv
         self.unrealizedPnl = 0
 
     def update_candles(self, symbol, current_candle, index):
         self.current_index[symbol] = index
-        window = self.candles[symbol][:index+1]  # inclui o candle atual
+        window = self.candles[symbol][:index + 1]  # inclui o candle atual
         wrapper = OhlcvWrapper(window)
-        self.current_candle = wrapper.get_current_candle()       # candle em "tempo real"
+        self.current_candle = wrapper.get_current_candle()  # candle em "tempo real"
         self.last_closed_candle = wrapper.get_last_closed_candle()  # último candle fechado
 
     def __get_window(self, full_candles, current_index, window_size):
@@ -72,12 +70,19 @@ class ExchangeClientMock(ExchangeBase):
     def get_name(self):
         return "exchange_client_mock"
 
-    async def fetch_ohlcv(self, symbol, timeframe:TimeframeEnum =TimeframeEnum.M15,since=None, limit=100, is_higher: bool = False, is_training = False)->OhlcvFormat:
+    async def fetch_ohlcv(self, symbol, timeframe: TimeframeEnum = TimeframeEnum.M15, since=None, limit=100,
+                          is_higher: bool = False, is_training=False) -> OhlcvFormat:
         if is_training:
+            """
             exchange = hyperliquid({
                 "enableRateLimit": True,
                 "testnet": False,
             })  # type: ignore
+            """
+            exchange = binance({
+                "enableRateLimit": True,
+                "testnet": False,
+            })
             try:
 
                 candles = await exchange.fetch_ohlcv(symbol, timeframe, since=since, limit=limit)
@@ -89,37 +94,38 @@ class ExchangeClientMock(ExchangeBase):
         else:
             idx = self.current_index[symbol]
 
-            window = self.candles[symbol][:idx+1]  # incluir candle atual
-            window_higher = self.candles_higher[symbol][:idx+1]
+            window = self.candles[symbol][:idx + 1]  # incluir candle atual
+            window_higher = self.candles_higher[symbol][:idx + 1]
             wrapper = OhlcvWrapper(window)
             self.current_candle = wrapper.get_current_candle()
             self.last_closed_candle = wrapper.get_last_closed_candle()
             self.current_price = self.current_candle.close
 
-            print(f"[DEBUG fetch_ohlcv] idx usado={self.current_index[symbol]} | último close retornado={self.candles[symbol][self.current_index[symbol]][4]}")
+            print(
+                f"[DEBUG fetch_ohlcv] idx usado={self.current_index[symbol]} | último close retornado={self.candles[symbol][self.current_index[symbol]][4]}")
             return OhlcvFormat(OhlcvWrapper(window), OhlcvWrapper(window_higher))
-    
+
     async def get_entry_price(self, symbol: str) -> float:
         idx = self.current_index[symbol]
         return self.current_candle.open
-        #return self.current_price
+        # return self.current_price
 
     async def fetch_positions(self, params=None, **kwargs):
         return []
 
     async def fetch_balance(self, params=None, **kwargs):
         return {"total": {"USDT": self.balance}}
-    
+
     async def fetch_order_book(self, symbol, limit=5, params=None):
         order_book_mock = {
             'asks': [[3100.5, 10], [3101.0, 15], [3101.5, 5]],
             'bids': [[3100.0, 12], [3099.5, 20], [3099.0, 7]]
         }
         return order_book_mock
-    
+
     async def get_available_balance(self):
         return self.balance
-    
+
     async def fetch_ticker(self, symbol):
         return {"close": self.current_price}
 
@@ -135,9 +141,10 @@ class ExchangeClientMock(ExchangeBase):
     async def _place_protections(self, symbol: str, size: float, side: str, sl: float, tp: float):
         pass
 
-    async def place_entry_order(self, symbol: str, leverage: float, entry_amount: float, price_ref: float, side: Signal, sl_price: (float|None) = None, tp_price: (float|None) = None) -> OpenedOrder:
-         pass
-        
+    async def place_entry_order(self, symbol: str, leverage: float, entry_amount: float, price_ref: float, side: Signal,
+                                sl_price: (float | None) = None, tp_price: (float | None) = None) -> OpenedOrder:
+        pass
+
     async def calculate_entry_amount(self, price_ref, capital_amount):
         try:
             if price_ref is None or price_ref <= 0 or capital_amount <= 0:
@@ -156,8 +163,8 @@ class ExchangeClientMock(ExchangeBase):
         except Exception as e:
             logging.error(f"Erro ao calcular quantidade de entrada (mock): {e}")
             return 0.0
-    
-    async def open_new_position(self, symbol, leverage, signal, capital_amount, pair, sl, tp) -> (OpenedOrder | None) :
+
+    async def open_new_position(self, symbol, leverage, signal, capital_amount, pair, sl, tp) -> (OpenedOrder | None):
         idx = self.current_index[symbol]
         price = self.last_closed_candle.close
         print(f"CURRENT PRICE OPEN {price}", sl, tp)
@@ -169,7 +176,7 @@ class ExchangeClientMock(ExchangeBase):
             logging.warning(f"🚫 Order below $10 minimum: {entry_amount * price:.2f}")
             return
 
-        size = entry_amount #usa o entry_amount para o tamanho
+        size = entry_amount  # usa o entry_amount para o tamanho
 
         self.positions[symbol] = {
             "pair": pair,
@@ -184,9 +191,8 @@ class ExchangeClientMock(ExchangeBase):
         # Verifica se existe mais entries que exits, posição não fechada mas sim reversão
         entries_count = sum(1 for t in self.trades if t['type'] == 'entry')
         exits_count = sum(1 for t in self.trades if t['type'] == 'exit')
-        if  entries_count > exits_count:
+        if entries_count > exits_count:
             await self.__close_position(self.last_closed_candle, pair, size, signal)
-
 
         self.trades.append({
             "type": "entry",
@@ -199,12 +205,13 @@ class ExchangeClientMock(ExchangeBase):
         })
 
         await self.simulate_tp_sl(self.current_candle, self.pair.symbol)
-        #await self.__close_position(self.current_candle, pair, size, signal)
+        # await self.__close_position(self.current_candle, pair, size, signal)
 
-        logging.info(f"OPEN {signal.value} {symbol} entry_amount={entry_amount} idx={idx} size={size:.4f} price={price:.2f}, sl={sl} tp={tp}")
-        
+        logging.info(
+            f"OPEN {signal.value} {symbol} entry_amount={entry_amount} idx={idx} size={size:.4f} price={price:.2f}, sl={sl} tp={tp}")
+
         return OpenedOrder(str(idx), None, None, None, symbol, "entry", signal.value, price, size, False, None)
-    
+
     def __calculate_profit(self, pair):
         pos = self.positions.get(pair)
         if not pos:
@@ -234,7 +241,6 @@ class ExchangeClientMock(ExchangeBase):
         pnl = gross_pnl - total_fees
 
         return pnl
-
 
     async def __close_position(self, candle: Ohlcv, pair, size, side: Signal):
         pos = self.positions.get(pair)
@@ -283,40 +289,42 @@ class ExchangeClientMock(ExchangeBase):
         elif pnl < 0:
             self.num_losses += 1
 
-        self.closed_orders.append(ClosedOrder(pos['id'], None, None, None, pair, None, pos['side'], close_price, pos['size'], False, None))
+        self.closed_orders.append(
+            ClosedOrder(pos['id'], None, None, None, pair, None, pos['side'], close_price, pos['size'], False, None))
 
         del self.positions[pair]
 
         logging.info(f"CLOSE {side} {pair} size={size:.4f} idx={idx} entry={entry_price:.2f} close={close_price:.2f} "
-                 f"PnL={pnl:.2f} (gross: {gross_pnl:.2f}, fees: {total_fees:.4f})")
+                     f"PnL={pnl:.2f} (gross: {gross_pnl:.2f}, fees: {total_fees:.4f})")
         return pnl
 
     async def close_position(self, pair, size, side: Signal):
-       return await self.__close_position(self.last_closed_candle, pair, size, side)
-    
+        return await self.__close_position(self.last_closed_candle, pair, size, side)
+
     async def get_total_balance(self):
         return float(self.balance)
-    
+
     async def get_open_position(self, symbol=None):
         # Simula uma posição aberta se existir para o símbolo
         pos = self.positions.get(symbol)
         if pos:
-            return OpenPosition(pos['side'], pos['size'], pos['entryPrice'], '', pos['size'] * pos['entryPrice'], pos['sl'], pos['tp'], self.__calculate_profit(symbol))
+            return OpenPosition(pos['side'], pos['size'], pos['entryPrice'], '', pos['size'] * pos['entryPrice'],
+                                pos['sl'], pos['tp'], self.__calculate_profit(symbol))
         return None
 
     async def modify_stop_loss_order(self, symbol: str, entry_id: str, new_stop_price: float):
         """
         Modifica o SL associado a uma posição existente.
-        """  
+        """
         if self.trades:
             last_trade = self.trades[-1]
             if last_trade["type"] == "entry":
                 last_trade["sl"] = new_stop_price
 
             print(f"SL atualizado em {symbol} com entry_id {entry_id}")
-        else:        
+        else:
             print(f"⚠️ Nenhuma SL encontrada para modificar em {symbol} com entry_id {entry_id}")
-    
+
     async def simulate_tp_sl(self, candle: Ohlcv, symbol):
 
         position = self.positions.get(symbol)
@@ -362,7 +370,7 @@ class ExchangeClientMock(ExchangeBase):
                     print(f"close sell TP {low} {tp}")
                     await self.__close_position(candle, pair, size, Signal.SELL)
                 return candle
-            
+
     async def apply_trailing_stop(self, symbol, current_price):
         pass
         """
@@ -389,7 +397,7 @@ class ExchangeClientMock(ExchangeBase):
         if adjustment > 0:
             if side == 'buy':
                 new_sl = entry_price * (1 + adjustment)
-                new_tp = entry_price * (1.05 + adjustment) # Alvo original 5% + ajuste
+                new_tp = entry_price * (1.05 + adjustment)  # Alvo original 5% + ajuste
             else:
                 new_sl = entry_price * (1 - adjustment)
                 new_tp = entry_price * (0.95 - adjustment)
@@ -403,7 +411,6 @@ class ExchangeClientMock(ExchangeBase):
                 pos['sl'] = new_sl
                 pos['tp'] = new_tp
                 logging.info(f"🔄 [BACKTEST TRAILING] {symbol} SELL | Novo SL: {new_sl:.2f} | TP: {new_tp:.2f}")
-        
 
     def get_performance_summary(self):
         total_trades = self.num_wins + self.num_losses
@@ -416,10 +423,10 @@ class ExchangeClientMock(ExchangeBase):
             'wins': self.num_wins,
             'losses': self.num_losses,
             'win_rate': win_rate,
-            'avg_pnl':avg_pnl
+            'avg_pnl': avg_pnl
             # adiciona o que quiseres aqui
         }
-    
+
     def print_summary(self):
         total_trades = self.num_wins + self.num_losses
         win_rate = (self.num_wins / total_trades * 100) if total_trades > 0 else 0
@@ -436,12 +443,11 @@ class ExchangeClientMock(ExchangeBase):
         print(f"📊 Avg PnL per Trade:   ${avg_pnl:.2f}")
         print("---------------------------")
 
-    
     def generate_detailed_report(self, trades):
         entries = []
         exits = []
         detailed_trades = []
-       
+
         # Separar entradas e saídas
         for t in trades:
             if t['type'] == 'entry':
@@ -479,7 +485,8 @@ class ExchangeClientMock(ExchangeBase):
         print("\n📋 Detailed Trade Report")
         print("----------------------------")
         for i, trade in enumerate(detailed_trades, 1):
-            print(f"Trade {i}: {trade['side'].upper()} | Entry idx: {trade['entry_index']} at {trade['entry_price']:.2f} | Exit idx: {trade['exit_index']} at {trade['exit_price']:.2f} | PnL: {trade['pnl']:.2f} | Result: {trade['result']}")
+            print(
+                f"Trade {i}: {trade['side'].upper()} | Entry idx: {trade['entry_index']} at {trade['entry_price']:.2f} | Exit idx: {trade['exit_index']} at {trade['exit_price']:.2f} | PnL: {trade['pnl']:.2f} | Result: {trade['result']}")
 
         print("----------------------------")
         print(f"Total trades: {total_trades}")
@@ -487,16 +494,16 @@ class ExchangeClientMock(ExchangeBase):
         print(f"Win rate: {win_rate:.2f}%")
         print(f"Total PnL: {total_pnl:.2f}")
         print(f"Average PnL per trade: {avg_pnl:.2f}")
-#        print(f"Current candle: {trade['current_candle']}")
+        #        print(f"Current candle: {trade['current_candle']}")
         print("----------------------------")
 
         return detailed_trades
 
 
-
 # Runner principal do backtest
 class BacktestRunner:
-    def __init__(self, strategy_name: StrategyEnum, timeframe: TimeframeEnum, pair: PairConfig, limit: int = 5, balance: float = 1000):
+    def __init__(self, strategy_name: StrategyEnum, timeframe: TimeframeEnum, pair: PairConfig, limit: int = 5,
+                 balance: float = 1000):
         self.strategy_name = strategy_name
         self.timeframe = timeframe
         self.pair = pair
@@ -506,14 +513,14 @@ class BacktestRunner:
         self.trades = []  # lista de dicts: {"type": "entry"|"exit", "side": "buy"|"sell", "index": int, "price": float}
         self.ohlcv = []
 
-
-    async def run(self, is_plot = False, train = False):
+    async def run(self, is_plot=False, train=False):
         logging.info(f"🔁 Starting backtest for {self.pair.symbol}")
 
         self.ohlcv = await self.get_historical_ohlcv(self.timeframe, self.limit, train)
         self.ohlcv_higher = await self.get_historical_ohlcv(self.timeframe.get_higher(), self.limit, train)
 
-        exchange_client = ExchangeClientMock({self.pair.symbol: self.ohlcv}, {self.pair.symbol: self.ohlcv_higher}, self.pair, self.balance)
+        exchange_client = ExchangeClientMock({self.pair.symbol: self.ohlcv}, {self.pair.symbol: self.ohlcv_higher},
+                                             self.pair, self.balance)
         helpers = TradingHelpers()
         strategy = StrategyManager(exchange_client, self.strategy_name)
 
@@ -521,24 +528,23 @@ class BacktestRunner:
         signals = []
 
         for i in range(strategy.REQUIRED_CANDLES_200, len(self.ohlcv)):
-            #candles_slice = self.ohlcv[:i]  # candles até i-1 fechados
+            # candles_slice = self.ohlcv[:i]  # candles até i-1 fechados
             current_candle = self.ohlcv[i]  # vela em que vais abrir posição no início
 
             exchange_client.update_candles(self.pair.symbol, current_candle, i)
 
-            await exchange_client.simulate_tp_sl(OhlcvWrapper(self.ohlcv).get_candle(i-1), self.pair.symbol)
+            await exchange_client.simulate_tp_sl(OhlcvWrapper(self.ohlcv).get_candle(i - 1), self.pair.symbol)
             signal = await bot.run_pair(self.pair)
             signals.append({'signal': signal, 'index': i - 1, 'candle': current_candle})
-            
 
-            #if i == 350:
+            # if i == 350:
             #    break
 
-        #print(signals)
+        # print(signals)
         if is_plot:
             PlotTrades.plot_trades(self.pair.symbol, self.ohlcv, signals, exchange_client.trades)
 
-        #print(f"[TRADE_SNAPSHOT] {bot.get_average_features()}")
+        # print(f"[TRADE_SNAPSHOT] {bot.get_average_features()}")
         exchange_client.generate_detailed_report(exchange_client.trades)
         summary = exchange_client.get_performance_summary()
         return summary
@@ -549,16 +555,18 @@ class BacktestRunner:
             return self.ohlcv
 
         # Configura sua exchange Hyperliquid
-        exchange =  hyperliquid({
-                "enableRateLimit": True,
-                "testnet": False,
-            }) # type: ignore
+        exchange = hyperliquid({
+            "enableRateLimit": True,
+            "testnet": False,
+        })  # type: ignore
 
+        exchange.fetch_spot_markets = safe_fetch_spot_markets.__get__(exchange, exchange.__class__)
+        await exchange.load_markets()
         try:
             # Busca candles OHLCV históricos (timestamp, open, high, low, close, volume)
 
+            """
             if train:
-
                 since_timestamp = int(pd.Timestamp("2025-06-01").timestamp() * 1000)  # em ms
                 old_data = await exchange.fetch_ohlcv(self.pair.symbol, timeframe, since=since_timestamp, limit=limit)
 
@@ -566,8 +574,7 @@ class BacktestRunner:
                 old_data1 = await exchange.fetch_ohlcv(self.pair.symbol, timeframe, since=since_timestamp1, limit=limit)
 
                 return old_data + old_data1
-
-            
+            """
             self.ohlcv = await exchange.fetch_ohlcv(self.pair.symbol, timeframe, limit=limit)
             return self.ohlcv
         finally:
@@ -578,16 +585,45 @@ class BacktestRunner:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("ETH/USDC:USDC")
+    pair = get_pair_by_symbol("SOL/USDC:USDC")
 
     if pair is not None:
-
         runner = BacktestRunner(StrategyEnum.ML_LIGHTGBM, TimeframeEnum.M15, pair, 750, 1000)
-        
+
         await runner.run(True)
-    #print(LoadParams.load_best_params_with_weights())
+    # print(LoadParams.load_best_params_with_weights())
+
+
+async def safe_fetch_spot_markets(self, params={}):
+    """Versão corrigida para evitar o erro NoneType + str na Testnet"""
+    try:
+        request = {'type': 'spotMetaAndAssetCtxs'}
+        response = await self.publicPostInfo(self.extend(request, params))
+
+        # Se a resposta for inválida, retornamos lista vazia
+        if not response or len(response) < 1:
+            return []
+
+        universe = self.safe_list(response[0], 'universe', [])
+        tokens = self.safe_list(response[0], 'tokens', [])
+        markets = []
+
+        for i in range(len(universe)):
+            market_data = universe[i]
+            name = self.safe_string(market_data, 'name')
+
+            # O FIX: Se o nome for None ou não tiver '/', ignoramos
+            if not name or '/' not in name:
+                continue
+
+            # Deixamos o CCXT processar o resto se o nome for válido
+            # Mas para este teste, podemos simplesmente ignorar Spot
+            pass
+
+        return []  # Retornamos vazio para o Spot não atrapalhar os Swaps
+    except Exception:
+        return []  # Se falhar qualquer coisa, não crasha o bot
+
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-

@@ -11,13 +11,12 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
 
     def __init__(self, exchange: ExchangeBase):
         super().__init__()
-    
+
         self.exchange = exchange
         self.ohlcv: OhlcvWrapper
         self.ohlcv_higher: OhlcvWrapper
         self.symbol = None
         self.indicators = None
-
 
     def required_init(self, ohlcv: OhlcvWrapper, ohlcv_higher: OhlcvWrapper, symbol: str, price_ref: float):
         self.ohlcv = ohlcv
@@ -26,11 +25,9 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
         self.price_ref = price_ref
         self.indicators = IndicatorsUtils(ohlcv)
 
-        
-    
     def set_params(self, params: StrategyParams):
         pass
-  
+
     def set_candles(self, ohlcv):
         self.ohlcv = ohlcv
 
@@ -43,7 +40,7 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
             return SignalResult(Signal.HOLD, None, None)
 
         last_closed_candle = self.ohlcv.get_last_closed_candle()
-        supertrend, trend, upperband, lowerband, supertrend_smooth,_,_ = self.indicators.supertrend()
+        supertrend, trend, upperband, lowerband, supertrend_smooth, _, _ = self.indicators.supertrend()
         signal_val = CrossEmaLinearRegressionStrategy.build_signal(self.indicators, self.ohlcv)
 
         signal = signal_val[-2]
@@ -51,40 +48,40 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
         closes = self.ohlcv.closes
 
         lookback = 1
+
         if signal == Signal.BUY:
-            #sl = close - (close * 0.005)
-            #tp = close + ((close * 0.005) * 2.5)
+            # sl = close - (close * 0.005)
+            # tp = close + ((close * 0.005) * 2.5)
             sl = min(lowerband[-lookback:])  # SL no ponto mais baixo da banda
             tp = max(upperband[-lookback:]) + (max(upperband[-lookback:]) - sl) * 0.5
-            
+
 
         elif signal == Signal.SELL:
-            #sl = upperband[-2]
-            #sl = close + (close * 0.005)
-            #tp = close - ((close * 0.005) * 2.5)
+            # sl = upperband[-2]
+            # sl = close + (close * 0.005)
+            # tp = close - ((close * 0.005) * 2.5)
             sl = max(upperband[-lookback:])  # SL no ponto mais alto da banda
             tp = min(lowerband[-lookback:]) - (sl - min(lowerband[-lookback:])) * 0.5
-            
+
 
         else:
             return SignalResult(signal, None, None, None, 0, signal_val[-2])
-        
+
         # valida relação risco/benefício
         risk = abs(close - sl)
         reward = abs(tp - close)
 
-        if (signal == Signal.BUY or signal == Signal.SELL) and  reward < risk:
+        if (signal == Signal.BUY or signal == Signal.SELL) and reward < risk:
             # ajusta SL e TP dinamicamente
             sl_adjusted = close - (risk * 0.5) if signal == Signal.BUY else close + (risk * 0.5)
             tp_adjusted = close + (reward * 1.5) if signal == Signal.BUY else close - (reward * 1.5)
 
             return SignalResult(signal, sl, tp_adjusted, None, 0, signal_val[-2])
-        
 
         return SignalResult(signal, sl, tp, None, 0, signal_val[-2])
-    
+
     @staticmethod
-    def build_signal(indicators: IndicatorsUtils, ohlcv: OhlcvWrapper, trailing_n = 3):
+    def build_signal(indicators: IndicatorsUtils, ohlcv: OhlcvWrapper, trailing_n=3):
         closes = ohlcv.closes
         n = len(closes)
         trend_signal = [Signal.HOLD] * n
@@ -93,13 +90,14 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
         double_bb = indicators.double_bb_rsi_logic()
         signals = double_bb['signals']
 
-        #signals = indicators.market_structure_rsi()
+        # signals = indicators.market_structure_rsi()
 
         entry_price = 0
         profits = []
         min_profit_threshold = 0.001
         current_profit_pct = None
-        
+        supertrend, trend, upperband, lowerband, supertrend_smooth, direction, perf_score = indicators.supertrend()
+
         for i in range(3, n):
             current_signal = None
 
@@ -107,11 +105,11 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
             if last_signal == Signal.BUY:
                 current_profit_pct = (closes[i] - entry_price) / entry_price
                 profits.append(current_profit_pct)
-                
+
             elif last_signal == Signal.SELL:  # SELL
                 current_profit_pct = (entry_price - closes[i]) / entry_price
                 profits.append(current_profit_pct)
-            
+
             # ---------------------------------------------------------
             # → NOVA CHAMADA AO MÉTODO DE EXIT LOGIC
             # ---------------------------------------------------------
@@ -124,34 +122,40 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
                 signal_indicator=signals[i],
             )
 
+            if direction[i] == 1 and direction[i - 1] == -1:
+                current_signal = Signal.BUY
+            elif direction[i] == -1 and direction[i - 1] == 1:
+                current_signal = Signal.SELL
+
+            """
             if signals[i] == 1 and signals[i-1] != 1:
                 current_signal = Signal.BUY
             elif signals[i] == -1 and signals[i-1] != -1:
                 current_signal = Signal.SELL
-   
+            """
+
             if current_signal is not None:
                 trend_signal[i] = current_signal
                 last_signal = current_signal
                 entry_price = closes[i]
                 profits = []
-                
+
         return trend_signal
-    
-    
+
     @staticmethod
     def check_exit_signal(
-        last_signal: Signal | None,
-        profits: list[float],
-        current_profit_pct: float| None,
-        trailing_n: int,
-        min_profit_threshold: float,
-        signal_indicator: int
+            last_signal: Signal | None,
+            profits: list[float],
+            current_profit_pct: float | None,
+            trailing_n: int,
+            min_profit_threshold: float,
+            signal_indicator: int
     ):
         """
         Avalia se deve sair da posição com base nas condições de exit logic.
         Retorna Signal.CLOSE ou None.
         """
-    
+
         # Se não há posição aberta → nada a fazer
         if last_signal not in (Signal.BUY, Signal.SELL) or current_profit_pct is None:
             return None
@@ -161,19 +165,19 @@ class CrossEmaLinearRegressionStrategy(StrategyBase):
         # --------------------------
         if len(profits) >= trailing_n and current_profit_pct > min_profit_threshold:
             # últimos N profits estão sempre a descer
-            if all(profits[-k] < profits[-(k+1)] for k in range(1, trailing_n)):
+            if all(profits[-k] < profits[-(k + 1)] for k in range(1, trailing_n)):
                 return Signal.CLOSE
-            
+
         # --------------------------
         # 2. EXIT: Cruzamento contrário regression_slope_oscillator
         # --------------------------
         if current_profit_pct != None and (last_signal == Signal.SELL and signal_indicator < 0 or \
-            last_signal == Signal.BUY and signal_indicator > 0) and current_profit_pct > min_profit_threshold:
+                                           last_signal == Signal.BUY and signal_indicator > 0) and current_profit_pct > min_profit_threshold:
             return Signal.CLOSE
-        
-        #if current_profit_pct != None and not gap_is_accelerating and current_profit_pct > min_profit_threshold:
+
+        # if current_profit_pct != None and not gap_is_accelerating and current_profit_pct > min_profit_threshold:
         #    return Signal.CLOSE
-        
+
         """
         if last_signal == Signal.BUY:
             # Reversão no BUY: O preço bateu no topo e foi rejeitado ou virou Bear

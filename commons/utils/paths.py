@@ -1,4 +1,11 @@
+import json
+import logging
 import os
+from pathlib import Path
+
+from pydantic import ValidationError
+
+from commons.models.metadata_dclass import Metadata
 
 # 1. Encontrar a Raiz do Projeto de forma robusta
 # Sobe 3 níveis a partir de commons/utils/paths.py para chegar à raiz
@@ -52,3 +59,36 @@ def get_pairs_path():
     """Retorna o caminho para o pairs"""
 
     return os.path.join(CONFIG_PATH, "pairs.json")
+
+
+def get_metadat_json_path(model_type_value: str, exchange_name: str, symbol: str):
+    """Retorna o caminho completo e absoluto para o modelo."""
+
+    if exchange_name is not None:
+        filename = f"modelo_{model_type_value.lower()}_{symbol}_{exchange_name}_metadata.json"
+    else:
+        filename = f"modelo_{model_type_value.lower()}_{symbol}_metadata.json"
+
+    file_path = Path(os.path.join(MODEL_STORAGE, filename))
+    print(file_path)
+    if not file_path.exists():
+        logging.warning(f"⚠️ Arquivo de configuração '{filename}' não encontrado. Usando pares padrão.")
+        return None
+
+    try:
+        with file_path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except json.JSONDecodeError as e:
+        logging.error(f"❌ JSON malformado em '{filename}': {e}. Usando pares padrão.")
+        return None
+
+    try:
+        # validated = [Metadata(**item) for item in data]
+        validated = Metadata(**data)
+        logging.info(f"✅ {validated} pares carregados de '{filename}' com sucesso.")
+        return validated
+    except ValidationError as e:
+        logging.error(f"❌ Erro de validação nos dados de '{filename}': {e}. Usando pares padrão.")
+        return None
+
+    return os.path.join(MODEL_STORAGE, filename)

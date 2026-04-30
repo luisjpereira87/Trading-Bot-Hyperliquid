@@ -13,375 +13,39 @@ from commons.utils.ohlcv_wrapper import OhlcvWrapper
 class MarketBrain:
 
     @staticmethod
-    def add_indicators_(df: pd.DataFrame, is_training: bool = False):
-        # Criamos uma cópia para não afetar o DF original
-        df = df.copy()
-
-        # --- INDICADORES TÉCNICOS ---
-        # SuperTrend e outros (usando o teu wrapper)
-        df_temp = df.copy()
-        if pd.api.types.is_datetime64_any_dtype(df_temp['timestamp']):
-            df_temp['timestamp'] = df_temp['timestamp'].astype('int64') // 10 ** 6
-
-        custom_indicators = CustomIndicatorsUtils(OhlcvWrapper(df_temp.values.tolist()), mode='custom')
-        _, direction, _, _, _, _, _ = custom_indicators.supertrend()
-        final_scores, _ = custom_indicators.calculate_super_score()
-
-        rsi, _ = custom_indicators.rsi()
-
-        df["super_score"] = final_scores
-        df["st_direction"] = direction
-        df["ema9"] = df["close"].ewm(span=9).mean()
-        df["ema21"] = df["close"].ewm(span=21).mean()
-        df["ema200"] = df["close"].ewm(span=200).mean()
-
-        # FEATURE REAL: Distância do preço para a média (Percentagem)
-        df["dist_ema9"] = (df["close"] - df["ema9"]) / df["ema9"]
-        df["dist_ema21"] = (df["close"] - df["ema21"]) / df["ema21"]
-        df["dist_ema200"] = (df["close"] - df["ema200"]) / df["ema200"]
-
-        df["macd"] = df["ema9"] - df["ema21"]
-
-        # MACD já é uma diferença, mas para ser "scale-invariant", dividimos pelo preço
-        df["macd_rel"] = (df["ema9"] - df["ema21"]) / df["close"]
-
-        # df["rsi"] = RSIIndicator(df["close"]).rsi().shift(2)
-        df["rsi"] = pd.Series(rsi)
-
-        df["atr"] = AverageTrueRange(df["high"], df["low"], df["close"]).average_true_range()
-
-        # ATR relativo (Volatilidade em %)
-        df["atr_rel"] = df["atr"] / df["close"]
-
-        stoch = StochasticOscillator(df["high"], df["low"], df["close"])
-        df["stoch_k"] = stoch.stoch()
-        df["stoch_d"] = stoch.stoch_signal()
-
-        df["pct_change"] = df["close"].pct_change().shift(1)
-        df['momentum'] = df['close'].pct_change(periods=3)
-        df['roc'] = df['close'].pct_change(periods=10)
-
-        df['mean_20'] = df['close'].rolling(window=20).mean()
-        df['std_20'] = df['close'].rolling(window=20).std()
-        df['z_score'] = (df['close'] - df['mean_20']) / df['std_20']
-
-        df['vol_ema'] = df['volume'].rolling(window=20).mean()
-        df['relative_volume'] = (df['volume'] / df['vol_ema']).shift(2)
-        df['bb_width'] = (df['ema21'] - df['ema9']) / df['ema21']
-
-        df['ema_200'] = df['close'].ewm(span=200).mean()
-        df['above_ema200'] = (df['close'] > df['ema_200']).astype(int)
-
-        # df['adx'] = ADXIndicator(df['high'], df['low'], df['close'], window=14).adx()
-        adx_i = ADXIndicator(df['high'], df['low'], df['close'], window=14)
-        df['adx'] = adx_i.adx()
-        df['di_diff'] = adx_i.adx_pos() - adx_i.adx_neg()  # Positivo = Bulls no comando
-
-        df['choppiness'] = MarketBrain.get_choppiness(df)
-
-        df['bb20_up'] = ta.volatility.bollinger_hband(df['close'], window=20)
-        df['bb80_up'] = ta.volatility.bollinger_hband(df['close'], window=80)
-        df['bb_ratio'] = df['bb20_up'] / df['bb80_up']  # Se > 1.05, estamos em zona de perigo/euforia
-
-        cols_model = [
-            "rsi", "atr", "macd", "pct_change", "ema9", "ema21", "stoch_k", "stoch_d",
-            "z_score", "relative_volume", "bb_width", "above_ema200", "momentum", "roc", "adx",
-            "super_score", "st_direction", "dist_ema200"
-        ]
-        """
-        cols_model = [
-            "rsi", "atr", "relative_volume", "above_ema200", "adx", "dist_ema200"
-        ]
-        """
-        # --- LÓGICA DE TARGET (APENAS TREINO) ---
-        if is_training:
-            # Aumentamos para 1.2% para filtrar o ruído e sair dos 99%
-            margin = 0.012
-
-            df["future_return"] = df["close"].shift(-20) / df["close"] - 1
-
-            # Criamos labels mais equilibrados
-            df["label"] = np.select(
-                [df["future_return"] > margin, df["future_return"] < -margin],
-                [2, 0],
-                default=1
-            )
-
-            # IMPORTANTE: Dropna deve ser a última coisa antes de separar as colunas
-            df = df.dropna(subset=cols_model + ["label"])
-
-            # DEBUG: Vamos ver se as classes estão equilibradas agora
-            print(f"DEBUG - Distribuição Labels: {df['label'].value_counts(normalize=True)}")
-        else:
-
-            # 1. FAZEMOS FFILL APENAS NAS ÚLTIMAS 3 LINHAS (Limite de segurança)
-            # Se faltar mais do que 3 candles de indicadores, algo está mesmo errado com os dados
-            df[cols_model] = df[cols_model].ffill(limit=3)
-
-            # 2. REMOVEMOS NANS APENAS DAS COLUNAS QUE O MODELO USA
-            # Isto ignora os NaNs da coluna 'future_return' (que não existem no modo predição)
-            # e foca-se apenas no warm-up inicial das EMAs/ADX.
-            df = df.dropna(subset=cols_model)
-
-        features = df[cols_model]
-        # print(df.head(2))
-        # print(df.tail(2))
-        return df, features
-
-    @staticmethod
-    def prepare_bayesian_features(df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Transforma indicadores técnicos em categorias (bins) para o Bayes.
-        """
-        df_bayes = df.copy()
-
-        # 1. Aplicamos a discretização
-        df_bayes['rsi_bin'] = pd.cut(df_bayes['rsi'], bins=[0, 30, 70, 100],
-                                     labels=['OVERSOLD', 'NEUTRAL', 'OVERBOUGHT'])
-
-        df_bayes['chop_bin'] = pd.cut(df_bayes['choppiness'], bins=[0, 38, 61, 100],
-                                      labels=['TRENDING', 'NORMAL', 'CHOPPY'])
-
-        # 2. Criamos colunas binárias simples
-        df_bayes['trend_state'] = np.where(df_bayes['above_ema200'] == 1, 'BULL', 'BEAR')
-
-        # 3. Retornamos apenas o que o Bayes precisa para o JSON
-        return df_bayes[['rsi_bin', 'chop_bin', 'trend_state', 'label']]
-
-    @staticmethod
-    def get_choppiness(df, window=14):
-        # True Range
-        tr1 = pd.DataFrame(df['high'] - df['low'])
-        tr2 = pd.DataFrame(abs(df['high'] - df['close'].shift(1)))
-        tr3 = pd.DataFrame(abs(df['low'] - df['close'].shift(1)))
-        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-
-        atr_sum = tr.rolling(window).sum()
-        high_low_diff = df['high'].rolling(window).max() - df['low'].rolling(window).min()
-
-        # Índice de 0 a 100 (Acima de 61 é lateral total / Abaixo de 38 é tendência forte)
-        return 100 * np.log10(atr_sum / high_low_diff) / np.log10(window)
-
-    @staticmethod
-    def add_indicators_old(df: pd.DataFrame, is_training: bool = False):
-        df = df.copy()
-
-        df_temp = df.copy()
-        if pd.api.types.is_datetime64_any_dtype(df_temp['timestamp']):
-            df_temp['timestamp'] = df_temp['timestamp'].astype('int64') // 10 ** 6
-
-        custom_indicators = CustomIndicatorsUtils(OhlcvWrapper(df_temp.values.tolist()), mode='custom')
-        _, direction, _, _, _, _, _ = custom_indicators.supertrend()
-        final_scores, _ = custom_indicators.calculate_super_score()
-        tv_indicators = TvIndicatorsUtils(OhlcvWrapper(df_temp.values.tolist()), mode='custom')
-
-        df["super_score"] = final_scores
-        df["st_direction"] = direction
-
-        df["squeeze_index"] = tv_indicators.squeeze_index()
-
-        # --- 1. MÉTRICAS DE MOMENTUM (Para Tendência) ---
-        df['rsi'] = ta.momentum.rsi(df['close'], window=14)
-        # Relação de Médias (9 vs 50) - Indica se o "comboio" está a andar
-        df['ema_gap'] = (ta.trend.ema_indicator(df['close'], 9) / ta.trend.ema_indicator(df['close'], 50)) - 1
-
-        # --- 2. MÉTRICAS DE VOLATILIDADE (Para Reversão/Rompimento) ---
-        bb = ta.volatility.BollingerBands(df['close'], window=20)
-        df['bb_pband'] = bb.bollinger_pband()  # 1.0 = Topo da banda, 0.0 = Fundo
-        df['atr_norm'] = ta.volatility.average_true_range(df['high'], df['low'], df['close']) / df['close']
-
-        # --- 3. MÉTRICAS DE FORÇA (Volume) ---
-        df['vol_shock'] = df['volume'] / df['volume'].rolling(20).mean()
-
-        df["atr"] = AverageTrueRange(df["high"], df["low"], df["close"]).average_true_range()
-
-        df['ema_200'] = df['close'].ewm(span=200).mean()
-        df['above_ema200'] = (df['close'] > df['ema_200']).astype(int)
-
-        df["dist_ema200"] = (df["close"] - df["ema_200"]) / df["ema_200"]
-
-        df['mean_20'] = df['close'].rolling(window=20).mean()
-        df['std_20'] = df['close'].rolling(window=20).std()
-        df['z_score'] = (df['close'] - df['mean_20']) / df['std_20']
-
-        df['momentum'] = df['close'].pct_change(periods=3)
-        adx_i = ADXIndicator(df['high'], df['low'], df['close'], window=14)
-        df['adx'] = adx_i.adx()
-
-        df['price_change'] = df['close'].diff()
-        df['consecutive_downs'] = (df['price_change'] < 0).astype(int).rolling(window=2).sum()
-
-        # 2. Força da queda (Vela atual + Anterior)
-        df['last_2_candles_sum'] = df['close'].pct_change(periods=2)
-
-        # 3. Filtro de Volume na queda
-        df['down_volume_spike'] = (df['volume'] > df['volume'].rolling(20).mean()) & (df['price_change'] < 0)
-
-        df['rsi_ema'] = df['rsi'].rolling(window=14).mean()
-
-        # Opção A: Distância (valor contínuo - o LightGBM adora isto)
-        df['rsi_above_ema'] = df['rsi'] - df['rsi_ema']
-
-        df['price_velocity'] = df['close'].diff(2) / df['atr']
-
-        # 1. Calcula as EMAs
-        df['ema9'] = df['close'].ewm(span=9, adjust=False).mean()
-        df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
-
-        # 2. Diferença Relativa (Feature Contínua - O LGBM adora isto)
-        # Positivo = EMA9 acima | Negativo = EMA9 abaixo
-        df['ema_spread'] = (df['ema9'] - df['ema21']) / df['ema21'] * 100
-
-        # 3. Sinal de Cruzamento (O "Momento" do Cross)
-        # Comparamos o estado atual com o anterior (shift)
-        df['ema_cross_up'] = ((df['ema9'] > df['ema21']) & (df['ema9'].shift(1) <= df['ema21'].shift(1))).astype(int)
-        df['ema_cross_down'] = ((df['ema9'] < df['ema21']) & (df['ema9'].shift(1) >= df['ema21'].shift(1))).astype(int)
-
-        df['rsi_sma'] = df['rsi'].rolling(window=7).mean()
-        df['rsi_trend'] = df['rsi'] - df['rsi_sma']  # Se positivo, o momentum está a acelerar
-
-        # df['bb_width'] = (df['bb_high'] - df['bb_low']) / df['bb_mid']
-
-        df['vol_zscore'] = (df['volume'] - df['volume'].rolling(20).mean()) / df['volume'].rolling(20).std()
-
-        # --- DETEÇÃO DE ESTRUTURA (SWINGS & BREAKS) ---
-        bs_df = MarketBrain.breakout_structure(df)
-        df['break_up'] = bs_df['break_up']
-        df['break_down'] = bs_df['break_down']
-        df['higher_high'] = bs_df['higher_high']
-        df['lower_low'] = bs_df['lower_low']
-
-        # --- DETEÇÃO DE ZONAS EXTREMAS BB ---
-        bb_df = MarketBrain.bb_extreme_zones(df)
-        df['double_bb_signal'] = bb_df['double_bb_signal']
-        df['bb_squeeze_diff_low'] = bb_df['bb_squeeze_diff_low']
-        df['bb20_low_reverting'] = bb_df['bb20_low_reverting']
-
-        sf_df = MarketBrain.add_sanity_filters(df)
-        df['ema_macro_slope'] = sf_df['ema_macro_slope']
-        df['adx'] = sf_df['adx']
-        df['dmi_plus'] = sf_df['dmi_plus']
-        df['dmi_minus'] = sf_df['dmi_minus']
-        df['dist_upper_bb80'] = sf_df['dist_upper_bb80']
-        df['dist_lower_bb80'] = sf_df['dist_lower_bb80']
-        df['filter_no_buy'] = sf_df['filter_no_buy']
-        df['filter_no_sell'] = sf_df['filter_no_sell']
-
-        df['top_exhaustion_break'] = ((df['double_bb_signal'] == 1) & (df['lower_low'] == 1)).astype(int)
-        df['bottom_exhaustion_break'] = ((df['double_bb_signal'] == 2) & (df['higher_high'] == 1)).astype(int)
-
-        df_co = MarketBrain.add_custom_oscillators(df)
-
-        df["super_score"] = df_co['super_score']
-        df["sq_index"] = df_co['super_score']
-        df["regime_filter_trend"] = df_co['super_score']
-        df["regime_filter_voltrend"] = df_co['regime_filter_voltrend']
-        df["regime_filter_efficiency"] = df_co['regime_filter_efficiency']
-
-        df["andean_bull"] = df_co['andean_bull']
-        df["andean_bear"] = df_co['andean_bear']
-        df["andean_signal"] = df_co['andean_signal']
-        df["regression_oscillator"] = df_co['regression_oscillator']
-        df["regression_signal"] = df_co['regression_signal']
-
-        cols_model = ["rsi", "ema_gap", "bb_pband", "atr_norm", "vol_shock", "atr",
-                      "rsi_above_ema", "price_velocity", "ema_spread", "ema_cross_up", "ema_cross_down"
-                      ]
-        """
-
-        cols_model = [
-            "rsi_trend", "vol_zscore",  # As novas "estrelas"
-            "ema_gap", "atr_norm", "rsi_above_ema",
-            "price_velocity", "ema_spread", "ema_cross_up", "ema_cross_down",
-            "adx", "dmi_plus", "dmi_minus", "dist_upper_bb80"
-        ]
-        """
-        """
-        cols_model = [
-            "break_up", "break_down",  # Gatilhos de quebra
-            "higher_high", "lower_low",  # Contexto de tendência
-            "rsi_above_ema", "ema_gap",  # Momentum
-            "atr_norm", "vol_shock",  # Volatilidade
-            "price_velocity", "ema_spread",
-            "ema_cross_up", "ema_cross_down",
-            "double_bb_signal", "bb_squeeze_diff_low", "bb20_low_reverting",
-            "ema_macro_slope", "adx", "dmi_plus", "dmi_minus", "dist_upper_bb80", "dist_lower_bb80",
-            "filter_no_buy", "filter_no_sell",
-        ]
-        """
-        """
-        # Contexto de Regressão
-        df['reg_spread'] = df['regression_oscillator'] - df['regression_signal']
-
-        # Contexto de Andean (Onde está a força real?)
-        df['andean_bull_spread'] = df['andean_bull'] - df['andean_signal']
-        df['andean_bear_spread'] = df['andean_bear'] - df['andean_signal']
-
-        # Relação Direta entre Bull e Bear (Quem ganha a luta?)
-        df['andean_diff'] = df['andean_bull'] - df['andean_bear']
-
-        # Contexto de 'Mergulho' (O valor atual em relação ao passado recente)
-        df['reg_zscore'] = (df['regression_oscillator'] - df['regression_oscillator'].rolling(20).mean()) / df[
-            'regression_oscillator'].rolling(20).std()
-        """
-        """
-        cols_model = [
-            "reg_spread",
-            "andean_bull_spread", "andean_bear_spread", "andean_diff",
-            "atr",
-            # "atr_norm"  # Mantém este como "âncora" de volatilidade
-        ]
-        """
-
-        # 1. Trata os infinitos que os indicadores podem ter gerado
-        df.replace([np.inf, -np.inf], np.nan, inplace=True)
-
-        # 2. Remove ou preenche os valores nulos (NaN)
-        # Se uma coluna nova precisa de X velas para aquecer, ela terá NaNs no topo
-        df.fillna(inplace=True)  # Repete o último valor válido
-        df.fillna(0, inplace=True)  # Se ainda houver NaNs (no início), coloca 0
-
-        cols_train = [c for c in cols_model if c != 'atr']
-        if is_training:
-
-            best_w, best_p, _ = MarketBrain.find_best_params(df, cols_train)
-            # window = 12
-
-            # Definimos o alvo real que o teu bot persegue
-            # min_profit_pct = 0.02  # 2%
-
-            window = best_w
-            min_profit_pct = best_p
-
-            for i in range(len(df) - window):
-                price_entry = df['close'].iloc[i]
-
-                # Definimos os patamares de preço para este trade específico
-                target_buy = price_entry * (1 + min_profit_pct)
-                target_sell = price_entry * (1 - min_profit_pct)
-                stop_buy = price_entry - (df['atr'].iloc[i] * 1.0)  # Stop inicial continua no ATR
-                stop_sell = price_entry + (df['atr'].iloc[i] * 1.0)
-
-                future_segment = df.iloc[i + 1: i + window + 1]
-                max_high = future_segment['high'].max()
-                min_low = future_segment['low'].min()
-
-                # Lógica de COMPRA: O preço subiu 2% antes de bater no SL?
-                if (max_high >= target_buy) and (min_low > stop_buy):
-                    df.at[df.index[i], 'label'] = 2
-
-                # Lógica de VENDA: O preço caiu 2% antes de bater no SL?
-                elif (min_low <= target_sell) and (max_high < stop_sell):
-                    df.at[df.index[i], 'label'] = 0
-
-                else:
-                    df.at[df.index[i], 'label'] = 1
-
-        return df, df[cols_train]
-
-    @staticmethod
     def add_indicators(df: pd.DataFrame, is_training: bool = False):
         df = df.copy()
+        df_temp = df.copy()
+        if pd.api.types.is_datetime64_any_dtype(df_temp['timestamp']):
+            df_temp['timestamp'] = df_temp['timestamp'].astype('int64') // 10 ** 6
+
+        custom_indicators = CustomIndicatorsUtils(OhlcvWrapper(df_temp.values.tolist()), mode='custom')
+        tv_indicators = TvIndicatorsUtils(OhlcvWrapper(df_temp.values.tolist()), mode='custom')
+        supertrend, trend, final_upperband, final_lowerband, supertrend_smooth, direction, perf_score = custom_indicators.supertrend()
+
+        low_volatility = custom_indicators.detect_low_volatility()
+        df['low_volatility'] = low_volatility
+
+        squeeze_index = tv_indicators.squeeze_index()
+        andean = tv_indicators.calculate_andean_oscillator(length=20)
+        df['andean_neutral'] = andean['signal']
+        df['andean_bull'] = andean['bull']
+        df['andean_bear'] = andean['bear']
+
+        df['st_direction'] = direction
+        df['st_lowerband'] = final_lowerband
+        df['st_upperband'] = final_upperband
+
+        df['squeeze_index'] = squeeze_index
+
+        df['andean_diff'] = df['andean_bull'] - df['andean_bear']
+        df['andean_signal'] = np.where(df['andean_bull'] > df['andean_bear'], 1, -1)
+
+        df['andean_is_lateral'] = ((df['andean_neutral'] > df['andean_bull']) &
+                                   (df['andean_neutral'] > df['andean_bear'])).astype(int)
+
+        # Distância relativa (para o modelo saber o QUÃO lateral está)
+        df['andean_neutral_gap'] = df['andean_neutral'] - df[['andean_bull', 'andean_bear']].max(axis=1)
 
         # --- 1. MÉTRICAS DE MOMENTUM (Para Tendência) ---
         df['rsi'] = ta.momentum.rsi(df['close'], window=14)
@@ -445,9 +109,110 @@ class MarketBrain:
 
         df['vol_zscore'] = (df['volume'] - df['volume'].rolling(20).mean()) / df['volume'].rolling(20).std()
 
+        df['ema21'] = ta.trend.ema_indicator(df['close'], window=21)
+        df['ema50'] = ta.trend.ema_indicator(df['close'], window=50)
+        df['ema100'] = ta.trend.ema_indicator(df['close'], window=100)
+        df['ema200'] = ta.trend.ema_indicator(df['close'], window=200)
+
+        # Gaps das Médias Longas (Distância)
+        df['gap_21_50'] = (df['ema21'] - df['ema50']) / df['ema50']
+        df['gap_50_200'] = (df['ema50'] - df['ema200']) / df['ema200']
+        df['gap_100_200'] = (df['ema100'] - df['ema200']) / df['ema200']
+
+        # --- 2. Momentum de Cruzamento (As Ondas) ---
+        # MACD Cross
+        macd = ta.trend.MACD(df['close'])
+        df['macd_line'] = macd.macd()
+        df['macd_signal'] = macd.macd_signal()
+        df['macd_cross_gap'] = df['macd_line'] - df['macd_signal']
+
+        # Stochastic Cross
+        stoch = ta.momentum.StochasticOscillator(df['high'], df['low'], df['close'])
+        df['stoch_k'] = stoch.stoch()
+        df['stoch_d'] = stoch.stoch_signal()
+        df['stoch_cross_gap'] = df['stoch_k'] - df['stoch_d']
+
+        # --- 3. RSI Cross (O Gatilho) ---
+        df['rsi'] = ta.momentum.rsi(df['close'], window=14)
+        df['rsi_ema'] = df['rsi'].rolling(window=14).mean()
+        df['rsi_cross_gap'] = df['rsi'] - df['rsi_ema']
+
+        window = 10
+        direction = abs(df['close'] - df['close'].shift(window))
+
+        # 2. Movimento Total (Soma das variações individuais de cada vela)
+        # Calculamos a diferença absoluta entre cada vela e somamos na janela
+        volatility = df['close'].diff().abs().rolling(window=window).sum()
+
+        # 3. Efficiency Ratio
+        # Adicionamos 1e-9 para evitar divisão por zero se o preço ficar parado
+        df['efficiency_ratio'] = direction / (volatility + 1e-9)
+
+        df['ema9_slope'] = df['ema9'].diff(2)
+
+        # 2. RSI Velocity - O RSI está a subir rápido ou devagar?
+        df['rsi_velocity'] = df['rsi'].diff(1)
+
+        # 1. Força Relativa de Queda
+        df['downward_pressure'] = (df['high'] - df['close']) / (df['high'] - df['low'] + 1e-9)
+
+        # 2. Distância Negativa (Gap)
+        # Se o preço cruzar a EMA9 para baixo com força, o gap fica negativo rápido
+        df['price_ema_gap'] = (df['close'] - df['ema9']) / df['ema9']
+
+        """"
         cols_model = ["rsi", "ema_gap", "bb_pband", "atr_norm", "vol_shock", "atr",
                       "rsi_above_ema", "price_velocity", "ema_spread", "ema_cross_up", "ema_cross_down"
                       ]
+        """
+        df['adx_slope'] = df['adx'].diff(3)
+
+        # 1. Média Móvel (Middle Band)
+        df['bb_middle'] = df['close'].rolling(window=20).mean()
+
+        # 2. Desvio Padrão
+        df['bb_std'] = df['close'].rolling(window=20).std()
+
+        # 3. Bandas Superior e Inferior
+        df['bb_upper'] = df['bb_middle'] + (df['bb_std'] * 2)
+        df['bb_lower'] = df['bb_middle'] - (df['bb_std'] * 2)
+
+        # 4. Bollinger Bandwidth (O filtro de mercado lateral)
+        # Mede a distância entre as bandas em percentagem
+        df['bb_width'] = (df['bb_upper'] - df['bb_lower']) / df['bb_middle']
+
+        psar_df = ta.trend.PSARIndicator(df['high'], df['low'], df['close'], step=0.02, max_step=0.2)
+        df['psar'] = psar_df.psar()
+
+        cols_model = [
+            'atr',
+            # --- MOMENTUM (Gatilhos Rápidos) ---
+            # 'ema9_slope',  # Inclinação para entrar ANTES do cross
+            # 'rsi_velocity',  # Rapidez da mudança de força
+            'rsi',  # Nível atual
+            'rsi_ema',
+
+            # --- TREND (Estrutura) ---
+            # 'ema_spread',  # Spread 9 vs 21
+            'gap_50_200',  # Direção macro (O oceano)
+
+            # --- QUALIDADE (Anti-Lixo) ---
+            'efficiency_ratio',  # Filtro de ruído
+            'bb_pband',  # Posição relativa às bandas (Para não comprar o topo)
+            # 'downward_pressure',
+            'price_ema_gap',
+            'adx',
+            # 'adx_slope',
+            'bb_width',
+            'psar',
+            'st_direction',
+            'st_lowerband',
+            'st_upperband',
+            # 'squeeze_index',
+            # 'andean_diff',
+            # 'andean_neutral_gap',
+            'low_volatility'
+        ]
 
         # 1. Trata os infinitos que os indicadores podem ter gerado
         df.replace([np.inf, -np.inf], np.nan, inplace=True)
@@ -457,7 +222,9 @@ class MarketBrain:
         # Depois preenchemos com 0 o início do dataset onde não há histórico anterior
         df.fillna(0, inplace=True)
 
-        cols_train = [c for c in cols_model if c != 'atr']
+        cols_to_exclude = ['st_lowerband', 'st_upperband', 'psar',
+                           'label', 'atr', 'low_volatility']
+        cols_train = [c for c in cols_model if c not in cols_to_exclude]
         if is_training:
 
             df_discovery = df.iloc[:int(len(df) * 0.8)].copy()
@@ -470,31 +237,86 @@ class MarketBrain:
             window = best_w
             min_profit_pct = best_p
 
+            can_buy_series, can_sell_series = MarketBrain.get_consolidated_signals(df)
+
+            if 'label' not in df.columns:
+                df['label'] = 1  # Inicializa tudo como HOLD (1)
+
             for i in range(len(df) - window):
+                # 1. FILTROS DE VETO (SMART LABELING)
+                current_adx = df['adx'].iloc[i]
+                current_er = df['efficiency_ratio'].iloc[i]
+                is_volatily_ok = bool(df['bb_width'].iloc[i] > 0.008)
+                is_low_volatility = df['low_volatility'].iloc[i]
+
+                # NOVO: Filtro de Direção pela Supertrend (st_direction: 1 Alta, -1 Baixa)
+                is_bullish_regime = bool(df['st_direction'].iloc[i] == 1)
+                is_bearish_regime = bool(df['st_direction'].iloc[i] == -1)
+
+                # Filtros de Momentum mantidos
+                momentum_up = bool(df['rsi'].iloc[i] > df['rsi_ema'].iloc[i])
+                momentum_down = bool(df['rsi'].iloc[i] < df['rsi_ema'].iloc[i])
+
+                immediate_slope = (df['close'].iloc[i] - df['close'].iloc[i - 3]) / df['close'].iloc[i - 3]
+
+                # Se o mercado estiver "morto", forçamos HOLD e passamos à frente
+                if is_low_volatility:  # or current_er < 0.30 or not is_volatily_ok:
+                    df.iloc[i, df.columns.get_loc('label')] = 1
+                    continue
+
                 price_entry = df['close'].iloc[i]
 
-                # Definimos os patamares de preço para este trade específico
+                # Take Profit baseado no min_profit_pct do discovery ou Rácio RR
                 target_buy = price_entry * (1 + min_profit_pct)
                 target_sell = price_entry * (1 - min_profit_pct)
-                stop_buy = price_entry - (df['atr'].iloc[i] * 1.5)  # Stop inicial continua no ATR
-                stop_sell = price_entry + (df['atr'].iloc[i] * 1.0)
 
                 future_segment = df.iloc[i + 1: i + window + 1]
                 max_high = future_segment['high'].max()
                 min_low = future_segment['low'].min()
 
-                # Lógica de COMPRA: O preço subiu 2% antes de bater no SL?
-                if (max_high >= target_buy) and (min_low > stop_buy):
-                    df.at[df.index[i], 'label'] = 2
+                # Pegamos o sinal do Agrupador para este índice
+                final_buy = can_buy_series.iloc[i]
+                final_sell = can_sell_series.iloc[i]
 
-                # Lógica de VENDA: O preço caiu 2% antes de bater no SL?
-                elif (min_low <= target_sell) and (max_high < stop_sell):
-                    df.at[df.index[i], 'label'] = 0
+                found_signal = False
+
+                # 3. LÓGICA DE COMPRA
+                # Condição: Bateu no alvo ANTES de furar a Supertrend (sl_price)
+                if immediate_slope > 0.001:
+                    sl_price = df['st_lowerband'].iloc[i]
+                    if (max_high >= target_buy) and (min_low > sl_price):
+                        # df.at[df.index[i], 'label'] = 2
+                        df.iloc[i, df.columns.get_loc('label')] = 2
+                        found_signal = True
+
+                # 4. LÓGICA DE VENDA
+                elif immediate_slope < -0.001:
+                    sl_price = df['st_upperband'].iloc[i]
+                    if (min_low <= target_sell) and (max_high < sl_price):
+                        df.iloc[i, df.columns.get_loc('label')] = 0
 
                 else:
-                    df.at[df.index[i], 'label'] = 1
+                    df.iloc[i, df.columns.get_loc('label')] = 1
 
         return df, df[cols_train]
+
+    @staticmethod
+    def get_consolidated_signals(df):
+        """
+        Versão VETORIAL: Usa & em vez de 'and' para processar o DataFrame todo.
+        """
+        # Condições de Compra (PSAR + RSI)
+        # É OBRIGATÓRIO usar parênteses em cada comparação individual
+        buy_psar = (df['close'] > df['psar']) & (df['rsi'] > 50) & (df['rsi'] > df['rsi_ema'])
+
+        # Condições de Venda (PSAR + RSI)
+        sell_psar = (df['close'] < df['psar']) & (df['rsi'] < 50) & (df['rsi'] < df['rsi_ema'])
+
+        # Se quiseres adicionar a Supertrend personalizada aqui:
+        # final_buy = buy_psar & (df['close'] > df['st_lower'])
+        # final_sell = sell_psar & (df['close'] < df['st_upper'])
+
+        return buy_psar, sell_psar
 
     @staticmethod
     def find_best_params(df: pd.DataFrame, features: list):
@@ -503,8 +325,8 @@ class MarketBrain:
         import numpy as np
 
         # --- 1. CONFIGURAÇÃO DA BUSCA ---
-        profit_test = [0.015, 0.02, 0.025]
-        window_test = [10, 12, 16]
+        profit_test = [0.01, 0.015, 0.02, 0.025]
+        window_test = [8, 10, 12, 16]
 
         best_f1 = -1
         best_p = 0.02

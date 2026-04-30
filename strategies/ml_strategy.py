@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-from datetime import datetime, timedelta
 from typing import List
 
 import joblib
@@ -9,9 +8,10 @@ import numpy as np
 import pandas as pd
 
 from commons.enums.mode_enum import ModeEnum
+from commons.models.metadata_dclass import Metadata
 from commons.models.strategy_params_dclass import StrategyParams
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
-from commons.utils.paths import get_model_path, get_scaler_path, get_bayesian_path
+from commons.utils.paths import get_model_path, get_scaler_path, get_bayesian_path, get_metadat_json_path
 from machine_learning.market_brain import MarketBrain
 from trading_bot.exchange_base import ExchangeBase
 
@@ -38,7 +38,7 @@ class MLStrategy(StrategyBase):
         self.bayesian_model = None
         self.scaler = None
         self.last_train_len = 0
-        self.confidence_threshold = 0.70
+        self.confidence_threshold = 0.3
         self.price_ref: float = 0.0
         self.exchange_name = None
 
@@ -54,6 +54,8 @@ class MLStrategy(StrategyBase):
         # self.BAYESIAN_PATH = get_bayesian_path(self.exchange.get_name())
 
         self.is_combined_model = is_combined_model
+
+        self.metadata: Metadata
 
     def required_init(self, ohlcv: OhlcvWrapper, ohlcv_higher: (OhlcvWrapper | None), symbol: str, price_ref: float):
         self.ohlcv = ohlcv
@@ -80,34 +82,27 @@ class MLStrategy(StrategyBase):
         if self.model_loaded:
             return
 
+        symbol_clean = self.symbol.replace("/", "_").replace(":", "_")
         if self.is_combined_model:
             keras_model_path = get_model_path(self.model_type.value, self.exchange_name, "MASTER", ".keras")
             model_path = get_model_path(self.model_type.value, self.exchange_name, "MASTER", ".pkl")
             scaler_model_path = get_scaler_path(self.model_type.value, self.exchange_name, "MASTER")
+            # metadata = get_metadat_json_path(self.model_type.value, self.exchange_name, "MASTER")
         else:
-            symbol_clean = self.symbol.replace("/", "_").replace(":", "_")
             keras_model_path = get_model_path(self.model_type.value, self.exchange_name, symbol_clean, ".keras")
             model_path = get_model_path(self.model_type.value, self.exchange_name, symbol_clean, ".pkl")
             scaler_model_path = get_scaler_path(self.model_type.value, self.exchange_name, symbol_clean)
+
+        metadata = get_metadat_json_path(self.model_type.value, self.exchange_name, symbol_clean)
 
         # Define qual o caminho do ficheiro principal para validar a data
         target_path = keras_model_path if model_type == MLModelType.LSTM else model_path
 
         # Lógica de Re-treino: Existe e tem menos de 7 dias?
         model_exists = os.path.exists(target_path)
-        is_fresh = False
-
-        if model_exists:
-            file_mod_time = os.path.getmtime(target_path)
-            last_modified = datetime.fromtimestamp(file_mod_time)
-            if datetime.now() < last_modified + timedelta(days=7):
-                is_fresh = True
-            else:
-                logging.info(
-                    f"📅 Modelo com mais de 7 dias ({last_modified.strftime('%Y-%m-%d')}). A forçar re-treino...")
 
         # Se o modelo existe e é recente, carregamos
-        if model_exists and is_fresh:
+        if model_exists and metadata.is_fresh:
             if model_type == MLModelType.LSTM:
                 self.model = load_model(keras_model_path)
                 logging.info("📥 Modelo LSTM carregado e atualizado.")
@@ -117,6 +112,7 @@ class MLStrategy(StrategyBase):
                 logging.info(f"📥 Modelo {self.model_type.value} carregado e atualizado.")
 
             self.scaler = joblib.load(scaler_model_path)
+            self.metadata = metadata
             self.model_loaded = True
 
         # Caso contrário (não existe ou está expirado), treinamos
@@ -133,7 +129,7 @@ class MLStrategy(StrategyBase):
             else:
                 self.model = joblib.load(model_path)
                 # self.bayesian_model = self.load_bayesian_model()
-
+            self.metadata = metadata
             self.scaler = joblib.load(scaler_model_path)
             self.model_loaded = True
             logging.info(f"✅ Modelo {model_type.value} treinado e carregado com sucesso.")
@@ -228,9 +224,32 @@ class MLStrategy(StrategyBase):
 
         return round(float(sl), 4), round(float(tp), 4)
 
+    def supertrend_sl_tp(self, price: float, lowerband: float, upperband: float, signal: Signal):
+
+        if signal == Signal.BUY:
+            sl = lowerband  # SL no ponto mais baixo da banda
+            tp = upperband + (upperband - sl) * 0.5
+
+        elif signal == Signal.SELL:
+            sl = upperband  # SL no ponto mais alto da banda
+            tp = lowerband - (sl - lowerband) * 0.5
+
+        # valida relação risco/benefício
+        risk = abs(price - sl)
+        reward = abs(tp - price)
+
+        if (signal == Signal.BUY or signal == Signal.SELL) and reward < risk:
+            # ajusta SL e TP dinamicamente
+            sl_adjusted = price - (risk * 0.5) if signal == Signal.BUY else price + (risk * 0.5)
+            tp_adjusted = price + (reward * 1.5) if signal == Signal.BUY else price - (reward * 1.5)
+
+            return round(float(sl), 4), round(float(tp_adjusted), 4)
+
+        return round(float(sl), 4), round(float(tp), 4)
+
     def predict_signal(self, df: pd.DataFrame) -> SignalResult:
-        if self.model is None:
-            logging.warning("⚠️ Modelo não carregado.")
+        if self.model is None or self.metadata is None:
+            logging.warning("⚠️ Modelo ou metadata não carregado.")
             return SignalResult(Signal.HOLD)
 
         # 1. Gerar indicadores (UMA ÚNICA VEZ)
@@ -282,6 +301,8 @@ class MLStrategy(StrategyBase):
         close_price = latest_row['close']
         # print("AQUII", latest_row)
         atr = latest_row['atr']
+        st_lowerband = latest_row['st_lowerband']
+        st_upperband = latest_row['st_upperband']
 
         logging.info(
             f"🤖 [{self.model_type.value}] Prob: L:{proba[0]:.2f} | N:{proba[1]:.2f} | H:{proba[2]:.2f} (Conf: {confidence:.2f})")
@@ -294,13 +315,15 @@ class MLStrategy(StrategyBase):
 
         # print(f"bayes_confidence= {bayes_confidence}")
 
-        if confidence > self.confidence_threshold:
-            if idx == 2:  # ALTA
-                sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.BUY)
-                return SignalResult(Signal.BUY, sl, tp, confidence)
-            elif idx == 0:  # BAIXA
-                sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.SELL)
-                return SignalResult(Signal.SELL, sl, tp, confidence)
+        # if confidence > 0.5:
+        if idx == 2 and confidence > self.metadata.threshold_buy:  # ALTA
+            # $sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.BUY)
+            sl, tp = self.supertrend_sl_tp(close_price, st_lowerband, st_upperband, Signal.BUY)
+            return SignalResult(Signal.BUY, sl, tp, confidence)
+        elif idx == 0 and confidence > self.metadata.threshold_buy:  # BAIXA
+            sl, tp = self.supertrend_sl_tp(close_price, st_lowerband, st_upperband, Signal.SELL)
+            # sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.SELL)
+            return SignalResult(Signal.SELL, sl, tp, confidence)
 
         return SignalResult(Signal.HOLD, confidence=confidence)
 

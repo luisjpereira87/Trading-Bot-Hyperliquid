@@ -3,6 +3,7 @@ import hashlib
 import json
 import logging
 import os
+from datetime import datetime
 
 import joblib
 import matplotlib.pyplot as plt
@@ -14,7 +15,7 @@ from lightgbm import LGBMClassifier
 from seaborn import cm
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import (accuracy_score, classification_report,
-                             confusion_matrix)
+                             confusion_matrix, f1_score, precision_score, recall_score)
 from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
@@ -72,20 +73,20 @@ class MLTrainer:
         elif self.model_type == MLModelType.LIGHTGBM:
             custom_weights = {0: 15.0, 1: 1.0, 2: 15.0}
 
-            """
             return LGBMClassifier(
                 n_estimators=200,  # Menos árvores para não saturar
                 learning_rate=0.03,
                 num_leaves=15,  # Árvores rasas (essencial para poucos dados)
                 max_depth=4,  # Força a generalização
-                min_child_samples=150,  # Cada regra tem de cobrir pelo menos 150 candles
+                # min_child_samples=150,  # Cada regra tem de cobrir pelo menos 150 candles
                 class_weight='balanced',
                 reg_alpha=0.5,  # Regularização L1
                 reg_lambda=0.5,  # Regularização L2
-                random_state=42
+                random_state=42,
+                min_child_samples=100
             )
-            """
 
+            """
             return LGBMClassifier(
                 n_estimators=500,
                 learning_rate=0.05,
@@ -94,6 +95,7 @@ class MLTrainer:
                 random_state=42,
                 importance_type='gain',
             )
+            """
 
             """
             return LGBMClassifier(
@@ -164,7 +166,7 @@ class MLTrainer:
             return {}
 
     async def fetch_ohlcv(self, symbol):
-        limit_total = 1500
+        limit_total = 5000
         binance_max_limit = 1000  # Limite real da API Binance
         ms_per_candle = 15 * 60 * 1000
 
@@ -173,7 +175,7 @@ class MLTrainer:
         # Definimos os pontos de partida para as 10 janelas
         windows = [
             (f"period_{i}", now_ms - (i * limit_total * ms_per_candle))
-            for i in range(1, 11)
+            for i in range(1, 16)
         ]
 
         all_dfs = []
@@ -528,6 +530,37 @@ class MLTrainer:
 
         # Salvar modelo
         joblib.dump(model, model_path)
+
+        # --- NOVIDADE: CÁLCULO E SALVAMENTO DE METADADOS (THRESHOLDS) ---
+        metadata_path = model_path.replace(".pkl", "_metadata.json")
+
+        # Pegamos as probabilidades na validação para calibrar o threshold
+        y_val_probs = model.predict_proba(X_val)
+        # y_val_probs terá o formato: [prob_sell, prob_hold, prob_buy] (classes 0, 1, 2)
+
+        # Calculamos o melhor threshold para Sell (0) e Buy (2)
+        t_sell = self.find_best_threshold(y_val.values, y_val_probs, 0)
+        t_buy = self.find_best_threshold(y_val.values, y_val_probs, 2)
+
+        metadata = {
+            "symbol": symbol,
+            "threshold_sell": round(t_sell, 3),
+            "threshold_buy": round(t_buy, 3),
+            "efficiency_min": 0.35,  # Teu filtro de ruído padrão
+            "val_accuracy": round(float(acc), 4),
+            "f1_macro": round(f1_score(y_val, y_val_pred, average='macro'), 4),
+            "features_count": len(features.columns.tolist()),
+            "model_signature": imp_hash,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        with open(metadata_path, 'w') as f:
+            json.dump(metadata, f, indent=4)
+
+        logging.info(f"📊 Metadados e Thresholds salvos em: {metadata_path}")
+        logging.info(f"🎯 Thresholds Otimizados -> BUY: {t_buy} | SELL: {t_sell}")
+        # ---------------------------------------------------------------
+
         logging.info(f"💾 Modelo salvo em: {model_path}")
 
         importances = model.feature_importances_
@@ -547,6 +580,31 @@ class MLTrainer:
             plt.savefig(img_path)
             logging.info(f"🖼️ Matriz de confusão salva em: {img_path}")
             plt.close()
+
+    def find_best_threshold(self, y_true, y_probs, class_index):
+        best_t = 0.45  # Default mais seguro
+        best_score = 0
+
+        # Testamos de 0.35 a 0.65 (evitamos o 0.30 que é muito ruidoso)
+        for t in np.arange(0.35, 0.66, 0.01):
+            preds = (y_probs[:, class_index] >= t).astype(int)
+            actual = (y_true == class_index).astype(int)
+
+            if np.sum(preds) < 15: continue  # Amostra mínima
+
+            prec = precision_score(actual, preds, zero_division=0)
+            rec = recall_score(actual, preds, zero_division=0)
+
+            # MÉTRICA SNIPER: Precision vale o triplo do Recall
+            # Queremos poucos sinais, mas que sejam certeiros
+            success_score = (3 * prec + rec) / 4
+
+            # Filtro de Sanidade: Se a precisão for menor que 22%, ignora o threshold
+            if success_score > best_score and prec > 0.22:
+                best_score = success_score
+                best_t = t
+
+        return float(best_t)
 
     def evaluate_model(self, model, X_test, y_test):
         if self.model_type == MLModelType.LSTM:

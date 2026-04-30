@@ -1,9 +1,8 @@
 import asyncio
 import os
-from datetime import datetime, timedelta
 
 import pandas as pd
-from ccxt.async_support import hyperliquid
+from ccxt.async_support import binance
 
 # ==== CONFIGURAÇÕES ====
 SYMBOLS = ["ETH/USDC:USDC", "BTC/USDC:USDC"]
@@ -16,9 +15,9 @@ LIMIT = 1000  # máximo por request para Hyperliquid
 
 # ================
 
-exchange = hyperliquid({
+exchange = binance({
     "enableRateLimit": True,
-    "testnet": True,
+    "testnet": False,
 })
 
 
