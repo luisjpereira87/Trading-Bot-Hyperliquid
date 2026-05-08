@@ -53,7 +53,7 @@ async def run_bot():
         {
             "walletAddress": wallet_address,
             "privateKey": private_key,
-            "testnet": True,
+            "testnet": False,
             "enableRateLimit": True,
             "options": {"defaultSlippage": 0.01},
         }  # type: ignore
@@ -89,8 +89,8 @@ async def run_bot():
 
 async def alpaca_test():
     alpaca = ccxt.alpaca({
-        "apiKey": "PK34OT2XTSYU3YE6LAPEW5MD7I",
-        "secret": "EtihUMrXTfPXRb5XTAo5kCR2YrZfmU52k2EJVo7opgxC"
+        "apiKey": "******",
+        "secret": "*****"
     })  # type: ignore
 
     # If we want to use paper api keys, enable sandbox mode

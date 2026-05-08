@@ -19,9 +19,10 @@ class ExchangeBase(ABC):
     @abstractmethod
     def get_name(self):
         return "Exchange"
-    
+
     @abstractmethod
-    async def fetch_ohlcv(self, symbol: str, timeframe: TimeframeEnum, since: int = None, limit: int = None, is_higher: bool = False, is_training = False) -> OhlcvFormat:
+    async def fetch_ohlcv(self, symbol: str, timeframe: TimeframeEnum, since: int = None, limit: int = None,
+                          is_higher: bool = False, is_training=False) -> OhlcvFormat:
         pass
 
     @abstractmethod
@@ -32,8 +33,8 @@ class ExchangeBase(ABC):
     async def get_open_position(self, symbol: str) -> (OpenPosition | None):
         pass
 
-    #@abstractmethod
-    #async def place_entry_order(self, symbol: str, size: float, side: Signal) -> OpenedOrder:
+    # @abstractmethod
+    # async def place_entry_order(self, symbol: str, size: float, side: Signal) -> OpenedOrder:
     #    pass
 
     @abstractmethod
@@ -47,17 +48,23 @@ class ExchangeBase(ABC):
     @abstractmethod
     async def get_entry_price(self, symbol: str) -> float:
         pass
-    
+
     @abstractmethod
-    async def place_entry_order(self, symbol: str, leverage: float, entry_amount: float, price_ref: float, side: Signal, sl_price: (float|None) = None, tp_price: (float|None) = None) -> OpenedOrder:
-         pass
-    
+    async def place_entry_order(self, symbol: str, leverage: float, entry_amount: float, price_ref: float, side: Signal,
+                                sl_price: (float | None) = None, tp_price: (float | None) = None) -> OpenedOrder:
+        pass
+
     @abstractmethod
     async def print_open_orders(self, symbol: str):
         pass
 
     @abstractmethod
     async def print_balance(self):
+        pass
+
+    @abstractmethod
+    async def open_new_position(self, symbol: str, leverage: float, signal: Signal, capital_amount: float,
+                                pair: PairConfig, sl: (float | None), tp: (float | None)) -> (OpenedOrder | None):
         pass
 
     @abstractmethod

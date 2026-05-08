@@ -24,28 +24,11 @@ class MarketBrain:
         supertrend, trend, final_upperband, final_lowerband, supertrend_smooth, direction, perf_score = custom_indicators.supertrend()
 
         low_volatility = custom_indicators.detect_low_volatility()
-        df['low_volatility'] = low_volatility
-
-        squeeze_index = tv_indicators.squeeze_index()
-        andean = tv_indicators.calculate_andean_oscillator(length=20)
-        df['andean_neutral'] = andean['signal']
-        df['andean_bull'] = andean['bull']
-        df['andean_bear'] = andean['bear']
+        # df['low_volatility'] = low_volatility
 
         df['st_direction'] = direction
         df['st_lowerband'] = final_lowerband
         df['st_upperband'] = final_upperband
-
-        df['squeeze_index'] = squeeze_index
-
-        df['andean_diff'] = df['andean_bull'] - df['andean_bear']
-        df['andean_signal'] = np.where(df['andean_bull'] > df['andean_bear'], 1, -1)
-
-        df['andean_is_lateral'] = ((df['andean_neutral'] > df['andean_bull']) &
-                                   (df['andean_neutral'] > df['andean_bear'])).astype(int)
-
-        # Distância relativa (para o modelo saber o QUÃO lateral está)
-        df['andean_neutral_gap'] = df['andean_neutral'] - df[['andean_bull', 'andean_bear']].max(axis=1)
 
         # --- 1. MÉTRICAS DE MOMENTUM (Para Tendência) ---
         df['rsi'] = ta.momentum.rsi(df['close'], window=14)
@@ -99,16 +82,6 @@ class MarketBrain:
         # Positivo = EMA9 acima | Negativo = EMA9 abaixo
         df['ema_spread'] = (df['ema9'] - df['ema21']) / df['ema21'] * 100
 
-        # 3. Sinal de Cruzamento (O "Momento" do Cross)
-        # Comparamos o estado atual com o anterior (shift)
-        df['ema_cross_up'] = ((df['ema9'] > df['ema21']) & (df['ema9'].shift(1) <= df['ema21'].shift(1))).astype(int)
-        df['ema_cross_down'] = ((df['ema9'] < df['ema21']) & (df['ema9'].shift(1) >= df['ema21'].shift(1))).astype(int)
-
-        df['rsi_sma'] = df['rsi'].rolling(window=7).mean()
-        df['rsi_trend'] = df['rsi'] - df['rsi_sma']  # Se positivo, o momentum está a acelerar
-
-        df['vol_zscore'] = (df['volume'] - df['volume'].rolling(20).mean()) / df['volume'].rolling(20).std()
-
         df['ema21'] = ta.trend.ema_indicator(df['close'], window=21)
         df['ema50'] = ta.trend.ema_indicator(df['close'], window=50)
         df['ema100'] = ta.trend.ema_indicator(df['close'], window=100)
@@ -148,24 +121,9 @@ class MarketBrain:
         # Adicionamos 1e-9 para evitar divisão por zero se o preço ficar parado
         df['efficiency_ratio'] = direction / (volatility + 1e-9)
 
-        df['ema9_slope'] = df['ema9'].diff(2)
-
-        # 2. RSI Velocity - O RSI está a subir rápido ou devagar?
-        df['rsi_velocity'] = df['rsi'].diff(1)
-
-        # 1. Força Relativa de Queda
-        df['downward_pressure'] = (df['high'] - df['close']) / (df['high'] - df['low'] + 1e-9)
-
         # 2. Distância Negativa (Gap)
         # Se o preço cruzar a EMA9 para baixo com força, o gap fica negativo rápido
         df['price_ema_gap'] = (df['close'] - df['ema9']) / df['ema9']
-
-        """"
-        cols_model = ["rsi", "ema_gap", "bb_pband", "atr_norm", "vol_shock", "atr",
-                      "rsi_above_ema", "price_velocity", "ema_spread", "ema_cross_up", "ema_cross_down"
-                      ]
-        """
-        df['adx_slope'] = df['adx'].diff(3)
 
         # 1. Média Móvel (Middle Band)
         df['bb_middle'] = df['close'].rolling(window=20).mean()
@@ -181,8 +139,22 @@ class MarketBrain:
         # Mede a distância entre as bandas em percentagem
         df['bb_width'] = (df['bb_upper'] - df['bb_lower']) / df['bb_middle']
 
-        psar_df = ta.trend.PSARIndicator(df['high'], df['low'], df['close'], step=0.02, max_step=0.2)
-        df['psar'] = psar_df.psar()
+        # psar_df = ta.trend.PSARIndicator(df['high'], df['low'], df['close'], step=0.02, max_step=0.2)
+        # df['psar'] = psar_df.psar()
+
+        # Resistência: O preço mais alto das últimas X velas
+        df['resistance'] = df['high'].rolling(window=window).max()
+        # Suporte: O preço mais baixo das últimas X velas
+        df['support'] = df['low'].rolling(window=window).min()
+
+        # DISTÂNCIA RELATIVA (A feature que o ML realmente ama)
+        # Em vez de preços brutos, damos a % de distância
+        df['dist_to_res'] = (df['resistance'] - df['close']) / df['close']
+        df['dist_to_sup'] = (df['close'] - df['support']) / df['close']
+
+        # POSIÇÃO DENTRO DO RANGE (0 a 1)
+        # 0 = No suporte | 1 = Na resistência
+        df['range_position'] = (df['close'] - df['support']) / (df['resistance'] - df['support'])
 
         cols_model = [
             'atr',
@@ -204,14 +176,14 @@ class MarketBrain:
             'adx',
             # 'adx_slope',
             'bb_width',
-            'psar',
-            'st_direction',
+            # 'psar',
+            # 'st_direction',
             'st_lowerband',
             'st_upperband',
             # 'squeeze_index',
             # 'andean_diff',
             # 'andean_neutral_gap',
-            'low_volatility'
+            # 'low_volatility'
         ]
 
         # 1. Trata os infinitos que os indicadores podem ter gerado
@@ -237,25 +209,28 @@ class MarketBrain:
             window = best_w
             min_profit_pct = best_p
 
-            can_buy_series, can_sell_series = MarketBrain.get_consolidated_signals(df)
+            low_volatility = custom_indicators.detect_low_volatility(slope_threshold=min_profit_pct)
+
+            # can_buy_series, can_sell_series = MarketBrain.get_consolidated_signals(df)
 
             if 'label' not in df.columns:
                 df['label'] = 1  # Inicializa tudo como HOLD (1)
 
             for i in range(len(df) - window):
                 # 1. FILTROS DE VETO (SMART LABELING)
-                current_adx = df['adx'].iloc[i]
-                current_er = df['efficiency_ratio'].iloc[i]
-                is_volatily_ok = bool(df['bb_width'].iloc[i] > 0.008)
-                is_low_volatility = df['low_volatility'].iloc[i]
+                # current_adx = df['adx'].iloc[i]
+                # current_er = df['efficiency_ratio'].iloc[i]
+                # is_volatily_ok = bool(df['bb_width'].iloc[i] > 0.008)
+                # is_low_volatility = df['low_volatility'].iloc[i]
+                is_low_volatility = low_volatility[i]
 
                 # NOVO: Filtro de Direção pela Supertrend (st_direction: 1 Alta, -1 Baixa)
-                is_bullish_regime = bool(df['st_direction'].iloc[i] == 1)
-                is_bearish_regime = bool(df['st_direction'].iloc[i] == -1)
+                # is_bullish_regime = bool(df['st_direction'].iloc[i] == 1)
+                # is_bearish_regime = bool(df['st_direction'].iloc[i] == -1)
 
                 # Filtros de Momentum mantidos
-                momentum_up = bool(df['rsi'].iloc[i] > df['rsi_ema'].iloc[i])
-                momentum_down = bool(df['rsi'].iloc[i] < df['rsi_ema'].iloc[i])
+                # momentum_up = bool(df['rsi'].iloc[i] > df['rsi_ema'].iloc[i])
+                # momentum_down = bool(df['rsi'].iloc[i] < df['rsi_ema'].iloc[i])
 
                 immediate_slope = (df['close'].iloc[i] - df['close'].iloc[i - 3]) / df['close'].iloc[i - 3]
 
@@ -275,10 +250,10 @@ class MarketBrain:
                 min_low = future_segment['low'].min()
 
                 # Pegamos o sinal do Agrupador para este índice
-                final_buy = can_buy_series.iloc[i]
-                final_sell = can_sell_series.iloc[i]
+                # final_buy = can_buy_series.iloc[i]
+                # final_sell = can_sell_series.iloc[i]
 
-                found_signal = False
+                # found_signal = False
 
                 # 3. LÓGICA DE COMPRA
                 # Condição: Bateu no alvo ANTES de furar a Supertrend (sl_price)

@@ -17,7 +17,6 @@ from commons.utils.config_loader import PairConfig
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 from strategies.strategy_manager import StrategyManager  # Para cálculo ATR
 from trading_bot.exchange_base import ExchangeBase
-from trading_bot.exit_logic.exit_logic_ema_based import ExitLogicEmaBased
 from trading_bot.exit_logic.exit_logic_trailing_stop import \
     ExitLogicTrailingStop
 
@@ -26,7 +25,8 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 
 class TradingBot:
-    def __init__(self, exchange_client: ExchangeBase, strategy: StrategyManager, helpers: TradingHelpers, pairs: list[PairConfig], timeframe: TimeframeEnum, exchange_name: str = "EXCHANGE"):
+    def __init__(self, exchange_client: ExchangeBase, strategy: StrategyManager, helpers: TradingHelpers,
+                 pairs: list[PairConfig], timeframe: TimeframeEnum, exchange_name: str = "EXCHANGE"):
         self.exchange_client = exchange_client
         self.exchange_name = exchange_name
         self.helpers = helpers
@@ -35,22 +35,23 @@ class TradingBot:
         self.last_candle_times: dict[str, datetime | None] = {pair.symbol: None for pair in self.pairs}
         self.signal = None
         self.strategy = strategy
-        #self.params_loader = BestParamsLoader()
+        # self.params_loader = BestParamsLoader()
         self.exit_logic = ExitLogicTrailingStop(self.helpers, self.exchange_client)
 
     async def run_pair(self, pair: PairConfig) -> SignalResult:
         symbol = pair.symbol
         leverage = int(pair.leverage)
         capital_pct = float(pair.capital)
-        ohlcv_obj: OhlcvFormat = await self.exchange_client.fetch_ohlcv(symbol, self.timeframe, None, self.strategy.REQUIRED_CANDLES_200, True)
+        ohlcv_obj: OhlcvFormat = await self.exchange_client.fetch_ohlcv(symbol, self.timeframe, None,
+                                                                        self.strategy.REQUIRED_CANDLES_200, True)
 
         ohlcv = ohlcv_obj.ohlcv
         ohlcv_higher = ohlcv_obj.ohlcv_higher
-        logging.info(f"\n{'='*20} {self.exchange_name}: {symbol} {'='*20}")
+        logging.info(f"\n{'=' * 20} {self.exchange_name}: {symbol} {'=' * 20}")
         try:
             logging.info(f"🚀 Starting processing for {symbol}")
 
-            #balance_total = await self.exchange_client.get_total_balance()
+            # balance_total = await self.exchange_client.get_total_balance()
             available_balance = await self.exchange_client.get_available_balance()
             capital_amount = (available_balance * capital_pct) * leverage
 
@@ -77,8 +78,8 @@ class TradingBot:
             current_position = await self.exchange_client.get_open_position(symbol)
 
             if current_position is not None:
-                logging.info(f"[DEBUG] Available profit: { current_position.unrealizedPnl}")
-           
+                logging.info(f"[DEBUG] Available profit: {current_position.unrealizedPnl}")
+
             # 1) Verifica saída via ExitLogic, se posição aberta e tamanho > 0
             if current_position:
                 position_size = float(current_position.size)
@@ -125,9 +126,8 @@ class TradingBot:
             logging.error(f"⚠️ Exchange error for {symbol}: {str(e)}")
         except Exception:
             logging.exception(f"\n❌ Bot error for {symbol}")
-            
-        return signal
-    
+
+        return SignalResult(Signal.HOLD, None, None, None)
 
     def _calculate_sleep_time(self):
         now = datetime.now(timezone.utc)
@@ -173,7 +173,6 @@ class TradingBot:
                 # Assumimos que todas as velas fecharam neste timestamp
                 now = datetime.now(pytz.utc)
 
-
                 # Converter para hora de Lisboa (Europa/Lisbon)
                 lisbon_tz = pytz.timezone('Europe/Lisbon')
                 now_lisbon = now.astimezone(lisbon_tz)
@@ -186,8 +185,8 @@ class TradingBot:
                         self.last_candle_times[pair.symbol] = rounded_now
                         await self.run_pair(pair)
                     else:
-                        logging.info(f"⌛ Aguardando nova vela para {pair.symbol}... Última executada: {self.last_candle_times[pair.symbol]}")
-
+                        logging.info(
+                            f"⌛ Aguardando nova vela para {pair.symbol}... Última executada: {self.last_candle_times[pair.symbol]}")
 
                 sleep_time = self._calculate_sleep_time()
                 logging.info(
@@ -214,7 +213,7 @@ class TradingBot:
             timestamp = last_candle.timestamp
 
             utc_dt = datetime.fromtimestamp(timestamp / 1000).replace(
-                tzinfo=pytz.UTC # type: ignore
+                tzinfo=pytz.UTC  # type: ignore
             )
             lisbon_tz = pytz.timezone("Europe/Lisbon")
             local_dt = utc_dt.astimezone(lisbon_tz)
@@ -222,7 +221,7 @@ class TradingBot:
         except Exception:
             logging.exception(f"❌ Erro ao obter última vela fechada para {symbol}")
             return None
-        
+
     def _get_last_closed_candle_time_global(self, now: datetime) -> datetime:
         unit = self.timeframe[-1]
         amount = int(self.timeframe[:-1])
@@ -235,7 +234,3 @@ class TradingBot:
             return now.replace(hour=hour, minute=0, second=0, microsecond=0)
         else:
             raise ValueError("Unsupported timeframe")
-
-            
-            
-  

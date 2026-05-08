@@ -585,7 +585,7 @@ class BacktestRunner:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("SOL/USDC:USDC")
+    pair = get_pair_by_symbol("ETH/USDC:USDC")
 
     if pair is not None:
         runner = BacktestRunner(StrategyEnum.ML_LIGHTGBM, TimeframeEnum.M15, pair, 750, 1000)

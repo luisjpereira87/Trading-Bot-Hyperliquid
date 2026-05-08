@@ -238,16 +238,19 @@ class MLStrategy(StrategyBase):
             sl = upperband  # SL no ponto mais alto da banda
             tp = lowerband - (sl - lowerband) * 0.5
 
-        # valida relação risco/benefício
         risk = abs(price - sl)
         reward = abs(tp - price)
 
-        if (signal == Signal.BUY or signal == Signal.SELL) and reward < risk:
-            # ajusta SL e TP dinamicamente
-            sl_adjusted = price - (risk * 0.5) if signal == Signal.BUY else price + (risk * 0.5)
-            tp_adjusted = price + (reward * 1.5) if signal == Signal.BUY else price - (reward * 1.5)
+        # RR Mínimo aceitável (ex: 1:1.2 ou 1:1.5)
+        min_rr = 1.2
 
-            return round(float(sl), 4), round(float(tp_adjusted), 4)
+        if reward < (risk * min_rr):
+            # Em vez de encurtar o SL (perigoso), esticamos o TP
+            # ou invalidamos o trade se estivermos muito perto da banda
+            tp = price + (risk * min_rr) if signal == Signal.BUY else price - (risk * min_rr)
+
+            # Validar se o novo TP faz sentido contra a resistência (opcional)
+            # Se o novo TP for absurdamente longe, talvez seja melhor não entrar.
 
         return round(float(sl), 4), round(float(tp), 4)
 
@@ -311,14 +314,6 @@ class MLStrategy(StrategyBase):
         logging.info(
             f"🤖 [{self.model_type.value}] Prob: L:{proba[0]:.2f} | N:{proba[1]:.2f} | H:{proba[2]:.2f} (Conf: {confidence:.2f})")
 
-        # bayes_confidence = self.get_final_confidence(confidence, latest_row)
-
-        # 3. Decisão Final (A Média Ponderada)
-        # O Bayes atua como um filtro de sanidade
-        # final_score = (lgbm_buy_prob * 0.7) + (bayes_confidence * 0.3)
-
-        # print(f"bayes_confidence= {bayes_confidence}")
-
         # if confidence > 0.5:
         if idx == 2 and confidence > self.metadata.threshold_buy:  # ALTA
             # $sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.BUY)
@@ -340,43 +335,3 @@ class MLStrategy(StrategyBase):
         result = self.predict_signal(df)
         logging.info(f"🚦 Sinal ML para {self.symbol}: {result}")
         return result
-
-    def get_final_confidence(self, lgbm_prob_class_2: float, current_data: dict) -> float:
-        """
-        Aplica o Teorema de Bayes para ajustar a confiança do LightGBM.
-        """
-        model = self.bayesian_model
-        print(model)
-        prior = model['prior_win']
-
-        # 1. Começamos com a "crença" do LightGBM
-        # Se o modelo está muito confiante, o likelihood é alto
-        likelihood_ratio = 1.0
-
-        # 2. Ajustamos pelas 6 âncoras
-        # Mapeamos o valor atual para o bin correspondente (mesma lógica do treino)
-        mappings = {
-            'rsi_bin': 'OVERSOLD' if current_data['rsi'] < 30 else (
-                'OVERBOUGHT' if current_data['rsi'] > 70 else 'NEUTRAL'),
-            'adx_bin': 'WEAK' if current_data['adx'] < 25 else ('STRONG' if current_data['adx'] < 50 else 'EXTREME'),
-            'score_bin': 'LOW' if current_data['super_score'] < 3 else (
-                'HIGH' if current_data['super_score'] > 7 else 'MID'),
-            'chop_bin': 'TRENDING' if current_data['choppiness'] < 38 else (
-                'CHOPPY' if current_data['choppiness'] > 61 else 'NORMAL'),
-            'ema_bin': 'BULL' if current_data['above_ema200'] == 1 else 'BEAR'
-            # ... adicionar relative_volume conforme a lógica de qcut
-        }
-
-        for feat, bin_val in mappings.items():
-            # P(Win | Atributo) vinda do histórico
-            p_attr = model['tables'].get(feat, {}).get(bin_val, prior)
-
-            # Se P(Atributo) > Prior, este indicador ajuda. Se for <, ele penaliza.
-            # Isto é uma simplificação robusta do ajuste bayesiano
-            likelihood_ratio *= (p_attr / prior)
-
-        # 3. Resultado Final: Confiança do Modelo * Força Estatística das Âncoras
-        final_prob = lgbm_prob_class_2 * likelihood_ratio
-
-        # Clipping para garantir que fica entre 0 e 1
-        return max(0.0, min(1.0, final_prob))
