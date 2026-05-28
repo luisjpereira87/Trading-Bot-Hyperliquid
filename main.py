@@ -83,7 +83,7 @@ async def run_bot():
     # 3. Rodar ambos simultaneamente com proteção
     await asyncio.gather(
         safe_run(nado_bot),
-        safe_run(hl_bot)
+        #safe_run(hl_bot)
     )
 
 
