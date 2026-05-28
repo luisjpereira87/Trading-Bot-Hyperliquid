@@ -7,8 +7,6 @@ import pandas as pd
 from commons.enums.candle_type_enum import CandleType
 from commons.enums.mode_enum import ModeEnum
 from commons.enums.signal_enum import Signal
-from commons.models.supertrend_dclass import Supertrend
-from commons.models.volumatic_vidya_dclass import VolumaticVidya
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 
 
@@ -35,7 +33,6 @@ class BaseIndicatorsUtils:
                                   SMAIndicator)
             from ta.volatility import AverageTrueRange
 
-            
             self.EMAIndicator = EMAIndicator
             self.ADXIndicator = ADXIndicator
             self.RSIIndicator = RSIIndicator
@@ -50,7 +47,7 @@ class BaseIndicatorsUtils:
             'high': self.highs,
             'low': self.lows,
             'close': self.closes,
-            'volume': self.volumes if self.volumes else [0]*len(self.closes),
+            'volume': self.volumes if self.volumes else [0] * len(self.closes),
         })
 
     def set_ohlcv(self, ohlcv: OhlcvWrapper):
@@ -67,10 +64,8 @@ class BaseIndicatorsUtils:
             'high': self.highs,
             'low': self.lows,
             'close': self.closes,
-            'volume': self.volumes if self.volumes else [0]*len(self.closes),
+            'volume': self.volumes if self.volumes else [0] * len(self.closes),
         })
-
-
 
     def ema(self, period=21):
         if self.mode == 'custom':
@@ -84,9 +79,9 @@ class BaseIndicatorsUtils:
             return ema
         else:
             ema_series = self.EMAIndicator(close=self.df['close'], window=period).ema_indicator()
-            
+
             return ema_series.tolist()
-        
+
     def sma(self, period=21):
         if self.mode == 'custom':
             sma = []
@@ -98,17 +93,17 @@ class BaseIndicatorsUtils:
             return sma
         else:
             sma_series = self.SMAIndicator(close=self.df['close'], window=period).sma_indicator()
-            
+
             return sma_series.tolist()
-        
+
     def ema_array(self, values, period=21):
         ema = []
         k = 2 / (period + 1)
         for i in range(len(values)):
             if i < period:
-                ema.append(np.mean(values[:i+1]))
+                ema.append(np.mean(values[:i + 1]))
             else:
-                ema.append(values[i]*k + ema[i-1]*(1-k))
+                ema.append(values[i] * k + ema[i - 1] * (1 - k))
         return np.array(ema)
 
     def rsi(self, period=14, signal_period=14):
@@ -131,7 +126,7 @@ class BaseIndicatorsUtils:
 
             # Alinhamento (Padding)
             rsi = [0] * (len(self.closes) - len(rsi_values)) + rsi_values
-            
+
             # --- CHAMADA DO TEU MÉTODO EXISTENTE ---
             # Passamos o full_rsi para a tua função ema_list
             rsi_ema = self.ema_list(rsi, signal_period)
@@ -161,7 +156,7 @@ class BaseIndicatorsUtils:
             alpha = 2 / (period + 1)
 
             for i in range(1, len(trs)):
-                atr_val = (alpha * trs[i]) + ((1 - alpha) * atr[i-1])
+                atr_val = (alpha * trs[i]) + ((1 - alpha) * atr[i - 1])
                 atr.append(atr_val)
 
             atr.insert(0, 0)  # alinhamento com o tamanho dos dados
@@ -172,7 +167,7 @@ class BaseIndicatorsUtils:
                 high=self.df['high'], low=self.df['low'], close=self.df['close'], window=period
             ).average_true_range()
             return atr_series.tolist()
-        
+
     def atr_wilder(self, length=14):
         """
         Calcula o ATR usando o método Wilder (suavização EMA estilo Wilder)
@@ -194,7 +189,7 @@ class BaseIndicatorsUtils:
         ], axis=1).max(axis=1)
 
         # ATR Wilder: EMA estilo Wilder (α = 1 / length)
-        atr = tr.ewm(alpha=1/length, adjust=False).mean()
+        atr = tr.ewm(alpha=1 / length, adjust=False).mean()
 
         return atr.to_numpy()
 
@@ -261,9 +256,9 @@ class BaseIndicatorsUtils:
             plus_dm_smooth = np.zeros(len(plus_dm))
             minus_dm_smooth = np.zeros(len(minus_dm))
 
-            tr_smooth[period] = tr[1 : period + 1].sum()
-            plus_dm_smooth[period] = plus_dm[1 : period + 1].sum()
-            minus_dm_smooth[period] = minus_dm[1 : period + 1].sum()
+            tr_smooth[period] = tr[1: period + 1].sum()
+            plus_dm_smooth[period] = plus_dm[1: period + 1].sum()
+            minus_dm_smooth[period] = minus_dm[1: period + 1].sum()
 
             for i in range(period + 1, len(tr)):
                 tr_smooth[i] = tr_smooth[i - 1] - (tr_smooth[i - 1] / period) + tr[i]
@@ -281,7 +276,7 @@ class BaseIndicatorsUtils:
             dx = 100 * np.abs(plus_di - minus_di) / denominator
 
             adx = np.zeros(len(dx))
-            adx[period * 2 - 1] = dx[period : period * 2].mean()
+            adx[period * 2 - 1] = dx[period: period * 2].mean()
 
             for i in range(period * 2, len(dx)):
                 adx[i] = (adx[i - 1] * (period - 1) + dx[i]) / period
@@ -292,7 +287,7 @@ class BaseIndicatorsUtils:
                 high=self.df['high'], low=self.df['low'], close=self.df['close'], window=period
             ).adx()
             return adx_series.tolist()
-        
+
     def macd(self, fast_period=12, slow_period=26, signal_period=9):
         if self.mode == 'custom':
             ema_fast = self.ema(fast_period)
@@ -314,12 +309,13 @@ class BaseIndicatorsUtils:
             return macd_line, signal_line, macd_hist
         else:
             from ta.trend import MACD
-            macd_indicator = MACD(close=self.df['close'], window_slow=slow_period, window_fast=fast_period, window_sign=signal_period)
+            macd_indicator = MACD(close=self.df['close'], window_slow=slow_period, window_fast=fast_period,
+                                  window_sign=signal_period)
             macd_line = macd_indicator.macd().tolist()
             signal_line = macd_indicator.macd_signal().tolist()
-            macd_hist = macd_indicator.macd_diff().tolist() # ta-lib chama-lhe 'diff'
+            macd_hist = macd_indicator.macd_diff().tolist()  # ta-lib chama-lhe 'diff'
             return macd_line, signal_line, macd_hist
-        
+
     def cci(self, period=20):
         if self.mode == 'custom':
             typical_prices = [(h + l + c) / 3 for h, l, c in zip(self.highs, self.lows, self.closes)]
@@ -355,10 +351,11 @@ class BaseIndicatorsUtils:
             return cci
         else:
             from ta.trend import CCIIndicator
-            cci_indicator = CCIIndicator(high=self.df['high'], low=self.df['low'], close=self.df['close'], window=period)
+            cci_indicator = CCIIndicator(high=self.df['high'], low=self.df['low'], close=self.df['close'],
+                                         window=period)
             cci_series = cci_indicator.cci()
         return cci_series.tolist()
-    
+
     def psar(self, step=0.02, max_step=0.2):
         """
         Calcula o Parabolic SAR.
@@ -378,11 +375,11 @@ class BaseIndicatorsUtils:
             psar[0] = lows[0]
 
             for i in range(1, length):
-                prev_psar = psar[i-1]
+                prev_psar = psar[i - 1]
                 psar[i] = prev_psar + af * (ep - prev_psar)
 
                 if bull:
-                    psar[i] = min(psar[i], lows[i-1], lows[i-2] if i >= 2 else lows[i-1])
+                    psar[i] = min(psar[i], lows[i - 1], lows[i - 2] if i >= 2 else lows[i - 1])
 
                     if highs[i] > ep:
                         ep = highs[i]
@@ -394,7 +391,7 @@ class BaseIndicatorsUtils:
                         ep = lows[i]
                         af = step
                 else:
-                    psar[i] = max(psar[i], highs[i-1], highs[i-2] if i >= 2 else highs[i-1])
+                    psar[i] = max(psar[i], highs[i - 1], highs[i - 2] if i >= 2 else highs[i - 1])
 
                     if lows[i] < ep:
                         ep = lows[i]
@@ -431,13 +428,13 @@ class BaseIndicatorsUtils:
         lower_band = middle_band - (std_dev * std)
 
         return upper_band.values.tolist(), middle_band.values.tolist(), lower_band.values.tolist()
-    
+
     def bbw(self, period: int = 20, std_dev: float = 2.0):
-        upper, basis, lower = self.bollinger_bands(period, std_dev) 
+        upper, basis, lower = self.bollinger_bands(period, std_dev)
         upper, basis, lower = np.array(upper), np.array(basis), np.array(lower)
 
         return ((upper - lower) / basis)
-    
+
     def supertrend(self,
                    mode="adaptive",
                    base_length=10, base_mult=3.0,
@@ -459,8 +456,8 @@ class BaseIndicatorsUtils:
         atr_std = np.std(atr_fixed)
 
         # Ajuste dinâmico do range de fatores
-        #min_mult = max(0.5, 1.0 - atr_std / atr_mean)
-        #max_mult = min(3.0, 2.0 + atr_std / atr_mean)
+        # min_mult = max(0.5, 1.0 - atr_std / atr_mean)
+        # max_mult = min(3.0, 2.0 + atr_std / atr_mean)
 
         # calcular arrays de length e multiplier
         if mode == "adaptive":
@@ -489,7 +486,7 @@ class BaseIndicatorsUtils:
         trend = np.ones(n)
         final_upperband = np.zeros(n)
         final_lowerband = np.zeros(n)
-        direction = np.zeros(n, dtype=int) 
+        direction = np.zeros(n, dtype=int)
         trend_count = 0
 
         for i in range(n):
@@ -517,8 +514,12 @@ class BaseIndicatorsUtils:
                 direction[i] = 1
                 continue
 
-            final_upperband[i] = upperband if (upperband < final_upperband[i - 1] or closes[i - 1] > final_upperband[i - 1]) else final_upperband[i - 1]
-            final_lowerband[i] = lowerband if (lowerband > final_lowerband[i - 1] or closes[i - 1] < final_lowerband[i - 1]) else final_lowerband[i - 1]
+            final_upperband[i] = upperband if (
+                        upperband < final_upperband[i - 1] or closes[i - 1] > final_upperband[i - 1]) else \
+            final_upperband[i - 1]
+            final_lowerband[i] = lowerband if (
+                        lowerband > final_lowerband[i - 1] or closes[i - 1] < final_lowerband[i - 1]) else \
+            final_lowerband[i - 1]
 
             prev_trend = trend[i - 1]
             if prev_trend == 1:
@@ -557,7 +558,7 @@ class BaseIndicatorsUtils:
                 direction[i] = -1
             else:
                 direction[i] = direction[i - 1]  # mantém direção anterior
-       
+
         supertrend_smooth = self.ema_array(supertrend, smooth_period)
 
         # perf_score baseado na distância da vela ao supertrend
@@ -567,7 +568,7 @@ class BaseIndicatorsUtils:
         perf_score = np.clip((max_dist - dist) / max_dist * 10, 0, 10).astype(int)
         """
         # Movimentos relativos
-        perfAlpha=21
+        perfAlpha = 21
         absdiff = np.abs(np.diff(closes, prepend=closes[0]))
         alpha = 2 / (perfAlpha + 1)
         den = np.zeros(n)
@@ -583,7 +584,7 @@ class BaseIndicatorsUtils:
         perf_idx_series = (avg_perf_norm * scale_factor) / den_safe
 
         # Reescalamento para 0-10
-        
+
         p5, p95 = np.percentile(perf_idx_series, [5, 95])
         perf_idx_series = np.clip(perf_idx_series, p5, p95)
         perf_idx_series = (perf_idx_series - p5) / (p95 - p5)
@@ -597,39 +598,39 @@ class BaseIndicatorsUtils:
     def kalman_filter(self, data):
         data = np.array(data)
         n = len(data)
-        
+
         # Parâmetros conforme o script Pine
         process_noise = 0.2
         measurement_error = 2.0
         error_est = 1.0
-        
+
         # Inicialização
         estimate = data[0] if n > 0 else 0
         kalman_values = np.zeros(n)
-        
+
         for i in range(n):
             # No Pine: prediction := estimate
             prediction = estimate
-            
+
             # Cálculo do ganho de Kalman
             kalman_gain = error_est / (error_est + measurement_error)
-            
+
             # Atualização da estimativa
             estimate = prediction + kalman_gain * (data[i] - prediction)
-            
+
             # Atualização do erro da estimativa
             error_est = (1 - kalman_gain) * error_est + process_noise
-            
+
             kalman_values[i] = estimate
-            
+
         return kalman_values
-    
+
     def detect_low_volatility(
-        self,
-        lookback=20,
-        hist_window=200,
-        adx_dynamic_factor=0.8,
-        slope_threshold=0.015
+            self,
+            lookback=20,
+            hist_window=200,
+            adx_dynamic_factor=0.8,
+            slope_threshold=0.015
     ):
         """
         Retorna um array booleano indicando regiões de baixa volatilidade / lateralidade.
@@ -643,16 +644,16 @@ class BaseIndicatorsUtils:
         # obtém indicadores (usa cache se já calculados)
         atr = self.atr()
         adx = self.adx()
-        _, _, upperband, lowerband, _,_,_ = self.supertrend()
+        _, _, upperband, lowerband, _, _, _ = self.supertrend()
 
         low_vol = np.zeros(n, dtype=bool)
 
         for i in range(max(lookback, hist_window), n):
-            closes_window = closes[i - hist_window : i]
-            atr_window = atr[i - hist_window : i]
-            adx_window = adx[i - hist_window : i]
-            upperband_window = upperband[i - lookback : i]
-            lowerband_window = lowerband[i - lookback : i]
+            closes_window = closes[i - hist_window: i]
+            atr_window = atr[i - hist_window: i]
+            adx_window = adx[i - hist_window: i]
+            upperband_window = upperband[i - lookback: i]
+            lowerband_window = lowerband[i - lookback: i]
 
             # --- ATR/ADX adaptativos ---
             atr_ratio = atr_window / closes_window
@@ -673,16 +674,64 @@ class BaseIndicatorsUtils:
             band_width = np.mean(upperband_window - lowerband_window) / closes_window[-1]
 
             supertrend_flat = (
-                slope_upper < slope_threshold
-                and slope_lower < slope_threshold
-                and band_width < slope_threshold * 5
+                    slope_upper < slope_threshold
+                    and slope_lower < slope_threshold
+                    and band_width < slope_threshold * 5
             )
 
             # --- Resultado ---
             low_vol[i] = (atr_condition and adx_condition) or supertrend_flat
 
         return low_vol
-    
+
+    def detect_low_volatility_2(
+            self,
+            lookback=20,  # Janela das bandas (geralmente 20)
+            hist_window=200,  # Janela para a média histórica da abertura
+            bandwidth_factor=0.6  # Linha de corte (ex: 60% da abertura média = Flat)
+    ):
+        """
+        Retorna um array booleano indicando baixa volatilidade.
+        Usa o Bollinger Bandwidth extraído do teu método original.
+        """
+        closes = np.array(self.ohlcv.closes)
+        n = len(closes)
+
+        if n < max(lookback, hist_window):
+            return np.zeros(n, dtype=bool)
+
+        # 1. BUSCAR AS TUAS BANDAS DE BOLLINGER (Fora do loop para performance)
+        upper_band, middle_band, lower_band = self.bollinger_bands()
+
+        # Converter para arrays numpy para evitar problemas de indexação
+        upper_band = np.array(upper_band)
+        middle_band = np.array(middle_band)
+        lower_band = np.array(lower_band)
+
+        # 2. CALCULAR A ABERTURA PERCENTUAL (Moeda Universal para todos os ativos)
+        # Evita divisão por zero se a middle_band tiver algum valor nulo
+        with np.errstate(divide='ignore', invalid='ignore'):
+            bb_bandwidth = (upper_band - lower_band) / middle_band
+            bb_bandwidth = np.nan_to_num(bb_bandwidth, nan=0.0)
+
+        low_vol = np.zeros(n, dtype=bool)
+
+        # 3. O LOOP DE VALIDAÇÃO
+        for i in range(max(lookback, hist_window), n):
+            # Captura o histórico da abertura deste ativo até à vela atual
+            hist_bandwidth_window = bb_bandwidth[i - hist_window: i]
+
+            avg_bandwidth_hist = np.mean(hist_bandwidth_window)
+            current_bandwidth = bb_bandwidth[i]
+
+            # REGRA DOS TEUS QUADRADOS:
+            # Se a abertura atual for menor que X% da média histórica do ativo,
+            # significa que o canal esmagou por completo.
+            if current_bandwidth < (avg_bandwidth_hist * bandwidth_factor):
+                low_vol[i] = True
+
+        return low_vol
+
     def get_volatility_profile(self, atr: list[float], lookback: int = 50):
         """
         Mede a volatilidade média do ativo com base no ATR relativo.
@@ -700,17 +749,16 @@ class BaseIndicatorsUtils:
 
         # classificação qualitativa (ajusta conforme teu mercado)
         if atr_rel < 0.012:
-            profile = "low"     # ex: BTC, ETH
-            ema_spread = 0.002 
+            profile = "low"  # ex: BTC, ETH
+            ema_spread = 0.002
         elif atr_rel < 0.025:
             profile = "medium"  # ex: BNB, AVAX
             ema_spread = 0.003
         else:
-            profile = "high"    # ex: SOL, meme coins
+            profile = "high"  # ex: SOL, meme coins
             ema_spread = 0.004
 
         return atr_rel, profile, ema_spread
-    
 
     def classify_candles(self):
         n = len(self.closes)
@@ -734,9 +782,9 @@ class BaseIndicatorsUtils:
             if self.closes[i] > self.opens[i]:
                 if upper_ratio > 0.6 and body_ratio < 0.3:
                     candles_values[i] = CandleType.TOP_EXHAUSTION
-                elif upper_wick > body: # Pavio superior maior que o corpo
+                elif upper_wick > body:  # Pavio superior maior que o corpo
                     candles_values[i] = CandleType.WEAK_BULL
-                elif body_ratio > 0.6: # Pouco pavio, muito corpo
+                elif body_ratio > 0.6:  # Pouco pavio, muito corpo
                     candles_values[i] = CandleType.STRONG_BULL
                 else:
                     candles_values[i] = CandleType.BULL
@@ -745,55 +793,55 @@ class BaseIndicatorsUtils:
             elif self.closes[i] < self.opens[i]:
                 if lower_ratio > 0.6 and body_ratio < 0.3:
                     candles_values[i] = CandleType.BOTTOM_EXHAUSTION
-                elif lower_wick > body: # Pavio inferior maior que o corpo
+                elif lower_wick > body:  # Pavio inferior maior que o corpo
                     candles_values[i] = CandleType.WEAK_BEAR
                 elif body_ratio > 0.6:
                     candles_values[i] = CandleType.STRONG_BEAR
                 else:
                     candles_values[i] = CandleType.BEAR
-            
+
             # --- LÓGICA DOJI (FECHO == ABERTURA OU MUITO PRÓXIMO) ---
             else:
                 candles_values[i] = CandleType.DOJI
 
         return candles_values
-    
+
     def check_market_context(self, signal: Signal, current_price: float) -> ModeEnum:
         # Pegar o valor mais baixo e mais alto dos últimos 100 candles
         recent_low = min(self.lows[-100:])
         recent_high = max(self.highs[-100:])
-        
+
         if signal == Signal.SELL:
             distance_bottom = (current_price - recent_low) / current_price
-            
+
             # Se o preço atual for quase o recorde de queda (menos de 0.5% do fundo)
             if distance_bottom < 0.005:
                 return ModeEnum.CONSERVATIVE  # Estamos em "terra de ninguém", perigo de reversão
             else:
-                return ModeEnum.AGGRESSIVE    # Existe um fundo anterior para buscar
-                
+                return ModeEnum.AGGRESSIVE  # Existe um fundo anterior para buscar
+
         if signal == Signal.BUY:
             distance_top = (recent_high - current_price) / current_price
             if distance_top < 0.005:
-                return ModeEnum.CONSERVATIVE   # Rompimento de topo, cuidado com exaustão
+                return ModeEnum.CONSERVATIVE  # Rompimento de topo, cuidado com exaustão
             else:
-                return ModeEnum.AGGRESSIVE    # Caminho livre até a resistência anterior
-        
+                return ModeEnum.AGGRESSIVE  # Caminho livre até a resistência anterior
+
         return ModeEnum.CONSERVATIVE
-    
+
     def double_rsi(self, rsi_slow_len=21, rsi_fast_len=5, atr_fast_len=7, atr_slow_len=24, smooth_len=3):
         n = len(self.closes)
         rsi_slow, _ = self.rsi(rsi_slow_len)
         rsi_fast, _ = self.rsi(rsi_fast_len)
-        
+
         atr_fast = self.atr(atr_fast_len)
         atr_slow = self.atr(atr_slow_len)
 
         # Limpeza e Suavização por Mediana (Para evitar jitter)
         rsi_fast_clean = np.nan_to_num(rsi_fast, nan=50.0)
-        smooth_rsi_fast = [statistics.median(rsi_fast_clean[i-2:i+1]) for i in range(2, len(rsi_fast_clean))]
+        smooth_rsi_fast = [statistics.median(rsi_fast_clean[i - 2:i + 1]) for i in range(2, len(rsi_fast_clean))]
         smooth_rsi_fast = [rsi_fast_clean[0], rsi_fast_clean[1]] + smooth_rsi_fast
-        
+
         highs = self.highs
         lows = self.lows
         closes = self.closes
@@ -804,7 +852,7 @@ class BaseIndicatorsUtils:
         # --- PARÂMETROS DE FILTRO PARA SINAIS CLAROS ---
         dead_zone_upper = 55
         dead_zone_lower = 45
-        min_gap = 2.0      # Distância mínima entre Fast e Slow após cruzar
+        min_gap = 2.0  # Distância mínima entre Fast e Slow após cruzar
         min_momentum = 3.5  # O RSI Fast tem de ter subido X pontos no candle do sinal
 
         for i in range(max(2, atr_slow_len), n):
@@ -817,76 +865,74 @@ class BaseIndicatorsUtils:
 
             # 3. DETEÇÃO DE CRUZAMENTO (Usando a Mediana para maior clareza)
             # Verificamos o cruzamento da linha suavizada sobre a lenta
-            cross_up = smooth_rsi_fast[i-1] <= rsi_slow[i-1] and smooth_rsi_fast[i] > rsi_slow[i]
-            cross_down = smooth_rsi_fast[i-1] >= rsi_slow[i-1] and smooth_rsi_fast[i] < rsi_slow[i]
-            
+            cross_up = smooth_rsi_fast[i - 1] <= rsi_slow[i - 1] and smooth_rsi_fast[i] > rsi_slow[i]
+            cross_down = smooth_rsi_fast[i - 1] >= rsi_slow[i - 1] and smooth_rsi_fast[i] < rsi_slow[i]
+
             # 4. FILTROS DE REJEIÇÃO DE "TOQUES"
             # Gap: As linhas separaram-se o suficiente?
             gap_up = (smooth_rsi_fast[i] - rsi_slow[i]) >= min_gap
             gap_down = (rsi_slow[i] - smooth_rsi_fast[i]) >= min_gap
-            
+
             # Momentum: O RSI fast está a mover-se com velocidade?
-            momentum_up = (smooth_rsi_fast[i] - smooth_rsi_fast[i-1]) >= min_momentum
-            momentum_down = (smooth_rsi_fast[i-1] - smooth_rsi_fast[i]) >= min_momentum
+            momentum_up = (smooth_rsi_fast[i] - smooth_rsi_fast[i - 1]) >= min_momentum
+            momentum_down = (smooth_rsi_fast[i - 1] - smooth_rsi_fast[i]) >= min_momentum
 
             # Zona Morta: Evitar o ruído do meio (50)
-            outside_dead_zone_up = smooth_rsi_fast[i] < dead_zone_upper # Compra "cedo"
-            outside_dead_zone_down = smooth_rsi_fast[i] > dead_zone_lower # Venda "cedo"
+            outside_dead_zone_up = smooth_rsi_fast[i] < dead_zone_upper  # Compra "cedo"
+            outside_dead_zone_down = smooth_rsi_fast[i] > dead_zone_lower  # Venda "cedo"
 
-            highest_prev = max(highs[i-1], highs[i-2])
-            lowest_prev = min(lows[i-1], lows[i-2])
+            highest_prev = max(highs[i - 1], highs[i - 2])
+            lowest_prev = min(lows[i - 1], lows[i - 2])
 
             # --- LÓGICA DE EXECUÇÃO ---
             if current_state != Signal.BUY and cross_up:
                 # Validação completa: Breakout de Preço + Volatilidade + Gap + Momentum + Fora da Zona Morta
-                if (closes[i] > highest_prev and volatility_is_active and 
-                    not_overbought and gap_up and momentum_up and outside_dead_zone_up):
-                    
+                if (closes[i] > highest_prev and volatility_is_active and
+                        not_overbought and gap_up and momentum_up and outside_dead_zone_up):
                     signal_values[i] = Signal.BUY
                     current_state = Signal.BUY
 
             elif current_state != Signal.SELL and cross_down:
                 # Validação completa para Venda
-                if (closes[i] < lowest_prev and volatility_is_active and 
-                    not_oversold and gap_down and momentum_down and outside_dead_zone_down):
-                    
+                if (closes[i] < lowest_prev and volatility_is_active and
+                        not_oversold and gap_down and momentum_down and outside_dead_zone_down):
                     signal_values[i] = Signal.SELL
                     current_state = Signal.SELL
-            
+
         return {
             'signals': signal_values,
             'rsi_fast': rsi_fast,
             'rsi_slow': rsi_slow,
             'smooth_rsi_fast': smooth_rsi_fast
         }
-    
+
     def volume_indices_validation(self, ema_len=255) -> dict:
         n = len(self.closes)
         nvi = [1000.0] * n
         pvi = [1000.0] * n
-        
+
         for i in range(1, n):
-            price_change = (self.closes[i] - self.closes[i-1]) / self.closes[i-1]
-            
-            if self.volumes[i] < self.volumes[i-1]:
-                nvi[i] = nvi[i-1] + (price_change * nvi[i-1])
-                pvi[i] = pvi[i-1]
+            price_change = (self.closes[i] - self.closes[i - 1]) / self.closes[i - 1]
+
+            if self.volumes[i] < self.volumes[i - 1]:
+                nvi[i] = nvi[i - 1] + (price_change * nvi[i - 1])
+                pvi[i] = pvi[i - 1]
             else:
-                pvi[i] = pvi[i-1] + (price_change * pvi[i-1])
-                nvi[i] = nvi[i-1]
+                pvi[i] = pvi[i - 1] + (price_change * pvi[i - 1])
+                nvi[i] = nvi[i - 1]
 
         # Médias móveis para detetar a tendência do volume
         nvi_ema = self.ema_list(nvi, ema_len)
-        
+
         # Validação: NVI acima da média indica acumulação institucional
         smart_money_bullish = nvi[-1] > nvi_ema[-1]
-        
+
         return {
             "nvi": nvi,
             "pvi": pvi,
             "is_institutional_buy": smart_money_bullish
         }
-    
+
     def double_rsi_(self, rsi_slow_len=21, rsi_fast_len=5, atr_fast_len=7, atr_slow_len=24, lookback=14):
         n = len(self.closes)
         rsi_slow, _ = self.rsi(rsi_slow_len)
@@ -897,10 +943,10 @@ class BaseIndicatorsUtils:
         ema100 = self.ema(100)
 
         adx = self.adx()
-        
+
         atr_fast = self.atr(atr_fast_len)
         atr_slow = self.atr(atr_slow_len)
-        
+
         highs = self.highs
         lows = self.lows
         closes = self.closes
@@ -911,7 +957,7 @@ class BaseIndicatorsUtils:
         overbought_slow = False
         oversold_slow = False
         overbought_fast = False
-        oversold_fast= False
+        oversold_fast = False
 
         for i in range(max(2, atr_slow_len), n):
             # --- FILTRO 1: VOLATILIDADE (ATR) ---
@@ -922,12 +968,12 @@ class BaseIndicatorsUtils:
             # Bloqueia vendas se o mercado estiver "vendido demais" (ex: < 25)
             not_overbought = rsi_slow[i] < 75
             not_oversold = rsi_slow[i] > 25
-            
-            highest_prev = max(highs[i-1], highs[i-2])
-            lowest_prev = min(lows[i-1], lows[i-2])
 
-            avg_rsi_fast = np.mean(rsi_fast[i-lookback+1 : i+1])
-            avg_rsi_slow = np.mean(rsi_slow[i-lookback+1 : i+1])
+            highest_prev = max(highs[i - 1], highs[i - 2])
+            lowest_prev = min(lows[i - 1], lows[i - 2])
+
+            avg_rsi_fast = np.mean(rsi_fast[i - lookback + 1: i + 1])
+            avg_rsi_slow = np.mean(rsi_slow[i - lookback + 1: i + 1])
             is_trending_up = avg_rsi_fast > avg_rsi_slow and avg_rsi_slow > 50
             is_trending_down = avg_rsi_fast < avg_rsi_slow and avg_rsi_slow < 50
             trend_up = is_trending_up and closes[i] > ema25[i] and ema25[i] > ema50[i] > ema100[i]
@@ -941,7 +987,7 @@ class BaseIndicatorsUtils:
             elif rsi_slow[i] <= 40:
                 overbought_slow = False
                 oversold_slow = True
-            
+
             if rsi_fast[i] >= 80:
                 overbought_fast = True
                 oversold_fast = False
@@ -949,16 +995,14 @@ class BaseIndicatorsUtils:
                 overbought_fast = False
                 oversold_fast = True
 
-            
             # --- GATILHOS E BREAKOUTS ---
-            cross_up = rsi_fast[i-1] <= rsi_slow[i-1] and rsi_fast[i] > rsi_slow[i]
-            cross_down = rsi_fast[i-1] >= rsi_slow[i-1] and rsi_fast[i] < rsi_slow[i]
-
+            cross_up = rsi_fast[i - 1] <= rsi_slow[i - 1] and rsi_fast[i] > rsi_slow[i]
+            cross_down = rsi_fast[i - 1] >= rsi_slow[i - 1] and rsi_fast[i] < rsi_slow[i]
 
             # --- LÓGICA DE INVERSÃO ---
             if cross_up:
                 # Agora validamos se NÃO está esticado antes de comprar
-                #if closes[i] > highest_prev and volatility_is_active and not_overbought:
+                # if closes[i] > highest_prev and volatility_is_active and not_overbought:
                 if is_adx and is_trending_up:
                     oversold_slow = False
                     oversold_fast = False
@@ -967,13 +1011,13 @@ class BaseIndicatorsUtils:
 
             elif cross_down:
                 # Agora validamos se NÃO está esticado antes de vender
-                #if closes[i] < lowest_prev and volatility_is_active and not_oversold:
+                # if closes[i] < lowest_prev and volatility_is_active and not_oversold:
                 if is_adx and is_trending_down:
                     overbought_slow = False
                     overbought_fast = False
                     signal_values[i] = Signal.SELL
                     current_state = Signal.SELL
-            
+
         return {
             'signals': signal_values,
             'rsi_fast': rsi_fast,
@@ -982,8 +1026,7 @@ class BaseIndicatorsUtils:
             'ema50': ema50,
             'ema100': ema100,
         }
-    
-    
+
     def ema_list(self, data, period) -> np.ndarray:
         """
         Calcula a Média Móvel Exponencial (EMA) sobre qualquer array de dados.
@@ -991,60 +1034,59 @@ class BaseIndicatorsUtils:
         """
         data = np.array(data)
         n = len(data)
-        ema = np.full(n, np.nan) # Começamos tudo com nan em vez de 0
-        
+        ema = np.full(n, np.nan)  # Começamos tudo com nan em vez de 0
+
         # Encontrar o primeiro índice que não é nan e não é zero
         start_idx = 0
         for i in range(n):
             if not np.isnan(data[i]) and data[i] != 0:
                 start_idx = i
                 break
-        
+
         if start_idx >= n:
             return ema
 
         alpha = 2 / (period + 1)
-        
+
         # O primeiro valor válido da EMA é o primeiro valor real do dado
         ema[start_idx] = data[start_idx]
-        
+
         # Cálculo iterativo a partir do ponto de dados real
         for i in range(start_idx + 1, n):
             # Se o dado atual for nan, mantemos o anterior
             if np.isnan(data[i]):
-                ema[i] = ema[i-1]
+                ema[i] = ema[i - 1]
             else:
-                ema[i] = (data[i] - ema[i-1]) * alpha + ema[i-1]
-            
+                ema[i] = (data[i] - ema[i - 1]) * alpha + ema[i - 1]
+
         return ema
-    
+
     def calculate_power_oscillator(self, period=20):
         closes = np.array(self.closes)
         volumes = np.array(self.ohlcv.volumes)
         n = len(closes)
-        
+
         # 1. Delta Preço com Direção
         delta_p = np.diff(closes, prepend=closes[0])
-        
+
         # 2. Força Bruta (Preço * Volume) - Esta é a "Energia" do movimento
         energy = delta_p * volumes
-        
+
         # 3. Normalização para a escala -100 a 100
         # Usamos o maior pico de energia do período para definir o que é 100%
         oscillator = np.zeros(n)
         for i in range(period, n):
-            window = energy[i-period+1 : i+1]
+            window = energy[i - period + 1: i + 1]
             max_abs_energy = np.max(np.abs(window))
-            
+
             if max_abs_energy != 0:
                 oscillator[i] = (energy[i] / max_abs_energy) * 100
             else:
                 oscillator[i] = 0
-                
+
         # 4. Suavização (Opcional, mas recomendado para evitar ruído)
         return self.ema_list(oscillator, 5)
 
-    
     def multi_ema_trend(self, ema_slow_len=34, ema_mid_len=20, ema_fast_len=6):
         n = len(self.closes)
         ema_slow = self.ema(ema_slow_len)
@@ -1056,13 +1098,13 @@ class BaseIndicatorsUtils:
 
         direction = np.zeros(n)
         gap_pct = np.zeros(n)
-        angles = np.zeros(n) # Nova lista para os graus
+        angles = np.zeros(n)  # Nova lista para os graus
         delta_price = np.diff(closes, prepend=closes[0])
         delta_vol = np.where(closes > np.roll(closes, 1), volumes, -volumes)
         avg_delta_price = self.ema_list(np.abs(delta_price), 10)
 
         # Precisamos de um lookback para calcular a inclinação (ex: 3 candles)
-        lookback = 3 
+        lookback = 3
 
         for i in range(lookback, n):
             # 1. Calcular o Gap Percentual (Saúde do leque)
@@ -1074,20 +1116,20 @@ class BaseIndicatorsUtils:
             # delta_x: variação do tempo (candles)
             delta_y = ema_slow[i] - ema_slow[i - lookback]
             delta_x = lookback
-            
+
             # Normalização: Ajustamos o delta_y para que o ângulo não dependa do preço nominal
             # Usamos 0.1% do preço como unidade base de movimento
-            scaling_factor = ema_slow[i] * 0.001 
-            
+            scaling_factor = ema_slow[i] * 0.001
+
             # math.atan2(y, x) retorna radianos, convertemos para graus
             angle_rad = math.atan2(delta_y / scaling_factor, delta_x)
             angles[i] = math.degrees(angle_rad)
 
             # 3. Definir Direção
             if ema_fast[i] > ema_mid[i] and ema_mid[i] > ema_slow[i]:
-                    direction[i] = 1
+                direction[i] = 1
             elif ema_fast[i] < ema_mid[i] and ema_mid[i] < ema_slow[i]:
-                    direction[i] = -1
+                direction[i] = -1
 
         return {
             'slow_band': ema_slow,
@@ -1095,32 +1137,27 @@ class BaseIndicatorsUtils:
             'fast_band': ema_fast,
             'direction': direction,
             'gap_pct': gap_pct,
-            'angle': angles, # Agora o bot sabe a inclinação exata
+            'angle': angles,  # Agora o bot sabe a inclinação exata
             'delta_vol': delta_vol,
             'delta_price': delta_price
         }
-    
+
     def calculate_efficiency_ratio(self, period=14):
         closes = np.array(self.closes)
         n = len(closes)
         er = np.zeros(n)
-        
+
         for i in range(period, n):
             # 1. Mudança líquida (Distância do ponto A ao B)
             net_change = abs(closes[i] - closes[i - period])
-            
+
             # 2. Volatilidade total (Soma de todos os 'passos' individuais)
             # abs(fecho_atual - fecho_anterior)
-            volatility = np.sum(np.abs(np.diff(closes[i - period : i + 1])))
-            
+            volatility = np.sum(np.abs(np.diff(closes[i - period: i + 1])))
+
             if volatility != 0:
                 er[i] = net_change / volatility
             else:
                 er[i] = 0
-                
+
         return er
-
-
-
-        
-

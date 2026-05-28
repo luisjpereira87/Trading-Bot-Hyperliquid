@@ -4,6 +4,7 @@ import ta
 from ta.momentum import StochasticOscillator
 from ta.trend import ADXIndicator
 from ta.volatility import AverageTrueRange
+from ta.volume import ChaikinMoneyFlowIndicator
 
 from commons.utils.indicators.custom_indicators_utils import CustomIndicatorsUtils
 from commons.utils.indicators.tv_indicators_utils import TvIndicatorsUtils
@@ -13,7 +14,7 @@ from commons.utils.ohlcv_wrapper import OhlcvWrapper
 class MarketBrain:
 
     @staticmethod
-    def add_indicators(df: pd.DataFrame, is_training: bool = False):
+    def add_indicators_(df: pd.DataFrame, is_training: bool = False):
         df = df.copy()
         df_temp = df.copy()
         if pd.api.types.is_datetime64_any_dtype(df_temp['timestamp']):
@@ -23,16 +24,12 @@ class MarketBrain:
         tv_indicators = TvIndicatorsUtils(OhlcvWrapper(df_temp.values.tolist()), mode='custom')
         supertrend, trend, final_upperband, final_lowerband, supertrend_smooth, direction, perf_score = custom_indicators.supertrend()
 
-        low_volatility = custom_indicators.detect_low_volatility()
-        # df['low_volatility'] = low_volatility
-
+        df['squeeze_index'] = tv_indicators.squeeze_index()
         df['st_direction'] = direction
         df['st_lowerband'] = final_lowerband
         df['st_upperband'] = final_upperband
 
         # --- 1. MÉTRICAS DE MOMENTUM (Para Tendência) ---
-        df['rsi'] = ta.momentum.rsi(df['close'], window=14)
-        # Relação de Médias (9 vs 50) - Indica se o "comboio" está a andar
         df['ema_gap'] = (ta.trend.ema_indicator(df['close'], 9) / ta.trend.ema_indicator(df['close'], 50)) - 1
 
         # --- 2. MÉTRICAS DE VOLATILIDADE (Para Reversão/Rompimento) ---
@@ -67,11 +64,6 @@ class MarketBrain:
         # 3. Filtro de Volume na queda
         df['down_volume_spike'] = (df['volume'] > df['volume'].rolling(20).mean()) & (df['price_change'] < 0)
 
-        df['rsi_ema'] = df['rsi'].rolling(window=14).mean()
-
-        # Opção A: Distância (valor contínuo - o LightGBM adora isto)
-        df['rsi_above_ema'] = df['rsi'] - df['rsi_ema']
-
         df['price_velocity'] = df['close'].diff(2) / df['atr']
 
         # 1. Calcula as EMAs
@@ -88,6 +80,7 @@ class MarketBrain:
         df['ema200'] = ta.trend.ema_indicator(df['close'], window=200)
 
         # Gaps das Médias Longas (Distância)
+        df['gap_9_21'] = (df['ema9'] - df['ema21']) / df['ema21']
         df['gap_21_50'] = (df['ema21'] - df['ema50']) / df['ema50']
         df['gap_50_200'] = (df['ema50'] - df['ema200']) / df['ema200']
         df['gap_100_200'] = (df['ema100'] - df['ema200']) / df['ema200']
@@ -139,8 +132,14 @@ class MarketBrain:
         # Mede a distância entre as bandas em percentagem
         df['bb_width'] = (df['bb_upper'] - df['bb_lower']) / df['bb_middle']
 
-        # psar_df = ta.trend.PSARIndicator(df['high'], df['low'], df['close'], step=0.02, max_step=0.2)
-        # df['psar'] = psar_df.psar()
+        psar_df = ta.trend.PSARIndicator(df['high'], df['low'], df['close'], step=0.02, max_step=0.2)
+        df['psar'] = psar_df.psar()
+
+        df['rsi_psar'] = 0  # Estado Neutro
+        # Engolfo de Alta: Vela verde atual engole o corpo da vermelha anterior
+        df.loc[(df['close'] > df['psar']) & (df['rsi'] > 50) & (df['rsi'] > df['rsi_ema']), 'rsi_psar'] = 1
+        # Engolfo de Baixa: Vela vermelha atual engole o corpo da verde anterior
+        df.loc[(df['close'] < df['psar']) & (df['rsi'] < 50) & (df['rsi'] < df['rsi_ema']), 'rsi_psar'] = -1
 
         # Resistência: O preço mais alto das últimas X velas
         df['resistance'] = df['high'].rolling(window=window).max()
@@ -156,35 +155,122 @@ class MarketBrain:
         # 0 = No suporte | 1 = Na resistência
         df['range_position'] = (df['close'] - df['support']) / (df['resistance'] - df['support'])
 
+        # Identificar o momento exato onde as linhas se cruzam
+        df['ema_cross_short'] = (df['ema9'] > df['ema21']).astype(int)
+
+        # Contar quantas velas consecutivas estão no mesmo estado
+        # Isto cria uma contagem: ex: +1, +2, +3 numa tendência de alta, ou -1, -2, -3 numa de baixa
+        df['ema_cross_age'] = df['ema_cross_short'].groupby(
+            (df['ema_cross_short'] != df['ema_cross_short'].shift()).cumsum()).cumcount() + 1
+
+        # Ajustamos para que tendências de baixa fiquem negativas
+        df['ema_cross_age'] = np.where(df['ema_cross_short'] == 1, df['ema_cross_age'], -df['ema_cross_age'])
+
+        # 1. CÁLCULOS ANATÓMICOS DA VELA (Base para Price Action)
+        candle_body = (df['close'] - df['open']).abs()
+        lower_shadow = df[['open', 'close']].min(axis=1) - df['low']
+        upper_shadow = df['high'] - df[['open', 'close']].max(axis=1)
+
+        # 2. FEATURE DE REVERSÃO 1: Rejeição de Pavio (Pinbar)
+        df['pa_reversion_pavio'] = 0  # Estado Neutro (Hold)
+        # Rejeição de Queda: Pavio inferior é o dobro do corpo E fechou acima da Supertrend inferior
+        df.loc[(lower_shadow > candle_body * 2) & (df['close'] > df['st_lowerband']), 'pa_reversion_pavio'] = 1
+        # Rejeição de Alta: Pavio superior é o dobro do corpo E fechou abaixo da Supertrend superior
+        df.loc[(upper_shadow > candle_body * 2) & (df['close'] < df['st_upperband']), 'pa_reversion_pavio'] = -1
+
+        # 3. FEATURE DE REVERSÃO 2: Engolfo Violento
+        df['pa_engulfing'] = 0  # Estado Neutro
+        # Engolfo de Alta: Vela verde atual engole o corpo da vermelha anterior
+        df.loc[(df['close'] > df['open']) & (df['close'].shift(1) < df['open'].shift(1)) &
+               (df['close'] > df['open'].shift(1)) & (df['open'] < df['close'].shift(1)), 'pa_engulfing'] = 1
+        # Engolfo de Baixa: Vela vermelha atual engole o corpo da verde anterior
+        df.loc[(df['close'] < df['open']) & (df['close'].shift(1) > df['open'].shift(1)) &
+               (df['close'] < df['open'].shift(1)) & (df['open'] > df['close'].shift(1)), 'pa_engulfing'] = -1
+
+        # 4. CONVERTER PARA TIPO CATEGÓRICO (Fundamental para o LightGBM)
+        df['pa_reversion_pavio'] = df['pa_reversion_pavio'].astype('category')
+        df['pa_engulfing'] = df['pa_engulfing'].astype('category')
+
+        # Descobre o suporte das últimas 100 velas
+        df['suporte_100'] = df['low'].rolling(window=100).min()
+        # Calcula a distância percentual do preço atual para esse suporte
+        df['dist_to_support'] = (df['close'] - df['suporte_100']) / df['suporte_100']
+
+        # Largura das bandas normalizada pelo preço (percentual)
+        df['bb_width_norm'] = df['bb_width'] / df['close']
+
+        df['volume_ratio'] = df['volume'] / df['volume'].rolling(20).mean()
+
+        # 1. Alinhamento de Médias Móveis Longas (Mapeia a tendência do dia/semana)
+        # Se o preço estiver acima da EMA 200, a tendência é estritamente de alta
+        df['macro_trend_alignment'] = np.where(df['close'] > df['ema_200'], 1, -1)
+
+        # 2. Direção do Preço em Janelas Largas (Ex: Força acumulada nas últimas 48 velas)
+        df['macro_momentum'] = (df['close'] - df['close'].shift(48)) / df['close'].shift(48)
+
+        # Verifica se a vela atual tem um mínimo maior que a anterior (True/False -> 1/0)
+        df['hl_check'] = (df['low'] > df['low'].shift(1)).astype(int)
+
+        # Conta a soma consecutiva das últimas 5 velas
+        df['higher_lows_streak'] = df['hl_check'].rolling(5).sum()
+
+        df['price_slope'] = (df['close'] - df['close'].shift(5)) / df['close'].shift(5)
+
+        # Se o volume de hoje for maior que o de ontem, e o de ontem maior que o do dia anterior
+        df['volume_ramp_up'] = (
+                (df['volume'] > df['volume'].shift(1)) &
+                (df['volume'].shift(1) > df['volume'].shift(2))
+        ).astype(int)
+
         cols_model = [
             'atr',
-            # --- MOMENTUM (Gatilhos Rápidos) ---
-            # 'ema9_slope',  # Inclinação para entrar ANTES do cross
-            # 'rsi_velocity',  # Rapidez da mudança de força
-            'rsi',  # Nível atual
-            'rsi_ema',
+            'atr_norm',
+            # 'rsi',  # Nível atual
+            # 'rsi_ema',
+            'rsi_cross_gap',
 
             # --- TREND (Estrutura) ---
             # 'ema_spread',  # Spread 9 vs 21
             'gap_50_200',  # Direção macro (O oceano)
 
             # --- QUALIDADE (Anti-Lixo) ---
-            'efficiency_ratio',  # Filtro de ruído
-            'bb_pband',  # Posição relativa às bandas (Para não comprar o topo)
-            # 'downward_pressure',
-            'price_ema_gap',
+            # 'efficiency_ratio',  # Filtro de ruído
+            # 'bb_pband',  # Posição relativa às bandas (Para não comprar o topo)
+            # 'price_ema_gap',
             'adx',
-            # 'adx_slope',
             'bb_width',
-            # 'psar',
-            # 'st_direction',
-            'st_lowerband',
-            'st_upperband',
+
+            # 'dist_to_support',
+            # 'bb_width_norm'
+            'volume_ratio',
             # 'squeeze_index',
-            # 'andean_diff',
-            # 'andean_neutral_gap',
-            # 'low_volatility'
+            'macro_trend_alignment',
+            'macro_momentum',
+            # 'higher_lows_streak',
+            'price_slope',
+            # 'volume_ramp_up'
         ]
+
+        # 1. Primeiro normalizas a largura das bandas pelo preço (essencial para o caldeirão multi-par)
+        # df['bb_width_norm'] = (df['bb_high'] - df['bb_low']) / df['close']
+
+        # 2. Calcula a taxa de expansão (se for positivo, estão a abrir; se for negativo, a fechar)
+        df['bb_expansion_rate'] = (df['bb_width_norm'] - df['bb_width_norm'].shift(1)) / df['bb_width_norm'].shift(1)
+        df['bb_expansion_rate'] = df['bb_expansion_rate'].fillna(0)
+
+        """
+        cols_model = [
+            'atr',
+            # 'atr_norm',
+            # 'rsi',  # Nível atual
+            # 'rsi_ema',
+            'rsi_cross_gap',
+            # 'gap_50_200',
+            # 'price_ema_gap',
+            # 'bb_expansion_rate'
+            # 'ema_spread'
+        ]
+        """
 
         # 1. Trata os infinitos que os indicadores podem ter gerado
         df.replace([np.inf, -np.inf], np.nan, inplace=True)
@@ -194,8 +280,8 @@ class MarketBrain:
         # Depois preenchemos com 0 o início do dataset onde não há histórico anterior
         df.fillna(0, inplace=True)
 
-        cols_to_exclude = ['st_lowerband', 'st_upperband', 'psar',
-                           'label', 'atr', 'low_volatility']
+        cols_to_exclude = ['st_lowerband', 'st_upperband', 'atr',
+                           'label']
         cols_train = [c for c in cols_model if c not in cols_to_exclude]
         if is_training:
 
@@ -209,35 +295,22 @@ class MarketBrain:
             window = best_w
             min_profit_pct = best_p
 
-            low_volatility = custom_indicators.detect_low_volatility(slope_threshold=min_profit_pct)
-
-            # can_buy_series, can_sell_series = MarketBrain.get_consolidated_signals(df)
+            # low_volatility = custom_indicators.detect_low_volatility(slope_threshold=min_profit_pct)
 
             if 'label' not in df.columns:
                 df['label'] = 1  # Inicializa tudo como HOLD (1)
 
             for i in range(len(df) - window):
                 # 1. FILTROS DE VETO (SMART LABELING)
-                # current_adx = df['adx'].iloc[i]
-                # current_er = df['efficiency_ratio'].iloc[i]
-                # is_volatily_ok = bool(df['bb_width'].iloc[i] > 0.008)
-                # is_low_volatility = df['low_volatility'].iloc[i]
-                is_low_volatility = low_volatility[i]
-
-                # NOVO: Filtro de Direção pela Supertrend (st_direction: 1 Alta, -1 Baixa)
-                # is_bullish_regime = bool(df['st_direction'].iloc[i] == 1)
-                # is_bearish_regime = bool(df['st_direction'].iloc[i] == -1)
-
-                # Filtros de Momentum mantidos
-                # momentum_up = bool(df['rsi'].iloc[i] > df['rsi_ema'].iloc[i])
-                # momentum_down = bool(df['rsi'].iloc[i] < df['rsi_ema'].iloc[i])
-
-                immediate_slope = (df['close'].iloc[i] - df['close'].iloc[i - 3]) / df['close'].iloc[i - 3]
+                # is_low_volatility = low_volatility[i]
 
                 # Se o mercado estiver "morto", forçamos HOLD e passamos à frente
+                """
                 if is_low_volatility:  # or current_er < 0.30 or not is_volatily_ok:
                     df.iloc[i, df.columns.get_loc('label')] = 1
                     continue
+                """
+                immediate_slope = (df['close'].iloc[i] - df['close'].iloc[i - 1]) / df['close'].iloc[i - 1]
 
                 price_entry = df['close'].iloc[i]
 
@@ -249,24 +322,22 @@ class MarketBrain:
                 max_high = future_segment['high'].max()
                 min_low = future_segment['low'].min()
 
-                # Pegamos o sinal do Agrupador para este índice
-                # final_buy = can_buy_series.iloc[i]
-                # final_sell = can_sell_series.iloc[i]
-
-                # found_signal = False
+                folga = 0.0005
+                prev_low = df['low'].iloc[i - 1]
+                prev_high = df['high'].iloc[i - 1]
 
                 # 3. LÓGICA DE COMPRA
                 # Condição: Bateu no alvo ANTES de furar a Supertrend (sl_price)
                 if immediate_slope > 0.001:
-                    sl_price = df['st_lowerband'].iloc[i]
+                    # sl_price = df['st_lowerband'].iloc[i]
+                    sl_price = prev_low * (1.0 - folga)
                     if (max_high >= target_buy) and (min_low > sl_price):
-                        # df.at[df.index[i], 'label'] = 2
                         df.iloc[i, df.columns.get_loc('label')] = 2
-                        found_signal = True
 
                 # 4. LÓGICA DE VENDA
                 elif immediate_slope < -0.001:
-                    sl_price = df['st_upperband'].iloc[i]
+                    # sl_price = df['st_upperband'].iloc[i]
+                    sl_price = prev_high * (1.0 + folga)
                     if (min_low <= target_sell) and (max_high < sl_price):
                         df.iloc[i, df.columns.get_loc('label')] = 0
 
@@ -276,22 +347,185 @@ class MarketBrain:
         return df, df[cols_train]
 
     @staticmethod
-    def get_consolidated_signals(df):
-        """
-        Versão VETORIAL: Usa & em vez de 'and' para processar o DataFrame todo.
-        """
-        # Condições de Compra (PSAR + RSI)
-        # É OBRIGATÓRIO usar parênteses em cada comparação individual
-        buy_psar = (df['close'] > df['psar']) & (df['rsi'] > 50) & (df['rsi'] > df['rsi_ema'])
+    def add_indicators(df: pd.DataFrame, is_training: bool = False):
+        df = df.copy()
 
-        # Condições de Venda (PSAR + RSI)
-        sell_psar = (df['close'] < df['psar']) & (df['rsi'] < 50) & (df['rsi'] < df['rsi_ema'])
+        # 🚨 1. GARANTIR ÍNDICE LIMPO LOGO À ENTRADA
+        df.reset_index(drop=True, inplace=True)
 
-        # Se quiseres adicionar a Supertrend personalizada aqui:
-        # final_buy = buy_psar & (df['close'] > df['st_lower'])
-        # final_sell = sell_psar & (df['close'] < df['st_upper'])
+        df_temp = df.copy()
+        if pd.api.types.is_datetime64_any_dtype(df_temp['timestamp']):
+            df_temp['timestamp'] = df_temp['timestamp'].astype('int64') // 10 ** 6
 
-        return buy_psar, sell_psar
+        # --- INDICADORES BASE ---
+        custom_indicators = CustomIndicatorsUtils(OhlcvWrapper(df_temp.values.tolist()), mode='custom')
+        tv_indicators = TvIndicatorsUtils(OhlcvWrapper(df_temp.values.tolist()), mode='custom')
+        supertrend, trend, final_upperband, final_lowerband, supertrend_smooth, direction, perf_score = custom_indicators.supertrend()
+
+        df['squeeze_index'] = tv_indicators.squeeze_index()
+        df['st_direction'] = direction
+        df['st_lowerband'] = final_lowerband
+        df['st_upperband'] = final_upperband
+
+        df_pivots = MarketBrain.add_luxalgo_pivots(df)
+        df['dist_to_lux_pivot_high'] = df_pivots['dist_to_lux_pivot_high']
+        df['dist_to_lux_pivot_low'] = df_pivots['dist_to_lux_pivot_low']
+
+        # --- INDICADORES COMPLEMENTARES ---
+        df["atr"] = AverageTrueRange(df["high"], df["low"], df["close"]).average_true_range()
+        df['fast_rsi'] = ta.momentum.rsi(df['close'], window=9)
+        df['macro_rsi'] = ta.momentum.rsi(df['close'], window=25)
+
+        df['roc_fast'] = df['close'].pct_change(periods=3) * 100
+        df['roc_mid'] = df['close'].pct_change(periods=7) * 100
+
+        volume_ma = df['volume'].rolling(20).mean()
+        df['volume_climax'] = df['volume'] / np.where(volume_ma == 0, 1, volume_ma)
+
+        # --- INVOCAR O TEU MOTOR SMART MONEY CHANNELS ---
+        smc_results = tv_indicators.smart_money_breakout_channels(
+            length_norm=100,
+            length_box=14,
+            strong=True,
+            overlap=False
+        )
+
+        # Injetar os resultados estruturados diretamente no DataFrame
+        df['line_high_val'] = smc_results['top']
+        df['line_low_val'] = smc_results['bottom']
+        df['breakout_up'] = smc_results['bull_break'].astype(int)
+        df['breakout_down'] = smc_results['bear_break'].astype(int)
+        df['new_channel'] = smc_results['new_channel'].astype(int)
+        df['box_duration'] = smc_results['duration']
+
+        # --- ENGENHARIA DE FEATURES PARA O LIGHTGBM ---
+        df['line_high_val'] = df['line_high_val'].ffill()
+        df['line_low_val'] = df['line_low_val'].ffill()
+
+        df['line_high_val'] = df['line_high_val'].fillna(df['close'])
+        df['line_low_val'] = df['line_low_val'].fillna(df['close'])
+
+        df['wedge_formation'] = df['line_high_val'] - df['line_low_val']
+        df['dist_to_upper_trendline'] = (df['line_high_val'] - df['close']) / df['close']
+        df['dist_to_lower_trendline'] = (df['close'] - df['line_low_val']) / df['close']
+
+        # ==========================================================
+        # NOVAS DIMENSÕES DE ANÁLISE (ALÉM DOS BREAKOUTS)
+        # ==========================================================
+
+        # 1. Dimensão de Exaustão / Reversão à Média (Bandas de Bollinger)
+        indicator_bb = ta.volatility.BollingerBands(close=df["close"], window=20, window_dev=2)
+        df["bb_high"] = indicator_bb.bollinger_hband()
+        df["bb_low"] = indicator_bb.bollinger_lband()
+        # Calculamos a distância percentual às bandas (esta é a feature real para o ML)
+        df["dist_to_bb_high"] = (df["bb_high"] - df["close"]) / df["close"]
+        df["dist_to_bb_low"] = (df["close"] - df["bb_low"]) / df["close"]
+        df["bb_width"] = indicator_bb.bollinger_wband()
+        df["bb_expansion"] = df["bb_width"] / df["bb_width"].shift(1)
+
+        # 2. Dimensão de Força de Tendência (ADX)
+        df["adx"] = ta.trend.ADXIndicator(high=df["high"], low=df["low"], close=df["close"], window=14).adx()
+        df["adx"] = df["adx"].fillna(20)  # Tratar NaNs iniciais do ADX
+
+        # 3. Dimensão de Fluxo de Dinheiro Real (Chaikin Money Flow)
+
+        df["cmf"] = ChaikinMoneyFlowIndicator(high=df["high"], low=df["low"], close=df["close"],
+                                              volume=df["volume"], window=20).chaikin_money_flow()
+        df["cmf"] = df["cmf"].fillna(0)
+
+        # --- DIMENSÃO INSTITUCIONAL (Filtro de Tendência Macro Sol/Eth) ---
+        df['ema_50'] = ta.trend.ema_indicator(df['close'], window=50)
+        df['ema_200'] = ta.trend.ema_indicator(df['close'], window=200)
+
+        # 🌟 FEATURE 1: O Alinhamento Macro (O Filtro Visual do Print)
+        # Se der > 0, o mercado está em Bull Market Macro. Se der < 0, Bear Market agressivo.
+        df['macro_trend_alignment'] = (df['ema_50'] - df['ema_200']) / df['close'] * 100
+
+        # 🌟 FEATURE 2: Distância do Preço para a EMA 200 (A Gravidade)
+        # Mostra ao modelo se o preço está demasiado esticado longe da média institucional
+        df['dist_to_ema_200'] = (df['close'] - df['ema_200']) / df['close'] * 100
+        df['dist_to_ema_50'] = (df['close'] - df['ema_50']) / df['close'] * 100
+
+        # ==========================================
+        # TOQUE DE INTELIGÊNCIA 1: FEATURES DE MOMENTUM (LAG)
+        # ==========================================
+        for lag in [1, 3, 5]:
+            df[f'dist_upper_lag_{lag}'] = df['dist_to_upper_trendline'].shift(lag)
+            df[f'dist_low_lag_{lag}'] = df['dist_to_lower_trendline'].shift(lag)
+            df[f'rsi_lag_{lag}'] = df['macro_rsi'].shift(lag)
+            df[f'adx_lag_{lag}'] = df['adx'].shift(lag)
+            df[f'cmf_lag_{lag}'] = df['cmf'].shift(lag)
+            df[f'bb_high_lag_{lag}'] = df['dist_to_bb_high'].shift(lag)
+            df[f'bb_low_lag_{lag}'] = df['dist_to_bb_low'].shift(lag)
+
+        # Limpar as linhas que ficaram com NaNs devido aos shifts de lag ou indicadores base
+        df.dropna(subset=['dist_upper_lag_5', 'atr', 'macro_rsi'], inplace=True)
+        df.reset_index(drop=True, inplace=True)
+
+        # Lista final de colunas de treino (Adiciona aqui 'squeeze_index' ou 'st_direction' se quiseres que o modelo as use)
+        cols_base = [
+            'wedge_formation', 'dist_to_upper_trendline', 'dist_to_lower_trendline',
+            'breakout_up', 'breakout_down', 'volume_climax', 'macro_rsi', 'fast_rsi', 'atr',
+            'new_channel', 'box_duration', 'roc_fast', 'roc_mid', 'cmf', 'adx', 'bb_expansion',
+            'dist_to_lux_pivot_high', 'dist_to_lux_pivot_low'
+        ]
+
+        # Os teus lags já incluem os novos indicadores (BB, ADX, CMF). Está perfeito!
+        cols_lags = [f'dist_upper_lag_{l}' for l in [1, 3, 5]] + \
+                    [f'dist_low_lag_{l}' for l in [1, 3, 5]] + \
+                    [f'rsi_lag_{l}' for l in [1, 3, 5]] + \
+                    [f'adx_lag_{l}' for l in [1, 3]] + \
+                    [f'cmf_lag_{l}' for l in [1, 3]] + \
+                    [f'bb_high_lag_{l}' for l in [1, 3]] + \
+                    [f'bb_low_lag_{l}' for l in [1, 3]]
+
+        cols_train = cols_base + cols_lags
+
+        # 🚨 SOLUÇÃO DO BUG DE NANs: Garantir que a coluna de pesos existe SEMPRE
+        df['sample_weight'] = 1.0
+        df['label'] = 1  # Default: HOLD
+
+        # --- SMART LABELING ---
+        if is_training:
+            df_discovery = df.iloc[:int(len(df) * 0.8)].copy()
+            best_w, best_p, _ = MarketBrain.find_best_params(df_discovery, cols_train)
+
+            window = best_w
+            min_profit_pct = best_p
+
+            for i in range(len(df) - window):
+                price_entry = df['close'].iloc[i]
+                target_buy = price_entry * (1 + min_profit_pct)
+                target_sell = price_entry * (1 - min_profit_pct)
+
+                future_segment = df.iloc[i + 1: i + window + 1]
+                max_high = future_segment['high'].max()
+                min_low = future_segment['low'].min()
+
+                folga = 0.0005
+                prev_low = df['low'].iloc[i - 1]
+                prev_high = df['high'].iloc[i - 1]
+
+                sl_price_buy = prev_low * (1.0 - folga)
+                sl_price_sell = prev_high * (1.0 + folga)
+
+                move_up = (max_high - price_entry) / price_entry
+                move_down = (price_entry - min_low) / price_entry
+
+                # 🚨 CORREÇÃO CRÍTICA: Labeling Puro de Alvo vs Stop (A rampa imediata foi removida daqui)
+                # Se atingir o Alvo de Alta antes de violar o Stop anterior, é COMPRA (2)
+                if (max_high >= target_buy) and (min_low > sl_price_buy):
+                    df.iloc[i, df.columns.get_loc('label')] = 2
+                    # Atribui o peso proporcional à força da subida real
+                    df.iloc[i, df.columns.get_loc('sample_weight')] = 1.0 + (move_up * 100)
+
+                # Se atingir o Alvo de Baixa antes de violar o Stop anterior, é VENDA (0)
+                elif (min_low <= target_sell) and (max_high < sl_price_sell):
+                    df.iloc[i, df.columns.get_loc('label')] = 0
+                    # Atribui o peso proporcional à força da queda real
+                    df.iloc[i, df.columns.get_loc('sample_weight')] = 1.0 + (move_down * 100)
+
+        return df, df[cols_train]
 
     @staticmethod
     def find_best_params(df: pd.DataFrame, features: list):
@@ -300,8 +534,12 @@ class MarketBrain:
         import numpy as np
 
         # --- 1. CONFIGURAÇÃO DA BUSCA ---
+        # profit_test = [0.015, 0.02, 0.025, 0.030]
         profit_test = [0.01, 0.015, 0.02, 0.025]
-        window_test = [8, 10, 12, 16]
+        window_test = [8, 10, 12, 16, 20, 24]
+
+        # profit_test = [0.015, 0.025, 0.035, 0.045]  # Alvos de até 4.5% para aproveitar as explosões da SOL
+        # window_test = [16, 24, 36, 48]
 
         best_f1 = -1
         best_p = 0.02
@@ -372,17 +610,26 @@ class MarketBrain:
                 # Avaliação
                 preds = clf.predict(val_data[features])
 
-                # Focamos no sucesso das operações Reais (Buy e Sell)
+                # 1. Focamos no sucesso das operações Reais (Buy=0 e Sell=2)
                 f1 = f1_score(val_data['temp_label'], preds, labels=[0, 2], average='macro', zero_division=0)
-                num_signals = (preds != 1).sum()
 
-                print(f"  > Alvo {p_test * 100}% | Janela {w_test}: F1={f1:.4f} | Sinais={num_signals}")
+                # 2. Contagem de sinais REAIS gerados pelo labeling no set de treino e validação
+                real_signals_train = (train_data['temp_label'] != 1).sum()
+                num_predictions = (preds != 1).sum()  # Quantos sinais o modelo disparou na validação
 
-                # Critério de seleção: melhor F1 com um mínimo de sinais para evitar sorte
-                if f1 > best_f1 and num_signals > 5:
-                    best_f1 = f1
-                    best_p = p_test
-                    best_w = w_test
+                print(
+                    f"  > Alvo {p_test * 100}% | Janela {w_test}: F1={f1:.4f} | Sinais Reais Treino={real_signals_train} | Predições={num_predictions}")
+
+                # ----------------------------------------------------------------
+                # CRITÉRIO QUANT DE SEGURANÇA:
+                # Exigimos pelo menos 200 sinais reais no treino para o modelo ser confiável
+                # E exigimos que o modelo faça pelo menos 15 predições para avaliar a precisão
+                # ----------------------------------------------------------------
+                if real_signals_train >= 200 and num_predictions >= 15:
+                    if f1 > best_f1:
+                        best_f1 = f1
+                        best_p = p_test
+                        best_w = w_test
 
                 # Limpeza da coluna temporária para o próximo loop
                 df.drop(columns=['temp_label'], inplace=True)
@@ -391,192 +638,38 @@ class MarketBrain:
         return best_w, best_p, best_f1
 
     @staticmethod
-    def kalman_filter(data):
-        data = np.array(data)
-        n = len(data)
+    def add_luxalgo_pivots(df, length=50):
+        # 1. Encontrar Topos e Fundos usando apenas dados passados (Rolling Windows)
+        # O sinal é deslocado por 'length' para simular o atraso real do mercado ao vivo
+        df['rolling_max'] = df['high'].shift(length).rolling(window=length * 2 + 1, center=True).max()
+        df['rolling_min'] = df['low'].shift(length).rolling(window=length * 2 + 1, center=True).min()
 
-        # Parâmetros conforme o script Pine
-        process_noise = 0.2
-        measurement_error = 2.0
-        error_est = 1.0
+        # 2. Registar o preço exato do último pivô confirmado (sem olhar para o futuro)
+        # Criamos uma estrutura que "carrega" o último nível para as velas da frente
+        last_ph = np.nan
+        last_pl = np.nan
+        ph_series = []
+        pl_series = []
 
-        # Inicialização
-        estimate = data[0] if n > 0 else 0
-        kalman_values = np.zeros(n)
+        for i in range(len(df)):
+            # Se o preço de há 'length' velas atrás era o maior da janela de 100 velas
+            if df['high'].iloc[max(0, i - length)] == df['rolling_max'].iloc[max(0, i - length)]:
+                last_ph = df['high'].iloc[max(0, i - length)]
+            if df['low'].iloc[max(0, i - length)] == df['rolling_min'].iloc[max(0, i - length)]:
+                last_pl = df['low'].iloc[max(0, i - length)]
 
-        for i in range(n):
-            # No Pine: prediction := estimate
-            prediction = estimate
+            ph_series.append(last_ph)
+            pl_series.append(last_pl)
 
-            # Cálculo do ganho de Kalman
-            kalman_gain = error_est / (error_est + measurement_error)
+        df['lux_last_pivot_high'] = ph_series
+        df['lux_last_pivot_low'] = pl_series
 
-            # Atualização da estimativa
-            estimate = prediction + kalman_gain * (data[i] - prediction)
+        # 3. Métrica de Ouro para o LightGBM: Distância percentual até ao pivô
+        # É isto que o modelo vai ler para saber se está perto de uma reversão fantasma
+        df['dist_to_lux_pivot_high'] = (df['lux_last_pivot_high'] - df['close']) / df['close']
+        df['dist_to_lux_pivot_low'] = (df['close'] - df['lux_last_pivot_low']) / df['close']
 
-            # Atualização do erro da estimativa
-            error_est = (1 - kalman_gain) * error_est + process_noise
-
-            kalman_values[i] = estimate
-
-        return kalman_values
-
-    @staticmethod
-    def breakout_structure(df: pd.DataFrame):
-        # 1. Identificar Swing Highs (Topos locais)
-        # Um topo é quando a vela atual é maior que as 2 anteriores e as 2 seguintes
-        df['is_swing_high'] = (
-                (df['high'] > df['high'].shift(1)) &
-                (df['high'] > df['high'].shift(2)) &
-                (df['high'] > df['high'].shift(-1)) &
-                (df['high'] > df['high'].shift(-2))
-        ).astype(int)
-
-        # 2. Identificar Swing Lows (Fundos locais)
-        df['is_swing_low'] = (
-                (df['low'] < df['low'].shift(1)) &
-                (df['low'] < df['low'].shift(2)) &
-                (df['low'] < df['low'].shift(-1)) &
-                (df['low'] < df['low'].shift(-2))
-        ).astype(int)
-
-        # 3. Mapear o valor do ÚLTIMO topo e fundo confirmado
-        # Usamos ffill() para que o robô saiba sempre onde está a "barreira" a ser batida
-        df['last_high'] = df['high'].where(df['is_swing_high'] == 1).ffill()
-        df['last_low'] = df['low'].where(df['is_swing_low'] == 1).ffill()
-
-        # 4. Quebras de Estrutura (BOS - Break of Structure)
-        # Bullish Break: Fecho atual acima do último topo
-        df['break_up'] = (df['close'] > df['last_high'].shift(1)).astype(int)
-
-        # Bearish Break: Fecho atual abaixo do último fundo
-        df['break_down'] = (df['close'] < df['last_low'].shift(1)).astype(int)
-
-        # 5. Tendência de Estrutura (Higher Highs / Lower Lows)
-        # Útil para o modelo saber se estamos em "escada" de alta ou baixa
-        df['higher_high'] = (df['last_high'] > df['last_high'].shift(5)).astype(int)
-        df['lower_low'] = (df['last_low'] < df['last_low'].shift(5)).astype(int)
-
-        return df
-
-    @staticmethod
-    def bb_extreme_zones(df: pd.DataFrame):
-        # 1. Base e Volatilidade
-        df['ltf_basis'] = MarketBrain.kalman_filter(df['close'])
-        std_20 = df['close'].rolling(20).std()
-        std_80 = df['close'].rolling(80).std()
-
-        # 2. BB Curta (20) com Kalman
-        df['bb20_up'] = df['ltf_basis'] + (2.0 * std_20)
-        df['bb20_low'] = df['ltf_basis'] - (2.0 * std_20)
-
-        # 3. BB Longa (80)
-        # Calculamos a base da 80 (pode ser SMA ou outro Kalman mais lento)
-        bb80_basis = df['close'].rolling(80).mean()
-        bb80_up_raw = bb80_basis + (2.25 * std_80)
-        bb80_low_raw = bb80_basis - (2.25 * std_80)
-
-        # 4. Suavização das Bandas Longas (para evitar sinais nervosos)
-        df['bb80_up'] = bb80_up_raw.rolling(window=20).mean()
-        df['bb80_low'] = bb80_low_raw.rolling(window=20).mean()
-
-        # 5. Features de Exaustão (Onde a mágica acontece)
-        # Diferença entre as bandas (Squeeze/Expansion extremo)
-        df['bb_squeeze_diff_low'] = df['bb80_low'] - df['bb20_low']
-        df['bb_squeeze_diff_high'] = df['bb20_up'] - df['bb80_up']
-
-        # 6. Sinais de Setup (Binários para o Modelo)
-        # Compra: BB80 Low acima da BB20 Low E preço abaixo da BB80
-        df['extreme_buy_setup'] = ((df['bb80_low'] > df['bb20_low']) & (df['low'] < df['bb80_low'])).astype(int)
-
-        # Venda: BB80 Up abaixo da BB20 Up E preço acima da BB80
-        df['extreme_sell_setup'] = ((df['bb80_up'] < df['bb20_up']) & (df['high'] > df['bb80_up'])).astype(int)
-
-        # 7. Inclinação da BB20 (Filtro de "faca a cair")
-        df['bb20_low_reverting'] = (df['bb20_low'] > df['bb20_low'].shift(1)).astype(int)
-        df['bb20_up_reverting'] = (df['bb20_up'] < df['bb20_up'].shift(1)).astype(int)
-
-        # 8. Filtro de RSI (Vetorizado)
-        # Marcamos 1 se o RSI esteve em zona extrema nas últimas 3 velas
-        df['rsi_extreme_low'] = df['rsi'].rolling(3).apply(lambda x: (x < 30).any()).fillna(0).astype(int)
-        df['rsi_extreme_high'] = df['rsi'].rolling(3).apply(lambda x: (x > 70).any()).fillna(0).astype(int)
-
-        # 9. CONFLUÊNCIA FINAL (A feature que resume o teu indicador)
-        df['double_bb_signal'] = 0
-        df.loc[(df['extreme_buy_setup'] == 1) & (df['rsi_extreme_low'] == 1) & (
-                df['close'] > df['ltf_basis']), 'double_bb_signal'] = 1
-        df.loc[(df['extreme_sell_setup'] == 1) & (df['rsi_extreme_high'] == 1) & (
-                df['close'] < df['ltf_basis']), 'double_bb_signal'] = -1
-
-        return df
-
-    @staticmethod
-    def add_sanity_filters(df: pd.DataFrame):
-        # 1. TENDÊNCIA MACRO (O "Navio")
-        # Usamos uma EMA lenta (ex: 100 ou 200) para ver a inclinação
-        df['ema_macro'] = df['close'].ewm(span=100, adjust=False).mean()
-        # Slope: Se positivo, tendência de alta. Se negativo, queda.
-        df['ema_macro_slope'] = df['ema_macro'].diff(3)
-
-        # 2. FORÇA DA TENDÊNCIA (ADX)
-        # Evita operar contra-tendência quando o "sangue" corre forte
-        adx_i = ADXIndicator(df['high'], df['low'], df['close'], window=14)
-        df['adx'] = adx_i.adx()
-        df['dmi_plus'] = adx_i.adx_pos()
-        df['dmi_minus'] = adx_i.adx_neg()
-
-        # 3. DISTÂNCIA ÀS BANDAS (Localização)
-        # Mede onde o preço está em relação ao "teto" e "chão" da BB80
-        # Se o valor for muito pequeno, estamos colados ao topo (Perigo para BUY)
-        df['dist_upper_bb80'] = (df['bb80_up'] - df['close']) / df['close']
-        df['dist_lower_bb80'] = (df['close'] - df['bb80_low']) / df['close']
-
-        # 4. FILTROS BINÁRIOS (Para ajudar o modelo a decidir)
-        # Proibição de Buy se estivermos em queda forte e longe da média
-        df['filter_no_buy'] = ((df['ema_macro_slope'] < 0) & (df['dmi_minus'] > df['dmi_plus'])).astype(int)
-        # Proibição de Sell se estivermos em tendência de alta forte
-        df['filter_no_sell'] = ((df['ema_macro_slope'] > 0) & (df['dmi_plus'] > df['dmi_minus'])).astype(int)
-
-        return df
-
-    @staticmethod
-    def add_custom_oscillators(df: pd.DataFrame):
-        df_temp = df.copy()
-        if pd.api.types.is_datetime64_any_dtype(df_temp['timestamp']):
-            df_temp['timestamp'] = df_temp['timestamp'].astype('int64') // 10 ** 6
-
-        custom_indicators = CustomIndicatorsUtils(OhlcvWrapper(df_temp.values.tolist()), mode='custom')
-        _, direction, _, _, _, _, _ = custom_indicators.supertrend()
-        final_scores, _ = custom_indicators.calculate_super_score()
-
-        tv_indicators = TvIndicatorsUtils(OhlcvWrapper(df_temp.values.tolist()), mode='custom')
-        sq_index = tv_indicators.squeeze_index()
-
-        regime_filter = tv_indicators.regime_filter()
-        trend = regime_filter['trend']
-        voltrend = regime_filter['voltrend']
-        efficiency = regime_filter['efficiency']
-
-        andean = tv_indicators.calculate_andean_oscillator()
-        andean_bull = andean['bull']
-        andean_bear = andean['bear']
-        andean_signal = andean['signal']
-
-        oscillator_values, signal_line, _, _, _ = tv_indicators.regression_slope_oscillator()
-
-        df["super_score"] = final_scores
-
-        df["sq_index"] = sq_index
-
-        df["regime_filter_trend"] = trend
-        df["regime_filter_voltrend"] = voltrend
-        df["regime_filter_efficiency"] = efficiency
-
-        df["andean_bull"] = andean_bull
-        df["andean_bear"] = andean_bear
-        df["andean_signal"] = andean_signal
-
-        df["regression_oscillator"] = oscillator_values
-        df["regression_signal"] = signal_line
+        # Limpar colunas temporárias para não carregar o dataset
+        df.drop(columns=['rolling_max', 'rolling_min'], inplace=True)
 
         return df

@@ -542,7 +542,7 @@ class BacktestRunner:
 
         # print(signals)
         if is_plot:
-            PlotTrades.plot_trades(self.pair.symbol, self.ohlcv, signals, exchange_client.trades)
+            PlotTrades.plot_trades(self.pair.symbol, OhlcvWrapper(self.ohlcv), signals, exchange_client.trades)
 
         # print(f"[TRADE_SNAPSHOT] {bot.get_average_features()}")
         exchange_client.generate_detailed_report(exchange_client.trades)
@@ -585,10 +585,10 @@ class BacktestRunner:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("ETH/USDC:USDC")
+    pair = get_pair_by_symbol("BTC/USDC:USDC")
 
     if pair is not None:
-        runner = BacktestRunner(StrategyEnum.ML_LIGHTGBM, TimeframeEnum.M15, pair, 750, 1000)
+        runner = BacktestRunner(StrategyEnum.ML_LIGHTGBM, TimeframeEnum.M15, pair, 5000, 1000)
 
         await runner.run(True)
     # print(LoadParams.load_best_params_with_weights())

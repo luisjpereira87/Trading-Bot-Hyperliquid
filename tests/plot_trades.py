@@ -2,7 +2,6 @@ import asyncio
 import logging
 import os
 import sys
-from datetime import datetime
 
 import matplotlib.dates as mdates
 import numpy as np
@@ -120,28 +119,55 @@ class PlotTrades:
                 current_signal = signal_type
 
     @staticmethod
-    def plot_trades(symbol, candles, signals, trades):
+    def plot_trades(symbol, ohlcv: OhlcvWrapper, signals, trades):
         # Preparar dados para plot
-        dates = [datetime.fromtimestamp(c[0] / 1000) for c in candles]
-        opens = [c[1] for c in candles]
-        highs = [c[2] for c in candles]
-        lows = [c[3] for c in candles]
-        closes = [c[4] for c in candles]
+        # dates = [datetime.fromtimestamp(c[0] / 1000) for c in candles]
+        # opens = [c[1] for c in candles]
+        # highs = [c[2] for c in candles]
+        # lows = [c[3] for c in candles]
+        # closes = [c[4] for c in candles]
 
-        fig, ax = plt.subplots(figsize=(15, 7))
+        dates = ohlcv.dates
+        opens = ohlcv.opens
+        highs = ohlcv.highs
+        lows = ohlcv.lows
+        closes = ohlcv.closes
+
+        indicators_utils = IndicatorsUtils(ohlcv)
+
+        # fig, ax = plt.subplots(figsize=(15, 7))
+        fig, (ax, ax2) = plt.subplots(2, 1, figsize=(16, 10), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
         ax.set_title(f"Backtest Trades - {symbol}")
 
         # Plotar candles com linhas de alta/baixa
-        for i in range(len(candles)):
+        for i in range(len(closes)):
             color = 'green' if closes[i] >= opens[i] else 'red'
             ax.plot([dates[i], dates[i]], [lows[i], highs[i]], color=color)  # linha high-low
             ax.plot([dates[i], dates[i]], [opens[i], closes[i]], color=color, linewidth=5)  # corpo candle
+
+        # EMA 50
+        ema200 = indicators_utils.ema(200)
+        ax.plot(dates, ema200, color='blue', linestyle='-', linewidth=1.5, label='EMA 200')
+
+        ema50 = indicators_utils.ema(50)
+        ax.plot(dates, ema50, color='red', linestyle='-', linewidth=1.5, label='EMA 50')
 
         # Plotar entradas e saídas
         PlotTrades.build_trade(ax, dates, trades)
 
         # Plotar pontuação (score) sobre os candles
         PlotTrades.build_signals(ax, dates, signals, highs, lows)
+
+        rsi, rsi_ema = indicators_utils.rsi()
+        ax2.plot(dates, rsi, color='#9b59b6', linewidth=2)
+        # ax2.plot(indices, rsi_higher, color='#368921', linewidth=2)
+        ax2.plot(dates, rsi_ema, color="#368921", linewidth=2)
+        # ax2.plot(indices, rsi_ema, color="#368921", linewidth=2)
+        ax2.axhline(70, color='red', linestyle='--', alpha=0.3)
+        ax2.axhline(50, color='yellow', linestyle='--', alpha=0.3)
+        ax2.axhline(30, color='green', linestyle='--', alpha=0.3)
+        ax2.set_facecolor('#131722')
+        ax2.set_ylim(0, 100)
 
         # Evitar legendas repetidas
         handles, labels = plt.gca().get_legend_handles_labels()
@@ -1736,8 +1762,8 @@ async def main():
         # PlotTrades.plot_smart_money_flow_cloud(ohlcv, pair.symbol)
         # PlotTrades.plot_custom_supertrend(ohlcv, pair.symbol)
         # PlotTrades.plot_volumatic_vidya(ohlcv, pair.symbol)
-        # PlotTrades.plot_smart_money_breakout(ohlcv, pair.symbol)
-        PlotTrades.plot_sha_macd_raw_signals(ohlcv, pair.symbol)
+        PlotTrades.plot_smart_money_breakout(ohlcv, pair.symbol)
+        # PlotTrades.plot_sha_macd_raw_signals(ohlcv, pair.symbol)
         # PlotTrades.plot_double_rsi_signals(ohlcv, pair.symbol)
         # PlotTrades.plot_double_bb_rsi_logic(ohlcv, pair.symbol)
         # PlotTrades.plot_soheil_pko_strategy(ohlcv, pair.symbol)

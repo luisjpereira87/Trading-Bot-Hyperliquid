@@ -6,6 +6,7 @@ from typing import List
 import joblib
 import numpy as np
 import pandas as pd
+import ta.momentum
 
 from commons.enums.mode_enum import ModeEnum
 from commons.models.metadata_dclass import Metadata
@@ -55,7 +56,7 @@ class MLStrategy(StrategyBase):
 
         self.is_combined_model = is_combined_model
 
-        self.metadata: Metadata
+        self.metadata: (Metadata | None) = None
 
     def required_init(self, ohlcv: OhlcvWrapper, ohlcv_higher: (OhlcvWrapper | None), symbol: str, price_ref: float):
         self.ohlcv = ohlcv
@@ -228,7 +229,7 @@ class MLStrategy(StrategyBase):
 
         return round(float(sl), 4), round(float(tp), 4)
 
-    def supertrend_sl_tp(self, price: float, lowerband: float, upperband: float, signal: Signal):
+    def supertrend_sl_tp_(self, price: float, lowerband: float, upperband: float, signal: Signal):
 
         if signal == Signal.BUY:
             sl = lowerband  # SL no ponto mais baixo da banda
@@ -253,6 +254,176 @@ class MLStrategy(StrategyBase):
             # Se o novo TP for absurdamente longe, talvez seja melhor não entrar.
 
         return round(float(sl), 4), round(float(tp), 4)
+
+    def supertrend_sl_tp_(self, price: float, lowerband: float, upperband: float, signal: Signal):
+        # Se o sinal for HOLD, nem vale a pena calcular nada
+        if signal == Signal.HOLD:
+            return None, None
+
+        # 1. Definir os alvos originais baseados nas bandas da Supertrend
+        if signal == Signal.BUY:
+            sl = lowerband  # SL na banda inferior (suporte)
+            tp = upperband + (upperband - sl) * 0.5
+
+        elif signal == Signal.SELL:
+            sl = upperband  # SL na banda superior (resistência)
+            tp = lowerband - (sl - lowerband) * 0.5
+        else:
+            return None, None
+
+        # 2. Calcular o Risco e o Retorno brutos do trade
+        risk = abs(price - sl)
+        reward = abs(tp - price)
+
+        # Evitar divisão por zero se as bandas estiverem literalmente em cima do preço
+        if risk == 0:
+            return None, None
+
+        # 3. FILTRO DE ELITE: Validar o Rácio Risco/Retorno Real
+        min_rr = 1.2
+
+        # Se o prémio (reward) não pagar o risco com a margem necessária,
+        # significa que as bandas estão demasiado coladas (mercado lateral). Não entramos!
+        if reward < (risk * min_rr):
+            # DEBUG para saberes porque é que o bot ficou de mãos no bolso
+            # print(f"  [FILTRO RR] Trade rejeitado. Reward ({reward:.2f}) menor que o Risco Mínimo ({risk * min_rr:.2f})")
+            return None, None
+
+        return round(float(sl), 4), round(float(tp), 4)
+
+    def supertrend_sl_tp(self, price: float, df_window: pd.DataFrame, signal: Signal):
+        """
+        df_window: Passa as últimas velas do teu DataFrame para extrair os máximos/mínimos
+        """
+        if signal == Signal.HOLD or len(df_window) < 2:
+            return None, None
+
+        # Extrair os dados da vela anterior (índice -2) e da atual (-1)
+        prev_low = df_window['low'].iloc[-2]
+        prev_high = df_window['high'].iloc[-2]
+        prev_candle_size = prev_high - prev_low
+        atr_prev = df_window['atr'].iloc[-2]
+        """
+        MAX_CANDLE_FACTOR = 3.0
+        if prev_candle_size > (atr_prev * MAX_CANDLE_FACTOR):
+            # print(f"🚨 [BLOQUEIO GIGANTE] Abortado. A vela anterior (SL) é uma anomalia.")
+            return None, None
+        """
+        # 1. DEFINIÇÃO DO STOP LOSS E TAKE PROFIT (MÉTODO PRICE ACTION ESTREITO)
+        # Damos uma folga cirúrgica de 0.05% para evitar violinadas de ruído
+        folga = 0.0005
+
+        if signal == Signal.BUY:
+            # O SL acompanha o preço: fica logo abaixo do mínimo da vela anterior
+            sl = prev_low * (1.0 - folga)
+            # O TP mantém-se agressivo para ir buscar os teus +2.0% ou mais
+            # Exemplo: Alvo fixo de 2.2% para garantir que surfamos a tendência macro
+            tp = price * 1.022
+
+        elif signal == Signal.SELL:
+            # O SL acompanha o preço: fica logo acima do máximo da vela anterior
+            sl = prev_high * (1.0 + folga)
+            # Alvo fixo de short de 2.2%
+            tp = price * (1.0 - 0.022)
+        else:
+            return None, None
+
+        """
+        risk_percent = abs(price - sl) / price
+
+        # O teu limite prático e direto baseado nos teus 15 USDC:
+        if risk_percent > 0.005:  # 0.5%
+            return None, None
+        """
+        # 2. VALIDAÇÃO MATEMÁTICA DO RISCO/RETORNO (R:R)
+        risk = abs(price - sl)
+        reward = abs(tp - price)
+
+        if risk == 0:
+            return None, None
+
+        # Exigimos que o prémio seja pelo menos 1.5 vezes maior que o risco
+        # Graças ao SL curto na vela anterior, este filtro vai aceitar muito mais trades de elite!
+        min_rr = 1.5
+
+        if reward < (risk * min_rr):
+            # Se mesmo com o SL curto o risco for muito grande (vela anterior gigante), abortamos
+            return None, None
+
+        return round(float(sl), 4), round(float(tp), 4)
+
+    def is_exhaustion_zone(self, df_atual: pd.DataFrame, signal: Signal) -> bool:
+        """
+        Filtro de Reversão do Luís:
+        - Bloqueia Shorts em sobrevenda extrema (RSI < 30) e Longs em sobrecompra (RSI > 70).
+        - Só aceita trades contra-tendência se o preço estiver LONGE das EMAs (vácuo).
+        - Se o preço estiver perto ou a furar as EMAs, o contra-tendência é bloqueado.
+        """
+        if len(df_atual) < 200:
+            return False
+
+        df_local = df_atual.copy()
+
+        # Garantia das EMAs (vamos usar a EMA 50 e EMA 200 para medir o vácuo)
+        if 'ema_50' not in df_local.columns:
+            df_local['ema_50'] = df_local['close'].ewm(span=50, adjust=False).mean()
+        if 'ema_200' not in df_local.columns:
+            df_local['ema_200'] = df_local['close'].ewm(span=200, adjust=False).mean()
+        if 'rsi' not in df_local.columns:
+            df_local['rsi'] = ta.momentum.rsi(df_local['close'], window=14)
+
+        last_candle = df_local.iloc[-1]
+        close_atual = last_candle['close']
+        ema50 = last_candle['ema_50']
+        ema200 = last_candle['ema_200']
+
+        # Definir uma distância mínima de segurança para considerar "longe" (ex: 1.5% ou 2% da média)
+        # Podes ajustar este threshold percentual conforme o comportamento da Solana
+        distancia_minima_pct = 0.015
+
+        # --- 🟢 VALIDAR GATILHO DE BUY (Procura Reversão para Alta) ---
+        if signal == Signal.BUY:
+            # 1. Proteção estática: Não comprar topo absoluto
+            if last_candle['rsi'] > 70:
+                return True  # 🛑 BLOQUEIA
+
+            # Se o preço está ACIMA da EMA 200, está a favor da tendência macro. Caminho livre.
+            if close_atual > ema200:
+                return False  # ✅ AUTORIZA
+
+            # Se o preço está ABAIXO da EMA 200 (Contra-tendência), validamos a distância:
+            else:
+                # Calcula a distância para a EMA mais próxima (EMA 50 ou 200)
+                dist_ema50 = (ema50 - close_atual) / close_atual
+
+                # Se a distância for pequena, significa que o preço está perto ou a furar a média. Perigoso!
+                if dist_ema50 < distancia_minima_pct:
+                    return True  # 🛑 BLOQUEIA (Está colado ou a furar a média)
+
+                return False  # ✅ AUTORIZA (Está isolado cá em baixo, longe das EMAs, bom para reversão)
+
+        # --- 🔴 VALIDAR GATILHO DE SELL (Procura Reversão para Baixa) ---
+        if signal == Signal.SELL:
+            # 1. Proteção estática: Salva os teus prejuízos dos fundos (1738/1789)
+            if last_candle['rsi'] < 30:
+                return True  # 🛑 BLOQUEIA
+
+            # Se o preço está ABAIXO da EMA 200, está a favor da tendência de queda. Caminho livre.
+            if close_atual < ema200:
+                return False  # ✅ AUTORIZA
+
+            # Se o preço está ACIMA da EMA 200 (Contra-tendência - Caso do Index 1734):
+            else:
+                # Calcula a distância para a EMA 50 ou 200
+                dist_ema50 = (close_atual - ema50) / ema50
+
+                # Se o preço estiver colado à média ou mesmo em cima dela a furar, não queremos shortar
+                if dist_ema50 < distancia_minima_pct:
+                    return True  # 🛑 BLOQUEIA (A furar ou perto demais da média)
+
+                return False  # ✅ AUTORIZA (Está esticado lá no topo, longe de tudo, ótimo para apanhar o início do Short)
+
+        return False
 
     def predict_signal(self, df: pd.DataFrame) -> SignalResult:
         if self.model is None or self.metadata is None:
@@ -305,23 +476,40 @@ class MLStrategy(StrategyBase):
         confidence = proba[idx]
 
         latest_row = df_with_ind.iloc[-1]
+
         close_price = latest_row['close']
         # print("AQUII", latest_row)
-        atr = latest_row['atr']
+        # atr = latest_row['atr']
         st_lowerband = latest_row['st_lowerband']
         st_upperband = latest_row['st_upperband']
+
+        close = latest_row['close']
 
         logging.info(
             f"🤖 [{self.model_type.value}] Prob: L:{proba[0]:.2f} | N:{proba[1]:.2f} | H:{proba[2]:.2f} (Conf: {confidence:.2f})")
 
         # if confidence > 0.5:
-        if idx == 2 and confidence > self.metadata.threshold_buy:  # ALTA
+        if idx == 2 and confidence > (self.metadata.threshold_buy):  # ALTA
             # $sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.BUY)
-            sl, tp = self.supertrend_sl_tp(close_price, st_lowerband, st_upperband, Signal.BUY)
+            sl, tp = self.supertrend_sl_tp(close_price, df_with_ind, Signal.BUY)
+
+            if sl is None or tp is None:
+                return SignalResult(Signal.HOLD, confidence=confidence)
+
+            # if self.is_exhaustion_zone(df, Signal.BUY):
+            #    return SignalResult(Signal.HOLD, confidence=confidence)
+
             return SignalResult(Signal.BUY, sl, tp, confidence)
-        elif idx == 0 and confidence > self.metadata.threshold_buy:  # BAIXA
-            sl, tp = self.supertrend_sl_tp(close_price, st_lowerband, st_upperband, Signal.SELL)
+        elif idx == 0 and confidence > (self.metadata.threshold_sell):  # BAIXA
+            sl, tp = self.supertrend_sl_tp(close_price, df_with_ind, Signal.SELL)
             # sl, tp = self.compute_sl_tp(close_price, atr, confidence, Signal.SELL)
+
+            if sl is None or tp is None:
+                return SignalResult(Signal.HOLD, confidence=confidence)
+
+            # if self.is_exhaustion_zone(df, Signal.SELL):
+            #    return SignalResult(Signal.HOLD, confidence=confidence)
+
             return SignalResult(Signal.SELL, sl, tp, confidence)
 
         return SignalResult(Signal.HOLD, confidence=confidence)
@@ -330,8 +518,12 @@ class MLStrategy(StrategyBase):
         if self.ohlcv is None and self.symbol is None:
             logging.error("Tem que executar em primeiro lugar o método required_init")
 
+        if self.metadata is not None and self.metadata.is_fresh == False:
+            self.model_loaded = False
+
         await self.initialize(self.model_type)
         df = self.fetch_ohlcv(self.ohlcv)
+        df = df.iloc[:-1]
         result = self.predict_signal(df)
         logging.info(f"🚦 Sinal ML para {self.symbol}: {result}")
         return result

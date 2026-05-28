@@ -16,7 +16,7 @@ from seaborn import cm
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import (accuracy_score, classification_report,
                              confusion_matrix, f1_score, precision_score, recall_score)
-from sklearn.model_selection import GridSearchCV, train_test_split
+from sklearn.model_selection import GridSearchCV, train_test_split, TimeSeriesSplit
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.utils import compute_class_weight
@@ -73,6 +73,7 @@ class MLTrainer:
         elif self.model_type == MLModelType.LIGHTGBM:
             custom_weights = {0: 15.0, 1: 1.0, 2: 15.0}
 
+            """
             return LGBMClassifier(
                 n_estimators=200,  # Menos árvores para não saturar
                 learning_rate=0.03,
@@ -83,9 +84,26 @@ class MLTrainer:
                 reg_alpha=0.5,  # Regularização L1
                 reg_lambda=0.5,  # Regularização L2
                 random_state=42,
-                min_child_samples=100
+                # min_child_samples=100
+                min_child_samples=30
             )
 
+            """
+            return LGBMClassifier(
+                n_estimators=200,
+                # learning_rate=0.015,
+                learning_rate=0.02,
+                # num_leaves=15,  # 🚨 Domado!
+                num_leaves=31,  # 🧠 Cérebro mais detalhado
+                # max_depth=4,  # 🚨 Domado!
+                max_depth=6,  # Deixa as árvores crescerem livremente
+                # min_child_samples=150,  # Exige 150 candles para criar uma regra
+                min_child_samples=30,  # 🎯 Exige poucas amostras para criar regras
+                feature_fraction=0.7,  # Não deixa usar todas as colunas ao mesmo tempo
+                random_state=42,
+                n_jobs=-1,
+                verbosity=-1
+            )
             """
             return LGBMClassifier(
                 n_estimators=500,
@@ -94,9 +112,10 @@ class MLTrainer:
                 class_weight='balanced',
                 random_state=42,
                 importance_type='gain',
+
+                min_child_samples=50
             )
             """
-
             """
             return LGBMClassifier(
                 n_estimators=1000,  # Mais árvores para refinamento
@@ -136,6 +155,46 @@ class MLTrainer:
             raise ValueError("Modelo desconhecido")
 
     def _get_param_grid(self):
+        if self.model_type == MLModelType.RANDOM_FOREST:
+            return {
+                'n_estimators': [100, 200],
+                'max_depth': [4, 6, 8],  # 🚨 Antes tinhas até 20 (overfitting puro)
+                'min_samples_leaf': [50, 150],  # Obriga as folhas a serem robustas
+                'class_weight': ['balanced', None]
+            }
+
+        elif self.model_type == MLModelType.XGBOOST:
+            return {
+                'n_estimators': [100, 200],
+                'max_depth': [3, 4, 5],  # 🚨 Árvores rasas para o BTC são muito melhores
+                'learning_rate': [0.01, 0.03],  # Passos mais lentos e precisos
+                'subsample': [0.7, 0.8],
+                'colsample_bytree': [0.7, 0.8]  # Seleção aleatória de colunas
+            }
+
+        elif self.model_type == MLModelType.MLP:
+            return {
+                'hidden_layer_sizes': [(32,), (32, 16)],  # Redes mais simples para não decorar ruído
+                'activation': ['tanh'],  # Tanh costuma ser mais estável em finanças
+                'alpha': [0.001, 0.01],  # Regularização forte L2
+                'learning_rate_init': [0.005]
+            }
+
+        elif self.model_type == MLModelType.LIGHTGBM:
+            return {
+                'n_estimators': [100, 300],
+                'learning_rate': [0.01, 0.03],
+                # 'num_leaves': [7, 15],  # 🚨 CRÍTICO: Antes tinhas até 50! Agora limitamos o crescimento
+                'num_leaves': [15, 31],
+                'max_depth': [3, 4],  # Controla a profundidade vertical
+                # 'min_child_samples': [100, 200],  # 🚨 CRÍTICO: Equivalente ao min_data_in_leaf
+                'min_child_samples': [20, 40],
+                'feature_fraction': [0.7, 0.8]
+            }
+        else:
+            return {}
+
+    def _get_param_grid_(self):
         if self.model_type == MLModelType.RANDOM_FOREST:
             return {
                 'n_estimators': [50, 100, 200],
@@ -231,6 +290,8 @@ class MLTrainer:
         # Calcula indicadores e labels apenas para esta moeda
         df_with_ind, features_raw = MarketBrain.add_indicators(df, is_training=True)
 
+        # MarketBrain.plot_trading_channels(df_with_ind, num_candles=400)
+
         # GARANTIA ANTI-BATOTA:
         # Forçamos o modelo a ver APENAS as colunas que decidimos
         # features = features_raw[cols_model].copy()
@@ -238,8 +299,9 @@ class MLTrainer:
         # Fundamental: Reset do índice para o modelo não decorar a "linha"
         features = features_raw.reset_index(drop=True)
         labels = df_with_ind["label"].reset_index(drop=True)
+        sample_weight = df_with_ind["sample_weight"].reset_index(drop=True)
 
-        return features, labels, df_with_ind
+        return features, labels, sample_weight, df_with_ind
 
     def build_lstm_model(self, input_shape, num_classes, lstm_units=50, dropout_rate=0.2):
         model = Sequential()
@@ -424,7 +486,7 @@ class MLTrainer:
 
         logging.info(f"🧠 Supervisor Bayesiano treinado com {len(df)} candles. Prior: {prior_win:.2%}")
 
-    def train_and_save_model(self, features, labels, symbol):
+    def train_and_save_model_(self, features, labels, symbol):
         # --- NOVIDADE: LIMPEZA DE NANs E SINCRONIZAÇÃO ---
         # 1. Garante que labels e features têm o mesmo índice e remove NaNs de ambos
         # Isso evita o erro "Input contains NaN" se a label de 2% falhou em algumas linhas
@@ -563,10 +625,37 @@ class MLTrainer:
 
         logging.info(f"💾 Modelo salvo em: {model_path}")
 
+        """
         importances = model.feature_importances_
         # feature_names = features
         for name, imp in sorted(zip(features, importances), key=lambda x: x[1], reverse=True):
             print(f"{name}: {imp}")
+        """
+
+        # --- CORREÇÃO: IMPRIMIR IMPORTÂNCIA DAS FEATURES EM QUALQUER CENÁRIO ---
+        try:
+            # Garantir que pegamos nas importâncias quer o modelo venha do GridSearch ou direto
+            if hasattr(model, 'feature_importances_'):
+                importances = model.feature_importances_
+            elif hasattr(model, 'best_estimator_') and hasattr(model.best_estimator_, 'feature_importances_'):
+                importances = model.best_estimator_.feature_importances_
+            else:
+                importances = None
+
+            if importances is not None:
+                logging.info("📊 --- RANKING DE IMPORTÂNCIA DOS INDICADORES ---")
+                # Criamos uma lista ordenada para ver quem manda no modelo
+                feature_ranking = sorted(zip(features.columns, importances), key=lambda x: x[1], reverse=True)
+
+                for name, imp in feature_ranking:
+                    # Mostra a percentagem de importância de cada indicador
+                    print(f"🔹 {name:<30}: {imp:.4f}")
+                logging.info("------------------------------------------------")
+            else:
+                logging.warning("⚠️ Não foi possível extrair a importância das features para este tipo de modelo.")
+
+        except Exception as e:
+            logging.error(f"❌ Erro ao gerar o ranking de indicadores: {str(e)}")
 
         if self.save_img:
             plt.figure(figsize=(6, 5))
@@ -581,7 +670,351 @@ class MLTrainer:
             logging.info(f"🖼️ Matriz de confusão salva em: {img_path}")
             plt.close()
 
-    def find_best_threshold(self, y_true, y_probs, class_index):
+    def train_and_save_model_old(self, features, labels, sample_weights, symbol):
+        # --- NOVIDADE: LIMPEZA DE NANs E SINCRONIZAÇÃO COMPLETA COM PESOS ---
+        # Colocamos os pesos no mesmo caldeirão de limpeza para garantir sincronia absoluta de índices
+        combined = pd.DataFrame(pd.concat([features, labels, sample_weights], axis=1)).dropna()
+
+        if len(combined) < 100:
+            logging.error(f"❌ Dados insuficientes para {symbol} após limpeza. Pulando treino.")
+            return
+
+        # Separa novamente após a limpeza (features, labels e agora pesos)
+        features = combined.iloc[:, :-2]  # Todas as colunas de indicadores e lags
+        labels = combined.iloc[:, -2]  # A penúltima coluna (label)
+        weights = combined.iloc[:, -1]  # A última coluna (sample_weight)
+        # ---------------------------------------------------------------------
+
+        symbol_clean = symbol.replace("/", "_").replace(":", "_")
+        model_path = get_model_path(self.model_type.value, self.exchange_name, symbol_clean)
+
+        os.makedirs(os.path.dirname(model_path), exist_ok=True)
+        scaler_path = model_path.replace(".pkl", "_scaler.pkl")
+
+        # --- ALTERAÇÃO 1: SPLIT TEMPORAL (Para todos os modelos) ---
+        # Cortamos os últimos 20% dos dados para validação (Sem baralhar os candles)
+        split_idx = int(len(features) * 0.8)
+
+        if self.model_type == MLModelType.LSTM:
+            # Cria sequências
+            window_size = 30
+            X_seq, y_seq = self.create_sequences(features.values, labels.values, window_size)
+
+            # Split de treino/validação
+            X_train, X_val, y_train, y_val = train_test_split(
+                X_seq, y_seq, test_size=0.2, random_state=42
+            )
+
+            # Mostra distribuição das classes
+            unique, counts = np.unique(y_train, return_counts=True)
+            class_distribution = dict(zip(unique, counts))
+            logging.info(f"📊 Distribuição das classes no treino (LSTM): {class_distribution}")
+
+            # Calcula pesos inversamente proporcionais à frequência
+            class_weights = compute_class_weight(class_weight='balanced', classes=np.unique(y_train), y=y_train)
+            class_weight_dict = {i: w for i, w in enumerate(class_weights)}
+            logging.info(f"⚖️ Pesos das classes: {class_weight_dict}")
+
+            # Treinamento com pesos
+            model, scaler, history = self.train_lstm(X_train, y_train, X_val, y_val, class_weight=class_weight_dict)
+
+            # Salvamento do modelo e scaler
+            model_path_keras = model_path.replace(".pkl", ".keras")
+            scaler_path = model_path.replace(".pkl", "_scaler.pkl")
+
+            model.save(model_path_keras, include_optimizer=True)
+            joblib.dump(scaler, scaler_path)
+
+            logging.info(f"💾 Modelo LSTM salvo em: {model_path_keras}")
+            logging.info(f"💾 Scaler salvo em: {scaler_path}")
+            return
+
+        # --- SPLIT TEMPORAL PARA MODELOS CLÁSSICOS (RF, XGB, MLP) ---
+        X_train_raw, X_val_raw = features.iloc[:split_idx], features.iloc[split_idx:]
+        y_train, y_val = labels.iloc[:split_idx], labels.iloc[split_idx:]
+        w_train = weights.iloc[:split_idx]  # Pesos que dão super-importância às grandes tendências
+
+        scaler = StandardScaler()
+
+        # O Scaler aprende no treino e aplica-se na validação
+        X_train = scaler.fit_transform(X_train_raw)
+        X_val = scaler.transform(X_val_raw)
+
+        # Guardamos logo o scaler para não esquecer
+        joblib.dump(scaler, scaler_path)
+        logging.info(f"💾 Scaler salvo em: {scaler_path}")
+
+        # Inicializar os Modelos clássicos
+        model = self._init_model()
+        param_grid = self._get_param_grid()
+
+        if model is not None:
+
+            if self.use_gridsearch and param_grid:
+                logging.info(f"🔎 Iniciando GridSearchCV para {self.model_type.value}...")
+                grid = GridSearchCV(model, param_grid, cv=3, n_jobs=-1, verbose=1, scoring='f1_macro')
+
+                # Treino do GridSearch injetando os pesos financeiros
+                grid.fit(X_train, y_train, sample_weight=w_train.values)
+                model = grid.best_estimator_
+                logging.info(f"✅ Melhor modelo: {grid.best_params_}")
+            else:
+                logging.info(f"🚀 Treinando {self.model_type.value} com parâmetros padrão e sample_weights...")
+                print(f"DEBUG - Features usadas: {features.columns.tolist()}")
+                print(f"🔥 COLUNAS QUE ESTÃO A IR PARA O TREINO: {X_train_raw.columns.tolist()}")
+                logging.info(f"Shape Treino: {X_train.shape}, Shape Validação: {X_val.shape}")
+
+                # 🔥 O ponto crítico: o modelo aprende a priorizar os movimentos com base nos pesos
+                model.fit(X_train, y_train, sample_weight=w_train.values)
+
+                # Cria um "hash" das importâncias das colunas
+                feat_imp = model.feature_importances_
+                imp_hash = hashlib.md5(feat_imp.tobytes()).hexdigest()
+                logging.info(f"🛡️ Model Signature (Hash): {imp_hash}")
+
+            # Avaliação na Validação (A validação corre SEM pesos para sabermos a performance real em mercado limpo)
+            y_val_pred = model.predict(X_val)
+            acc = accuracy_score(y_val, y_val_pred)
+            logging.info(f"Accuracy na validação: {acc:.4f}")
+            logging.info("Classification Report:")
+            logging.info(f"\n {classification_report(y_val, y_val_pred)}")
+
+        # Salvar modelo
+        joblib.dump(model, model_path)
+
+        # --- CÁLCULO E SALVAMENTO DE METADADOS (THRESHOLDS) ---
+        metadata_path = model_path.replace(".pkl", "_metadata.json")
+
+        # Pegamos as probabilidades na validação para calibrar o threshold
+        y_val_probs = model.predict_proba(X_val)
+
+        # Calculamos o melhor threshold para Sell (0) e Buy (2)
+        t_otimo = self.find_best_threshold(y_val.values, y_val_probs)
+        t_sell = t_otimo
+        t_buy = t_otimo
+
+        metadata = {
+            "symbol": symbol,
+            "threshold_sell": round(t_sell, 3),
+            "threshold_buy": round(t_buy, 3),
+            "efficiency_min": 0.35,
+            "val_accuracy": round(float(acc), 4),
+            "f1_macro": round(f1_score(y_val, y_val_pred, average='macro'), 4),
+            "features_count": len(features.columns.tolist()),
+            "model_signature": imp_hash if 'imp_hash' in locals() else "N/A",
+            "timestamp": datetime.now().timestamp(),
+        }
+
+        with open(metadata_path, 'w') as f:
+            json.dump(metadata, f, indent=4)
+
+        logging.info(f"📊 Metadados e Thresholds salvos em: {metadata_path}")
+        logging.info(f"🎯 Thresholds Otimizados -> BUY: {t_buy} | SELL: {t_sell}")
+
+    def train_and_save_model(self, features, labels, sample_weights, symbol):
+        # --- LIMPEZA DE NANs E SINCRONIZAÇÃO COMPLETA COM PESOS ---
+        combined = pd.DataFrame(pd.concat([features, labels, sample_weights], axis=1)).dropna()
+
+        if len(combined) < 100:
+            logging.error(f"❌ Dados insuficientes para {symbol} após limpeza. Pulando treino.")
+            return
+
+        # Separa novamente após a limpeza (features, labels e pesos)
+        features = combined.iloc[:, :-2]  # Todas as colunas de indicadores e lags
+        labels = combined.iloc[:, -2]  # A penúltima coluna (label)
+        weights = combined.iloc[:, -1]  # A última coluna (sample_weight)
+        # ---------------------------------------------------------------------
+
+        symbol_clean = symbol.replace("/", "_").replace(":", "_")
+        model_path = get_model_path(self.model_type.value, self.exchange_name, symbol_clean)
+
+        os.makedirs(os.path.dirname(model_path), exist_ok=True)
+        scaler_path = model_path.replace(".pkl", "_scaler.pkl")
+
+        # Cortamos os últimos 20% dos dados para a validação final/calibração
+        split_idx = int(len(features) * 0.8)
+
+        # =========================================================================
+        # 🧠 FLUXO 1: SE FOR LSTM (Blindado contra Data Leakage)
+        # =========================================================================
+        if self.model_type == MLModelType.LSTM:
+            window_size = 30
+
+            # 🚨 CORREÇÃO: O split da LSTM TEM de ser estritamente cronológico antes de criar as sequências
+            X_train_raw, X_val_raw = features.iloc[:split_idx], features.iloc[split_idx:]
+            y_train_raw, y_val_raw = labels.iloc[:split_idx], labels.iloc[split_idx:]
+
+            scaler = StandardScaler()
+            X_train_scaled = scaler.fit_transform(X_train_raw)
+            X_val_scaled = scaler.transform(X_val_raw)
+            joblib.dump(scaler, scaler_path)
+
+            # Agora criamos as sequências separadas, respeitando a linha do tempo
+            X_train, y_train = self.create_sequences(X_train_scaled, y_train_raw.values, window_size)
+            X_val, y_val = self.create_sequences(X_val_scaled, y_val_raw.values, window_size)
+
+            # Mostra distribuição das classes
+            unique, counts = np.unique(y_train, return_counts=True)
+            class_distribution = dict(zip(unique, counts))
+            logging.info(f"📊 Distribuição das classes no treino (LSTM): {class_distribution}")
+
+            class_weights = compute_class_weight(class_weight='balanced', classes=np.unique(y_train), y=y_train)
+            class_weight_dict = {int(i): float(w) for i, w in enumerate(class_weights)}
+            logging.info(f"⚖️ Pesos das classes: {class_weight_dict}")
+
+            model, scaler, history = self.train_lstm(X_train, y_train, X_val, y_val, class_weight=class_weight_dict)
+
+            model_path_keras = model_path.replace(".pkl", ".keras")
+            model.save(model_path_keras, include_optimizer=True)
+            logging.info(f"💾 Modelo LSTM e Scaler salvos com sucesso.")
+            return
+
+        # =========================================================================
+        # 🌳 FLUXO 2: MODELOS CLÁSSICOS (LightGBM, XGB, RF) COM TIME SERIES SPLIT
+        # =========================================================================
+        logging.info("======= ⏳ INICIANDO CROSS-VALIDAÇÃO CRONOLÓGICA (TIME SERIES SPLIT) =======")
+
+        # Criamos o validador temporal por blocos com base nas features totais
+        tscv = TimeSeriesSplit(n_splits=4)
+        fold_accuracies = []
+
+        for fold, (train_idx_cv, val_idx_cv) in enumerate(tscv.split(features)):
+            X_tr_fold, X_val_fold = features.iloc[train_idx_cv], features.iloc[val_idx_cv]
+            y_tr_fold, y_val_fold = labels.iloc[train_idx_cv], labels.iloc[val_idx_cv]
+            w_tr_fold = weights.iloc[train_idx_cv]
+
+            # Normalização temporária para avaliação do bloco
+            scaler_fold = StandardScaler()
+            X_tr_fold_sc = scaler_fold.fit_transform(X_tr_fold)
+            X_val_fold_sc = scaler_fold.transform(X_val_fold)
+
+            model_fold = self._init_model()
+
+            # Treino do bloco injetando os pesos de castigo/recompensa financeiros correspondentes
+            model_fold.fit(X_tr_fold_sc, y_tr_fold, sample_weight=w_tr_fold.values)
+
+            preds_fold = model_fold.predict(X_val_fold_sc)
+            acc_fold = accuracy_score(y_val_fold, preds_fold)
+            fold_accuracies.append(acc_fold)
+
+            logging.info(f"🟩 Bloco Temporal {fold + 1} - Accuracy: {acc_fold:.4f}")
+
+        logging.info(f"📊 Média de Accuracy das Janelas Temporais: {np.mean(fold_accuracies):.4f}")
+        logging.info("====================================================================")
+
+        # ------------------------------------------------------------------------
+        # 🚀 PRODUÇÃO: TREINO DO MODELO FINAL (O que vai controlar o teu dinheiro)
+        # ------------------------------------------------------------------------
+        # Usamos o teu corte clássico dos 80/20 originais para alimentar a versão final
+        X_train_raw, X_val_raw = features.iloc[:split_idx], features.iloc[split_idx:]
+        y_train, y_val = labels.iloc[:split_idx], labels.iloc[split_idx:]
+        w_train = weights.iloc[:split_idx]
+
+        scaler = StandardScaler()
+        X_train = scaler.fit_transform(X_train_raw)
+        X_val = scaler.transform(X_val_raw)
+        joblib.dump(scaler, scaler_path)
+        logging.info(f"💾 Scaler de Produção salvo em: {scaler_path}")
+
+        model = self._init_model()
+        param_grid = self._get_param_grid()
+
+        if model is not None:
+            if self.use_gridsearch and param_grid:
+                logging.info(f"🔎 Iniciando GridSearchCV para {self.model_type.value}...")
+                # Alterado cv para usar TimeSeriesSplit para garantir que a otimização de parâmetros respeita o tempo
+                grid = GridSearchCV(model, param_grid, cv=TimeSeriesSplit(n_splits=3), n_jobs=-1, verbose=1,
+                                    scoring='f1_macro')
+                grid.fit(X_train, y_train, sample_weight=w_train.values)
+                model = grid.best_estimator_
+                logging.info(f"✅ Melhor modelo: {grid.best_params_}")
+            else:
+                logging.info(f"🚀 Treinando {self.model_type.value} Final com sample_weights...")
+                logging.info(f"Shape Treino: {X_train.shape}, Shape Validação: {X_val.shape}")
+
+                # O modelo final de produção aprende a priorizar com base no teu array de pesos financeiro
+                model.fit(X_train, y_train, sample_weight=w_train.values)
+
+            try:
+                feat_imp = model.feature_importances_
+                imp_hash = hashlib.md5(feat_imp.tobytes()).hexdigest()
+                logging.info(f"🛡️ Model Signature (Hash): {imp_hash}")
+            except Exception:
+                imp_hash = "N/A"
+
+            # Avaliação no bloco de validação de produção
+            y_val_pred = model.predict(X_val)
+            acc = accuracy_score(y_val, y_val_pred)
+            logging.info(f"Accuracy Final na validação: {acc:.4f}")
+            logging.info("Classification Report Final:")
+            logging.info(f"\n {classification_report(y_val, y_val_pred, zero_division=0)}")
+
+        # Salvar o modelo validado e treinado
+        joblib.dump(model, model_path)
+
+        # --- CÁLCULO E SALVAMENTO DE METADADOS (THRESHOLDS) ---
+        metadata_path = model_path.replace(".pkl", "_metadata.json")
+        y_val_probs = model.predict_proba(X_val)
+
+        t_sell = self.find_best_threshold(y_val.values, y_val_probs, class_idx=0)
+        t_buy = self.find_best_threshold(y_val.values, y_val_probs, class_idx=2)
+
+        metadata = {
+            "symbol": symbol,
+            "threshold_sell": round(t_sell, 3),
+            "threshold_buy": round(t_buy, 3),
+            "efficiency_min": 0.35,
+            "val_accuracy": round(float(acc), 4),
+            "f1_macro": round(f1_score(y_val, y_val_pred, average='macro', zero_division=0), 4),
+            "features_count": len(features.columns.tolist()),
+            "model_signature": imp_hash,
+            "timestamp": datetime.now().timestamp(),
+        }
+
+        with open(metadata_path, 'w') as f:
+            json.dump(metadata, f, indent=4)
+
+        logging.info(f"📊 Metadados e Thresholds salvos em: {metadata_path}")
+        logging.info(f"🎯 Thresholds Otimizados -> BUY: {t_buy} | SELL: {t_sell}")
+        logging.info(f"💾 Modelo final salvo com sucesso em: {model_path}")
+
+    def find_best_threshold(self, y_true, y_probs, class_idx):
+        """
+        Calcula o threshold ótimo de forma independente para uma classe específica.
+        class_idx: 0 para SELL, 2 para BUY
+        """
+        best_t = 0.42
+        best_precision = -1
+
+        # Alargamos a busca (de 0.28 a 0.60) porque o class_weight='balanced'
+        # espalha as probabilidades de forma diferente para cada classe
+        for t in np.arange(0.28, 0.61, 0.01):
+
+            # Filtramos apenas as previsões da classe atual para este threshold
+            preds_classe = np.where(y_probs[:, class_idx] >= t, class_idx, 1)
+
+            # Criamos o vetor real binário (é a classe que queremos ou é HOLD?)
+            y_true_bin = np.where(y_true == class_idx, class_idx, 1)
+
+            # Contamos quantos trades este threshold específico abriria
+            total_trades = np.sum(preds_classe == class_idx)
+
+            # FILTRO DE SANIDADE INTERGALACO (Mínimo de 20 trades na validação para evitar sorte)
+            if total_trades < 20:
+                continue
+
+            # Calcular a precisão cirúrgica apenas para esta ação (BUY ou SELL)
+            from sklearn.metrics import precision_score
+            prec = precision_score(y_true_bin, preds_classe, pos_label=class_idx, zero_division=0)
+
+            # Queremos o threshold que dá a maior precisão possível nas entradas
+            if prec > best_precision:
+                best_precision = prec
+                best_t = t
+
+        return float(best_t)
+
+    def find_best_threshold_(self, y_true, y_probs, class_index):
         best_t = 0.45  # Default mais seguro
         best_score = 0
 
@@ -602,6 +1035,44 @@ class MLTrainer:
             # Filtro de Sanidade: Se a precisão for menor que 22%, ignora o threshold
             if success_score > best_score and prec > 0.22:
                 best_score = success_score
+                best_t = t
+
+        return float(best_t)
+
+    def find_best_threshold_old(self, y_true, y_probs):
+        best_t = 0.42  # Um ponto de partida muito mais realista e irreverente
+        best_f1_trades = 0
+
+        # Testamos de 0.35 a 0.55 (acima de 0.55 no BTC atual é utopia)
+        for t in np.arange(0.35, 0.56, 0.01):
+
+            # Criamos as previsões do robô: começa tudo em HOLD (1)
+            preds_robot = np.ones(len(y_true))
+
+            for i in range(len(y_probs)):
+                if y_probs[i, 0] >= t:  # Se ultrapassar o t de SELL
+                    preds_robot[i] = 0
+                elif y_probs[i, 2] >= t:  # Se ultrapassar o t de BUY
+                    preds_robot[i] = 2
+
+            # Contamos quantos trades este threshold abriria no total da validação
+            total_trades = np.sum(preds_robot == 0) + np.sum(preds_robot == 2)
+
+            # 🚨 FILTRO DE SANIDADE: Se este threshold abrir menos de 30 trades
+            # nas 14 mil velas, ele é BANIDO por ser demasiado "mão de vaca"
+            if total_trades < 30:
+                continue
+
+                # Calcular o F1-Score real apenas para as classes de ação (0 e 2)
+            f1_sell = precision_score((y_true == 0).astype(int), (preds_robot == 0).astype(int), zero_division=0)
+            f1_buy = precision_score((y_true == 2).astype(int), (preds_robot == 2).astype(int), zero_division=0)
+
+            # Média da precisão real dos trades abertos
+            precision_media = (f1_sell + f1_buy) / 2
+
+            # Queremos o threshold que maximize a precisão, desde que passe no filtro dos 30 trades
+            if precision_media > best_f1_trades and precision_media > 0.25:
+                best_f1_trades = precision_media
                 best_t = t
 
         return float(best_t)
@@ -675,12 +1146,12 @@ class MLTrainer:
             df_train_raw = df_raw.iloc[:-1000].copy()
 
             # 2. Prepara os dados
-            features_pair, labels_pair, df_enriched = self.prepare_dataset(df_train_raw)
+            features_pair, labels_pair, sample_weight, df_enriched = self.prepare_dataset(df_train_raw)
 
             # 3. Treino e Salvamento Individual
             # Ajusta esta função para aceitar o 'symbol' no nome do ficheiro
             # Ex: model_BTC_USDC.joblib
-            self.train_and_save_model(features_pair, labels_pair, symbol=symbol)
+            self.train_and_save_model(features_pair, labels_pair, sample_weight, symbol=symbol)
 
             # 4. Treino do Bayes Individual (Se quiseres manter o Bayes por par)
             # self.train_bayesian_supervisor(df_enriched, symbol=symbol)
@@ -701,7 +1172,7 @@ class MLTrainer:
             print(f"📊 Dataset Master: {len(X_combined)} candles totais.")
 
             # Salva como: model_MASTER.joblib
-            self.train_and_save_model(X_combined, y_combined, symbol="MASTER")
+            self.train_and_save_model(X_combined, y_combined, sample_weight, symbol="MASTER")
 
             print("\n✅ Ciclo completo: Modelos Individuais e Modelo MASTER gerados!")
         else:
