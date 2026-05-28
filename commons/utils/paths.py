@@ -70,7 +70,7 @@ def get_metadat_json_path(model_type_value: str, exchange_name: str, symbol: str
         filename = f"modelo_{model_type_value.lower()}_{symbol}_metadata.json"
 
     file_path = Path(os.path.join(MODEL_STORAGE, filename))
-    print(file_path)
+
     if not file_path.exists():
         logging.warning(f"⚠️ Arquivo de configuração '{filename}' não encontrado. Usando pares padrão.")
         return None

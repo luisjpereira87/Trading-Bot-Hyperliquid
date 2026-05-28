@@ -458,9 +458,17 @@ class MarketBrain:
             df[f'bb_high_lag_{lag}'] = df['dist_to_bb_high'].shift(lag)
             df[f'bb_low_lag_{lag}'] = df['dist_to_bb_low'].shift(lag)
 
-        # Limpar as linhas que ficaram com NaNs devido aos shifts de lag ou indicadores base
-        df.dropna(subset=['dist_upper_lag_5', 'atr', 'macro_rsi'], inplace=True)
-        df.reset_index(drop=True, inplace=True)
+            # 🚀 CORREÇÃO DO BUG EM PRODUÇÃO:
+            # Se for treino, limpamos os NaNs históricos do início do gráfico (as primeiras 25 linhas)
+            if is_training:
+                df.dropna(subset=['dist_upper_lag_5', 'atr', 'macro_rsi'], inplace=True)
+                df.reset_index(drop=True, inplace=True)
+            else:
+                # Em produção, NÃO eliminamos linhas. Usamos Forward Fill para garantir que o ruído
+                # de cálculo ou atrasos na API não apagam o nosso candle de decisão atual.
+                df.ffill(inplace=True)
+                # Se ainda sobrarem NaNs absolutos no início da janela de produção, metemos zero
+                df.fillna(0, inplace=True)
 
         # Lista final de colunas de treino (Adiciona aqui 'squeeze_index' ou 'st_direction' se quiseres que o modelo as use)
         cols_base = [
