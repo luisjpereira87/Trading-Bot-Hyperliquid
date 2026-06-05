@@ -18,7 +18,7 @@ class TrailingStopHelpers:
     MIN_TARGET_NEW = 0.008  # Só ativa o trailing após 0.8% de lucro
 
     @staticmethod
-    def get_trailing_adjustment_old(max_pnl_pct):
+    def get_trailing_adjustment_(max_pnl_pct):
         """
         max_pnl_pct: O maior lucro (PnL %) atingido desde a abertura da trade.
         Retorna o valor de lucro que deve ser garantido (secure_pnl).
@@ -52,7 +52,7 @@ class TrailingStopHelpers:
     @staticmethod
     def get_trailing_adjustment(max_pnl_pct):
         # 1. ACORDAR MAIS CEDO: Começa a proteger logo aos 0.3% ou 0.4%
-        if max_pnl_pct < 0.004:
+        if max_pnl_pct < 0.008:
             return 0, "⏳", "Aguardando fôlego (0.4%)..."
 
         # 2. VERIFICAR A LISTA DE METAS (O que tu já tinhas definido)

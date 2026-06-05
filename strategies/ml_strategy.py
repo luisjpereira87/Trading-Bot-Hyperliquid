@@ -496,8 +496,8 @@ class MLStrategy(StrategyBase):
             if sl is None or tp is None:
                 return SignalResult(Signal.HOLD, confidence=confidence)
 
-            # if self.is_exhaustion_zone(df, Signal.BUY):
-            #    return SignalResult(Signal.HOLD, confidence=confidence)
+            if self.is_exhaustion_zone(df, Signal.BUY):
+                return SignalResult(Signal.HOLD, confidence=confidence)
 
             return SignalResult(Signal.BUY, sl, tp, confidence)
         elif idx == 0 and confidence > (self.metadata.threshold_sell):  # BAIXA
@@ -507,8 +507,8 @@ class MLStrategy(StrategyBase):
             if sl is None or tp is None:
                 return SignalResult(Signal.HOLD, confidence=confidence)
 
-            # if self.is_exhaustion_zone(df, Signal.SELL):
-            #    return SignalResult(Signal.HOLD, confidence=confidence)
+            if self.is_exhaustion_zone(df, Signal.SELL):
+                return SignalResult(Signal.HOLD, confidence=confidence)
 
             return SignalResult(Signal.SELL, sl, tp, confidence)
 

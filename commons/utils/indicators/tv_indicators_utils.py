@@ -4,7 +4,6 @@ from collections import deque
 import numpy as np
 import pandas as pd
 
-from commons.enums.signal_enum import Signal
 from commons.models.supertrend_dclass import Supertrend
 from commons.models.volumatic_vidya_dclass import VolumaticVidya
 from commons.utils.indicators.base_indicators_utils import BaseIndicatorsUtils
@@ -33,17 +32,17 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         direction[0] = 1  # começa em alta
 
         for i in range(1, n):
-            long_stop_prev = long_stop[i-1]
-            short_stop_prev = short_stop[i-1]
-            dir_prev = direction[i-1]
+            long_stop_prev = long_stop[i - 1]
+            short_stop_prev = short_stop[i - 1]
+            dir_prev = direction[i - 1]
 
             long_stop[i] = hl2[i] - atr[i]
             short_stop[i] = hl2[i] + atr[i]
 
             # suavização igual ao PineScript
-            if closes[i-1] > long_stop_prev:
+            if closes[i - 1] > long_stop_prev:
                 long_stop[i] = max(long_stop[i], long_stop_prev)
-            if closes[i-1] < short_stop_prev:
+            if closes[i - 1] < short_stop_prev:
                 short_stop[i] = min(short_stop[i], short_stop_prev)
 
             # reversão só se o candle FECHA acima/abaixo da linha
@@ -57,17 +56,17 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         # linha única para plot
         value_to_plot = np.where(direction == 1, long_stop, short_stop)
         return value_to_plot, direction
-    
+
     def supertrend_ai(
-        self,
-        length=10,
-        minMult=1,
-        maxMult=5,
-        step=0.5,
-        perfAlpha=10,
-        fromCluster='Best',
-        maxIter=1000,
-        maxData=10000
+            self,
+            length=10,
+            minMult=1,
+            maxMult=5,
+            step=0.5,
+            perfAlpha=10,
+            fromCluster='Best',
+            maxIter=1000,
+            maxData=10000
     ) -> Supertrend:
         """
         SuperTrend AI (Clustering) fiel ao LuxAlgo PineScript
@@ -120,7 +119,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         )
 
         target_factor = factors[0]
-        direction = 0            # estado atual
+        direction = 0  # estado atual
         direction_arr = np.zeros(n, dtype=int)  # para plot
         avg_vol_delta = 0
         up_trend_vol = 0
@@ -146,17 +145,17 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
                     st.lower = dn
                     st.trend = 1
                 else:
-                    st.upper = min(up, st.upper) if closes[i-1] < st.upper else up
-                    st.lower = max(dn, st.lower) if closes[i-1] > st.lower else dn
+                    st.upper = min(up, st.upper) if closes[i - 1] < st.upper else up
+                    st.lower = max(dn, st.lower) if closes[i - 1] > st.lower else dn
 
                     if closes[i] > st.upper:
                         st.trend = 1
                     elif closes[i] < st.lower:
                         st.trend = -1
 
-                diff = np.sign(closes[i-1] - st.output) if i > 0 else 0
+                diff = np.sign(closes[i - 1] - st.output) if i > 0 else 0
                 st.perf += 2 / (perfAlpha + 1) * (
-                    ((closes[i] - closes[i-1]) if i > 0 else 0) * diff - st.perf
+                        ((closes[i] - closes[i - 1]) if i > 0 else 0) * diff - st.perf
                 )
 
                 st.output = st.lower if st.trend == 1 else st.upper
@@ -210,8 +209,8 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
                 st_final.lower = dn
                 st_final.trend = 1
             else:
-                st_final.upper = min(up, st_final.upper) if closes[i-1] < st_final.upper else up
-                st_final.lower = max(dn, st_final.lower) if closes[i-1] > st_final.lower else dn
+                st_final.upper = min(up, st_final.upper) if closes[i - 1] < st_final.upper else up
+                st_final.lower = max(dn, st_final.lower) if closes[i - 1] > st_final.lower else dn
 
                 if closes[i] > st_final.upper:
                     st_final.trend = 1
@@ -232,8 +231,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
             if i == 0:
                 perf_ama[i] = ts[i]
             else:
-                perf_ama[i] = perf_ama[i-1] + perf_idx * (ts[i] - perf_ama[i-1])
-                
+                perf_ama[i] = perf_ama[i - 1] + perf_idx * (ts[i] - perf_ama[i - 1])
 
             # ----------------------------
             # Signals (cruzamento REAL)
@@ -247,9 +245,9 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
 
             direction_arr[i] = direction
             if i > 0:
-                if closes[i-1] <= st_final.upper and closes[i] > st_final.upper:
+                if closes[i - 1] <= st_final.upper and closes[i] > st_final.upper:
                     signals[i] = 1
-                elif closes[i-1] >= st_final.lower and closes[i] < st_final.lower:
+                elif closes[i - 1] >= st_final.lower and closes[i] < st_final.lower:
                     signals[i] = -1
                 else:
                     signals[i] = 0
@@ -275,10 +273,9 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
                 if highs[i] >= ts[i]:
                     retest[i] = -1
 
-        return Supertrend(ts.tolist(), perf_ama.tolist(), direction_arr.tolist(), score.tolist(), delta_vol_pct.tolist(), retest.tolist())
+        return Supertrend(ts.tolist(), perf_ama.tolist(), direction_arr.tolist(), score.tolist(),
+                          delta_vol_pct.tolist(), retest.tolist())
 
-
-    
     def squeeze_index(self, length=20, conv=50):
         """
         LuxAlgo Squeeze Index (PSI)
@@ -310,8 +307,8 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
             # TradingView:
             # max := max(prev_max - (prev_max - src)/conv, src)
             # min := min(prev_min + (src - prev_min)/conv, src)
-            max_candidate = max_env[i-1] - (max_env[i-1] - closes[i]) / conv
-            min_candidate = min_env[i-1] + (closes[i] - min_env[i-1]) / conv
+            max_candidate = max_env[i - 1] - (max_env[i - 1] - closes[i]) / conv
+            min_candidate = min_env[i - 1] + (closes[i] - min_env[i - 1]) / conv
 
             max_env[i] = max(max_candidate, closes[i])
             min_env[i] = min(min_candidate, closes[i])
@@ -325,8 +322,8 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         psi = np.full(n, np.nan)
 
         for i in range(length - 1, n):
-            x = diff[i-length+1:i+1]
-            t = idx[i-length+1:i+1]
+            x = diff[i - length + 1:i + 1]
+            t = idx[i - length + 1:i + 1]
 
             x_mean = x.mean()
             t_mean = t.mean()
@@ -342,7 +339,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
             psi[i] = -50 * corr + 50
 
         return psi
-    
+
     def two_pole_oscillator(self, length=20):
 
         closes = np.array(self.closes, dtype=float)
@@ -354,8 +351,8 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         # -------- TRAILING SMA EXACT LIKE ta.sma(close, 25)
         sma1 = np.full(n, np.nan)
         for i in range(n):
-            start = max(0, i-24)
-            sma1[i] = np.mean(closes[start:i+1])
+            start = max(0, i - 24)
+            sma1[i] = np.mean(closes[start:i + 1])
 
         # (close - sma1)
         diff = closes - sma1
@@ -363,14 +360,14 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         # -------- TRAILING SMA OF DIFF  (ta.sma(close-sma1, 25))
         sma_diff = np.full(n, np.nan)
         for i in range(n):
-            start = max(0, i-24)
-            sma_diff[i] = np.mean(diff[start:i+1])
+            start = max(0, i - 24)
+            sma_diff[i] = np.mean(diff[start:i + 1])
 
         # -------- TRAILING STDEV EXACT LIKE ta.stdev(..., 25)
         stdev_diff = np.full(n, np.nan)
         for i in range(n):
-            start = max(0, i-24)
-            window = diff[start:i+1]
+            start = max(0, i - 24)
+            window = diff[start:i + 1]
             sd = np.std(window, ddof=0)  # population stdev
             stdev_diff[i] = sd if sd != 0 else 1.0
 
@@ -384,15 +381,15 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         smooth2 = np.full(n, np.nan)
 
         for i in range(n):
-            if np.isnan(smooth1[i-1]) if i > 0 else True:
+            if np.isnan(smooth1[i - 1]) if i > 0 else True:
                 smooth1[i] = sma_n1[i]
             else:
-                smooth1[i] = (1 - alpha) * smooth1[i-1] + alpha * sma_n1[i]
+                smooth1[i] = (1 - alpha) * smooth1[i - 1] + alpha * sma_n1[i]
 
-            if np.isnan(smooth2[i-1]) if i > 0 else True:
+            if np.isnan(smooth2[i - 1]) if i > 0 else True:
                 smooth2[i] = smooth1[i]
             else:
-                smooth2[i] = (1 - alpha) * smooth2[i-1] + alpha * smooth1[i]
+                smooth2[i] = (1 - alpha) * smooth2[i - 1] + alpha * smooth1[i]
 
         two_p = smooth2
 
@@ -402,28 +399,28 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         buy = np.zeros(n, dtype=bool)
         sell = np.zeros(n, dtype=bool)
 
-        direction = 0            # estado atual
+        direction = 0  # estado atual
         direction_arr = np.zeros(n, dtype=int)  # para plot
         for i in range(1, n):
-            if two_p[i] > two_pp[i] and two_p[i-1] <= two_pp[i-1] and two_p[i] < 0:
+            if two_p[i] > two_pp[i] and two_p[i - 1] <= two_pp[i - 1] and two_p[i] < 0:
                 buy[i] = True
                 direction = 1
-            elif two_p[i] < two_pp[i] and two_p[i-1] >= two_pp[i-1] and two_p[i] > 0:
+            elif two_p[i] < two_pp[i] and two_p[i - 1] >= two_pp[i - 1] and two_p[i] > 0:
                 sell[i] = True
                 direction = -1
 
             direction_arr[i] = direction
 
         return two_p.tolist(), two_pp.tolist(), buy.tolist(), sell.tolist(), direction_arr.tolist()
-    
+
     @staticmethod
     def pivothigh(high, left=3, right=3):
         n = len(high)
         ph = np.full(n, False)
 
-        for i in range(left, n-right):
-            if all(high[i] > high[i-j] for j in range(1, left+1)) and \
-            all(high[i] >= high[i+j] for j in range(1, right+1)):
+        for i in range(left, n - right):
+            if all(high[i] > high[i - j] for j in range(1, left + 1)) and \
+                    all(high[i] >= high[i + j] for j in range(1, right + 1)):
                 ph[i] = True
         return ph
 
@@ -432,19 +429,18 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         n = len(low)
         pl = np.full(n, False)
 
-        for i in range(left, n-right):
-            if all(low[i] < low[i-j] for j in range(1, left+1)) and \
-            all(low[i] <= low[i+j] for j in range(1, right+1)):
+        for i in range(left, n - right):
+            if all(low[i] < low[i - j] for j in range(1, left + 1)) and \
+                    all(low[i] <= low[i + j] for j in range(1, right + 1)):
                 pl[i] = True
         return pl
 
-
     def volumatic_vidya(
-        self,
-        vidya_length=10,
-        vidya_momentum=20,
-        band_distance=2.0,
-        atr_length=200,
+            self,
+            vidya_length=10,
+            vidya_momentum=20,
+            band_distance=2.0,
+            atr_length=200,
     ):
         opens = np.asarray(self.opens)
         closes = np.asarray(self.closes)
@@ -458,9 +454,9 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
             alpha = 1.0 / length
             rma = np.zeros_like(series)
             # Inicializa com a média simples (SMA) para o primeiro ponto válido
-            rma[length-1] = np.mean(series[:length])
+            rma[length - 1] = np.mean(series[:length])
             for i in range(length, len(series)):
-                rma[i] = (series[i] * alpha) + (rma[i-1] * (1 - alpha))
+                rma[i] = (series[i] * alpha) + (rma[i - 1] * (1 - alpha))
             return rma
 
         def get_pine_atr(highs, lows, closes, length=200):
@@ -470,12 +466,12 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
             tr3 = np.abs(lows - np.roll(closes, 1))
             # True Range
             tr = np.maximum(tr1, np.maximum(tr2, tr3))
-            tr[0] = tr1[0] # Primeiro candle não tem close anterior
+            tr[0] = tr1[0]  # Primeiro candle não tem close anterior
             return calculate_rma(tr, length)
 
         # 1. ---- VIDYA Core Calculation ----
         momentum = pd.Series(closes).diff()
-        
+
         # Separar momentum positivo e negativo (idêntico ao Pine)
         pos = momentum.where(momentum >= 0, 0.0).rolling(vidya_momentum).sum()
         neg = momentum.where(momentum < 0, 0.0).abs().rolling(vidya_momentum).sum()
@@ -483,10 +479,10 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         # Evitar divisão por zero no CMO
         denom = pos + neg
         abs_cmo = (100 * (pos - neg) / denom).abs().fillna(0) / 100
-        
+
         alpha = 2 / (vidya_length + 1)
         vidya = np.zeros(n)
-        
+
         # Inicialização fiel ao nz(vidya[1])
         # Usamos o primeiro close disponível para evitar que a linha comece em zero
         vidya[0] = closes[0]
@@ -494,7 +490,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         for i in range(1, n):
             # vidya := alpha * abs_cmo * src + (1 - alpha * abs_cmo) * nz(vidya[1])
             k = alpha * abs_cmo.iloc[i]
-            vidya[i] = (k * closes[i]) + (1 - k) * vidya[i-1]
+            vidya[i] = (k * closes[i]) + (1 - k) * vidya[i - 1]
 
         # Suavização Final SMA 15 (como no script do BigBeluga)
         vidya_smooth = pd.Series(vidya).rolling(15).mean().bfill().to_numpy()
@@ -502,7 +498,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         # 2. ---- ATR Suavizado (RMA/Wilder) ----
         # Importante: O ATR do Pine usa RMA. Garante que a tua self.atr(200) usa RMA.
         atr_val = get_pine_atr(highs, lows, closes, atr_length)
-        
+
         upper_band = vidya_smooth + (atr_val * band_distance)
         lower_band = vidya_smooth - (atr_val * band_distance)
 
@@ -514,12 +510,12 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
             elif closes[i] < lower_band[i]:
                 is_trend_up[i] = False
             else:
-                is_trend_up[i] = is_trend_up[i-1]
+                is_trend_up[i] = is_trend_up[i - 1]
 
         smoothed = np.full(n, np.nan)
         for i in range(1, n):
             # O Pine Script esconde a linha no momento do flip
-            if is_trend_up[i] == is_trend_up[i-1]:
+            if is_trend_up[i] == is_trend_up[i - 1]:
                 smoothed[i] = lower_band[i] if is_trend_up[i] else upper_band[i]
 
         # 4. ---- Pivots & Volume (Idêntico à tua lógica, mas otimizado) ----
@@ -528,19 +524,19 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
 
         up_trend_vol = np.zeros(n)
         down_trend_vol = np.zeros(n)
-        
+
         u = 0.0
         d = 0.0
-        
+
         for i in range(1, n):
             # No Pine: if ta.change(trend_cross_up) or ta.change(trend_cross_down)
             # Como trend_cross_up/down já são sinais de mudança de 1 barra:
-            trend_flip = (is_trend_up[i] != is_trend_up[i-1])
+            trend_flip = (is_trend_up[i] != is_trend_up[i - 1])
 
             if trend_flip:
                 u = 0.0
                 d = 0.0
-            
+
             # IMPORTANTE: No Pine, após o reset, ele verifica se acumula 
             # na mesma barra ou se a condição "not(ta.change...)" impede.
             # O BigBeluga usa: if not(trend_flip) -> acumula.
@@ -549,7 +545,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
                     u += float(volumes[i])
                 elif closes[i] < opens[i]:
                     d += float(volumes[i])
-            
+
             # Se for o candle do flip, u e d chegam aqui como 0.0
             up_trend_vol[i] = u
             down_trend_vol[i] = d
@@ -558,23 +554,22 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         # No Pine, o volume é 'na' enquanto o VIDYA não estabilizar.
         # Vamos zerar o Delta onde o VIDYA (SMA 15) ainda é NaN para bater com o TV.
         vidya_mask = ~np.isnan(vidya_smooth)
-        
+
         avg_vol = (up_trend_vol + down_trend_vol) / 2
         delta_vol_pct = np.zeros(n)
-        
+
         with np.errstate(divide='ignore', invalid='ignore'):
             # Só calcula onde a média de volume existe E o VIDYA está pronto
             mask = (avg_vol > 0) & vidya_mask
             delta_vol_pct[mask] = ((up_trend_vol[mask] - down_trend_vol[mask]) / avg_vol[mask]) * 100
-            
 
         # 5. ---- Retest Logic ----
         retest = np.zeros(n)
         for i in range(1, n):
             if is_trend_up[i] and lows[i] <= lower_band[i]:
-                retest[i] = 1 # Bullish Retest
+                retest[i] = 1  # Bullish Retest
             elif not is_trend_up[i] and highs[i] >= upper_band[i]:
-                retest[i] = -1 # Bearish Retest
+                retest[i] = -1  # Bearish Retest
 
         return VolumaticVidya(
             vidya=vidya_smooth.tolist(),
@@ -589,7 +584,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
             delta_volume_pct=delta_vol_pct.tolist(),
             retest=retest.tolist()
         )
-    
+
     def smi(self, length_k=10, length_d=3, length_ema=3):
         """
         Calcula o Stochastic Momentum Index (SMI)
@@ -634,7 +629,6 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
 
         return smi_val.values, smi_signal.values, direction
 
-    
     def regime_filter(self, length=20, hma_len=15):
         # --- Funções Internas (Estilo Pine Script) ---
         def pine_wma(src, p):
@@ -681,28 +675,32 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         # 4. Loop de Regime (Cálculo de Força)
         # Começamos após o warm-up das médias
         start_idx = length + hma_len + int(np.sqrt(hma_len))
-        
+
         for i in range(start_idx, n):
             t_sum, v_sum = 0, 0
             for j in range(length + 1):
                 # Comparação de Preço
-                if hma_p[i] > hma_p[i-j]: t_sum += 1
-                else: t_sum -= 1
-                
+                if hma_p[i] > hma_p[i - j]:
+                    t_sum += 1
+                else:
+                    t_sum -= 1
+
                 # Comparação de Fluxo (Delta)
-                if hma_v[i] > hma_v[i-j]: v_sum += 1
-                else: v_sum -= 1
-            
+                if hma_v[i] > hma_v[i - j]:
+                    v_sum += 1
+                else:
+                    v_sum -= 1
+
             trend[i] = t_sum * coeff
             voltrend[i] = v_sum * coeff
 
         # 5. Score de Confirmação (0-100)
         # Alinhamento: Trend e Voltrend no mesmo sinal?
-        alignment = (trend * voltrend) > 0 
-        
+        alignment = (trend * voltrend) > 0
+
         # Força Bruta: Média das magnitudes
         raw_strength = (np.abs(trend) + np.abs(voltrend)) / 20.0
-        
+
         # Cálculo do Score final ponderando Eficiência
         # Se alignment for False, o score é drasticamente reduzido (divergência)
         score = (raw_strength * 0.4 + efficiency * 0.6) * 100
@@ -715,7 +713,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
             'efficiency': efficiency,
             'score': confirm_score
         }
-    
+
     def find_swings(self, left=3, right=3):
         highs = np.array(self.highs)
         lows = np.array(self.lows)
@@ -724,13 +722,13 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         swing_low = np.full(n, np.nan)
 
         for i in range(left, n - right):
-            if highs[i] == max(highs[i-left:i+right+1]):
+            if highs[i] == max(highs[i - left:i + right + 1]):
                 swing_high[i] = highs[i]
-            if lows[i] == min(lows[i-left:i+right+1]):
+            if lows[i] == min(lows[i - left:i + right + 1]):
                 swing_low[i] = lows[i]
 
         return swing_high, swing_low
-    
+
     def market_structure(self, left=10, right=10):
         highs = np.array(self.highs)
         lows = np.array(self.lows)
@@ -766,30 +764,29 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         for i in range(1, n):
 
             # Reversão para baixo (saída de LONG / entrada SHORT)
-            if closes[i] < last_HL[i] and closes[i-1] >= last_HL[i-1]:
+            if closes[i] < last_HL[i] and closes[i - 1] >= last_HL[i - 1]:
                 direction[i] = -1
 
             # Reversão para cima (saída de SHORT / entrada LONG)
-            elif closes[i] > last_LH[i] and closes[i-1] <= last_LH[i-1]:
+            elif closes[i] > last_LH[i] and closes[i - 1] <= last_LH[i - 1]:
                 direction[i] = 1
 
         return direction
-    
 
     def smart_money_flow_cloud(
-        self,
-        len_=34,
-        basisType="EMA",
-        almaOffset=0.85,
-        almaSigma=6.0,
-        basisSmooth=3,
-        mfLen=24,
-        mfSmooth=5,
-        mfPower=1.2,
-        atrLen=14,
-        minMult=0.9,
-        maxMult=2.2,
-        dotCooldown=12  # Cooldown para retests
+            self,
+            len_=34,
+            basisType="EMA",
+            almaOffset=0.85,
+            almaSigma=6.0,
+            basisSmooth=3,
+            mfLen=24,
+            mfSmooth=5,
+            mfPower=1.2,
+            atrLen=14,
+            minMult=0.9,
+            maxMult=2.2,
+            dotCooldown=12  # Cooldown para retests
     ):
         n = len(self.closes)
         highs = self.highs
@@ -824,7 +821,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
             s = length / sigma
             w = np.array([math.exp(-((i - m) ** 2) / (2 * s ** 2)) for i in range(length)])
             norm = np.sum(w)
-            vals = arr[idx - length + 1 : idx + 1]
+            vals = arr[idx - length + 1: idx + 1]
             return np.sum(vals * w) / norm
 
         # --- Helper: ATR Wilder ---
@@ -838,8 +835,8 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
             else:
                 tr = max(
                     highs[i] - lows[i],
-                    abs(highs[i] - closes[i-1]),
-                    abs(lows[i] - closes[i-1])
+                    abs(highs[i] - closes[i - 1]),
+                    abs(lows[i] - closes[i - 1])
                 )
                 atr_vals[i] = (tr_prev * (atrLen - 1) + tr) / atrLen
                 tr_prev = atr_vals[i]
@@ -863,7 +860,8 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
 
         for i in range(n):
             # --- Calc MF ---
-            clv = 0.0 if highs[i] == lows[i] else ((closes[i] - lows[i]) - (highs[i] - closes[i])) / (highs[i] - lows[i])
+            clv = 0.0 if highs[i] == lows[i] else ((closes[i] - lows[i]) - (highs[i] - closes[i])) / (
+                    highs[i] - lows[i])
             raw = clv * volumes[i]
             raw_buffer.append(raw)
             abs_buffer.append(abs(raw))
@@ -899,8 +897,8 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
                     bsO[i] = bO_raw
                     bsC[i] = bC_raw
                 else:
-                    bsO[i] = ema_step(bsO[i-1], bO_raw, basisSmooth)
-                    bsC[i] = ema_step(bsC[i-1], bC_raw, basisSmooth)
+                    bsO[i] = ema_step(bsO[i - 1], bO_raw, basisSmooth)
+                    bsC[i] = ema_step(bsC[i - 1], bC_raw, basisSmooth)
             else:
                 bsO[i] = bO_raw
                 bsC[i] = bC_raw
@@ -912,8 +910,8 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
             lower[i] = bsMain[i] - atr_vals[i] * mult[i]
 
             # --- Signals ---
-            longCond = i > 0 and closes[i-1] <= upper[i-1] and closes[i] > upper[i]
-            shortCond = i > 0 and closes[i-1] >= lower[i-1] and closes[i] < lower[i]
+            longCond = i > 0 and closes[i - 1] <= upper[i - 1] and closes[i] > upper[i]
+            shortCond = i > 0 and closes[i - 1] >= lower[i - 1] and closes[i] < lower[i]
 
             prev_signal2 = prev_signal
             if longCond:
@@ -951,7 +949,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
             "bull_retest": bull_retest,
             "bear_retest": bear_retest
         }
-    
+
     @staticmethod
     def crossover(a, b):
         # Shift para comparar o estado anterior
@@ -965,7 +963,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
     @staticmethod
     def barssince(condition):
         out = np.zeros(len(condition), dtype=int)
-        count = 999999 # Valor alto inicial (equivalente ao nz no Pine)
+        count = 999999  # Valor alto inicial (equivalente ao nz no Pine)
         for i, val in enumerate(condition):
             if val:
                 count = 0
@@ -980,7 +978,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         out = np.zeros(n)
         for i in range(n):
             start = max(0, i - length + 1)
-            window = series[start:i+1]
+            window = series[start:i + 1]
             if len(window) == 0:
                 out[i] = 0
                 continue
@@ -995,7 +993,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         out = np.zeros(n)
         for i in range(n):
             start = max(0, i - length + 1)
-            window = series[start:i+1]
+            window = series[start:i + 1]
             if len(window) == 0:
                 out[i] = 0
                 continue
@@ -1003,28 +1001,29 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         return out
 
     def smart_money_breakout_channels(self, length_norm=100, length_box=14, strong=True, overlap=False):
-        highs, lows, closes, opens = np.array(self.highs), np.array(self.lows), np.array(self.closes), np.array(self.opens)
+        highs, lows, closes, opens = np.array(self.highs), np.array(self.lows), np.array(self.closes), np.array(
+            self.opens)
         n = len(closes)
 
         # --- 1. Cálculos de Normalização ---
         s_lows = pd.Series(lows)
         s_highs = pd.Series(highs)
-        
+
         lowestLow = np.array(s_lows.rolling(length_norm, min_periods=1).min().values)
         highestHigh = np.array(s_highs.rolling(length_norm, min_periods=1).max().values)
-        
+
         # Evitar divisão por zero
         denom = highestHigh - lowestLow
         denom[denom == 0] = 1e-9
         normalizedPrice = (closes - lowestLow) / denom
-        
+
         # Volatilidade (Pine: ta.stdev(normalizedPrice, 14))
         vol = pd.Series(normalizedPrice).rolling(14, min_periods=1).std().values
 
         # --- 2. Detecção de Canais (Upper / Lower) ---
         hb = self.highestbars(vol, length_box + 1)
         lb = self.lowestbars(vol, length_box + 1)
-        
+
         upper = (hb + length_box) / length_box
         lower = (lb + length_box) / length_box
 
@@ -1040,18 +1039,18 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
             d = int(duration[i])
             if d > 0:
                 # d+1 para garantir que pegamos a barra onde começou a acumulação
-                start = max(0, i - d) 
-                h_val[i] = np.max(highs[start:i+1])
-                l_val[i] = np.min(lows[start:i+1])
+                start = max(0, i - d)
+                h_val[i] = np.max(highs[start:i + 1])
+                l_val[i] = np.min(lows[start:i + 1])
 
         # --- 4. Loop de Estado para Boxes Reais ---
         # Representamos as boxes ativas como uma lista de dicts
-        active_boxes = [] 
-        
+        active_boxes = []
+
         bull_break = np.zeros(n, dtype=bool)
         bear_break = np.zeros(n, dtype=bool)
         new_channel = np.zeros(n, dtype=bool)
-        
+
         # Armazenar o estado das boxes para retorno (opcional)
         top_plot = np.full(n, np.nan)
         bot_plot = np.full(n, np.nan)
@@ -1063,7 +1062,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
             # Tentar criar novo canal
             if cross_up_low[i] and duration[i] > 10:
                 tNew, bNew = h_val[i], l_val[i]
-                
+
                 # Lógica f_can_create
                 can_create = True
                 if not overlap and len(active_boxes) > 0:
@@ -1071,7 +1070,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
                         if (tNew > box['bottom']) and (bNew < box['top']):
                             can_create = False
                             break
-                
+
                 if can_create:
                     active_boxes.append({'top': tNew, 'bottom': bNew})
                     new_channel[i] = True
@@ -1085,7 +1084,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
                 elif price_exec[i] < box['bottom']:
                     bear_break[i] = True
                     boxes_to_remove.append(idx)
-            
+
             # Remover boxes que quebraram (do fim para o início para não quebrar o index)
             for idx in reversed(boxes_to_remove):
                 active_boxes.pop(idx)
@@ -1103,7 +1102,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
             'new_channel': new_channel,
             'duration': duration
         }
-    
+
     def directional_imbalance_index(self, length=10, period=70):
         highs = pd.Series(self.highs)
         lows = pd.Series(self.lows)
@@ -1124,7 +1123,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
 
         # 4. Cálculo das percentagens
         total = up_count + down_count
-        
+
         # Evita divisão por zero de forma elegante
         bulls_perc = np.where(total > 0, (up_count / total) * 100, 50)
         bears_perc = np.where(total > 0, (down_count / total) * 100, 50)
@@ -1137,14 +1136,14 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
             "bulls_perc": bulls_perc,
             "bears_perc": bears_perc
         }
-    
+
     def adaptive_rsi_boswaves(self, rsi_len=18, smooth_len=20, adapt_lookback=1000):
         # 1. Preparação da Source (HMA 4 aplicada ao Close conforme o script)
         def pine_hma(src, p):
             def pine_wma(s, window):
                 weights = np.arange(1, window + 1)
                 return s.rolling(window=window).apply(lambda x: np.dot(x, weights) / weights.sum(), raw=True)
-            
+
             half_len = int(p / 2)
             sqrt_len = int(np.sqrt(p))
             diff = 2 * pine_wma(src, half_len) - pine_wma(src, p)
@@ -1175,7 +1174,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         # 5. Regime State (1 = Bull, -1 = Bear, 0 = Neutral)
         n = len(osc)
         regime = np.zeros(n)
-        
+
         # Simulação da lógica de "isconfirmed" e retenção de estado do Pine
         for i in range(1, n):
             if osc[i] > upper_thr[i]:
@@ -1183,7 +1182,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
             elif osc[i] < lower_thr[i]:
                 regime[i] = -1
             else:
-                regime[i] = regime[i-1] # Mantém o estado anterior (Hysteresis)
+                regime[i] = regime[i - 1]  # Mantém o estado anterior (Hysteresis)
 
         return {
             'osc': osc.values,
@@ -1191,7 +1190,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
             'lower_thr': lower_thr.values,
             'regime': regime
         }
-    
+
     def get_pivots(self, series, left=15, right=15):
         """Encontra picos (pivots) numa série temporal"""
         pivots = []
@@ -1202,7 +1201,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
                 if i == j: continue
                 if series[j] >= series[i]: is_high = False
                 if series[j] <= series[i]: is_low = False
-            
+
             if is_high: pivots.append((i, 'high', series[i]))
             if is_low: pivots.append((i, 'low', series[i]))
         return pivots
@@ -1212,30 +1211,30 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         data = self.adaptive_rsi_boswaves(rsi_len, smooth_len, 100)
         osc = data['osc']
         prices = np.array(self.closes)
-        
+
         bull_div = np.zeros(len(osc))
         bear_div = np.zeros(len(osc))
-        
+
         # 2. Localizar Pivots (usando janelas de 15 barras como no Pine)
         pivots = self.get_pivots(osc, left=15, right=15)
-        
+
         # 3. Lógica de Divergência Regular
         # Bullish: Preço faz Low mais baixo, RSI faz Low mais alto
         # Bearish: Preço faz High mais alto, RSI faz High mais baixo
         for i in range(len(pivots) - 1):
-            idx2, type2, val2 = pivots[i+1]
+            idx2, type2, val2 = pivots[i + 1]
             idx1, type1, val1 = pivots[i]
-            
+
             # Distância entre pivots deve estar no range (ex: 5 a 60 barras)
             if 5 <= (idx2 - idx1) <= div_lookback:
                 if type1 == 'low' and type2 == 'low':
                     if prices[idx2] < prices[idx1] and val2 > val1:
-                        bull_div[idx2] = 1 # Sinal confirmado no índice do pivot
-                
+                        bull_div[idx2] = 1  # Sinal confirmado no índice do pivot
+
                 if type1 == 'high' and type2 == 'high':
                     if prices[idx2] > prices[idx1] and val2 < val1:
                         bear_div[idx2] = 1
-                        
+
         data['bull_div'] = bull_div
         data['bear_div'] = bear_div
         return data
@@ -1256,14 +1255,14 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
 
         # 2. Cálculo Heikin Ashi (Usando os valores suavizados)
         haclose = (o_smooth + h_smooth + l_smooth + c_smooth) / 4
-        
+
         haopen = np.zeros_like(haclose)
         # Valor inicial baseado nos suavizados
         haopen[0] = (o_smooth[0] + c_smooth[0]) / 2
-        
+
         for i in range(1, len(haclose)):
-            haopen[i] = (haopen[i-1] + haclose[i-1]) / 2
-        
+            haopen[i] = (haopen[i - 1] + haclose[i - 1]) / 2
+
         # Importante: usar h_smooth e l_smooth aqui para manter a suavização
         hahigh = np.maximum(h_smooth, np.maximum(haopen, haclose))
         halow = np.minimum(l_smooth, np.minimum(haopen, haclose))
@@ -1276,38 +1275,38 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
 
         # Tendência: 1 para Alta, -1 para Baixa
         trend = np.where(c2 > o2, 1, -1)
-        
+
         return trend, o2, h2, l2, c2
-    
+
     def standardized_macd_ha(self, fast=12, slow=26, sig_len=9):
         # 1. Cálculo do MACD Standardized
         ema_fast = pd.Series(self.closes).ewm(span=fast, adjust=False).mean()
         ema_slow = pd.Series(self.closes).ewm(span=slow, adjust=False).mean()
         atr_simulado = (pd.Series(self.highs) - pd.Series(self.lows)).ewm(span=slow, adjust=False).mean()
-        
+
         # Esta é a fórmula mágica do indicador
         st_macd = (ema_fast - ema_slow) / atr_simulado * 100
-        
+
         # 2. Transformação Heikin-Ashi do Oscilador
         # Criamos as velas HA baseadas no valor do st_macd
         o_macd = st_macd.shift(1)
         h_macd = np.maximum(st_macd, o_macd)
         l_macd = np.minimum(st_macd, o_macd)
         c_macd = st_macd
-        
+
         # HA Recursivo para o Oscilador
         ha_c = (o_macd + h_macd + l_macd + c_macd) / 4
         ha_o = np.zeros_like(ha_c)
         ha_o[0] = (o_macd[0] + c_macd[0]) / 2
         for i in range(1, len(ha_c)):
-            ha_o[i] = (ha_o[i-1] + ha_c[i-1]) / 2
-        
+            ha_o[i] = (ha_o[i - 1] + ha_c[i - 1]) / 2
+
         # 3. Linha de Sinal (EMA do Close do HA)
         signal = pd.Series(ha_c).ewm(span=sig_len, adjust=False).mean()
         histogram = ha_c - signal
-        
+
         return ha_o, ha_c, signal, histogram
-    
+
     def regression_slope_oscillator(self, min_range=10, max_range=100, step=5, sig_line=7):
         """
         Calcula o Regression Slope Oscillator e retorna os gatilhos de cruzamento.
@@ -1320,32 +1319,32 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         closes = np.array(self.closes, dtype=float)
         n = len(closes)
         oscillator_values = np.zeros(n)
-        
+
         # 1. Cálculo das Inclinações (Slopes)
         for i in range(max_range, n):
             slopes_at_i = []
             for length in range(min_range, max_range + 1, step):
-                y = np.log(closes[i - length + 1 : i + 1])
+                y = np.log(closes[i - length + 1: i + 1])
                 x = np.arange(1, length + 1)
-                
+
                 sum_x = np.sum(x)
                 sum_y = np.sum(y)
                 sum_xx = np.sum(x * x)
                 sum_xy = np.sum(x * y)
-                
+
                 denominator = (length * sum_xx) - (sum_x * sum_x)
                 if denominator != 0:
                     slope = (length * sum_xy - sum_x * sum_y) / denominator
                     slopes_at_i.append(slope * -1)
                 else:
                     slopes_at_i.append(0.0)
-            
+
             oscillator_values[i] = np.mean(slopes_at_i)
-            
+
         # 2. Cálculo da Signal Line
         osc_series = pd.Series(oscillator_values)
         signal_line = osc_series.rolling(window=sig_line).mean().fillna(0).to_numpy()
-        
+
         # 3. Identificação de Cruzamentos (Gatilhos)
         # 1: Reversal Up (Crossover quando osc < 0)
         # -1: Reversal Down (Crossunder quando osc > 0)
@@ -1353,13 +1352,13 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         direction = np.zeros(n)
         for i in range(1, n):
             # Crossover (Cruza para cima)
-            if oscillator_values[i-1] < signal_line[i-1] and oscillator_values[i] > signal_line[i]:
+            if oscillator_values[i - 1] < signal_line[i - 1] and oscillator_values[i] > signal_line[i]:
                 signals[i] = -2 if oscillator_values[i] > 0 else -1
-            
+
             # Crossunder (Cruza para baixo)
-            elif oscillator_values[i-1] > signal_line[i-1] and oscillator_values[i] < signal_line[i]:
+            elif oscillator_values[i - 1] > signal_line[i - 1] and oscillator_values[i] < signal_line[i]:
                 signals[i] = 2 if oscillator_values[i] < 0 else 1
-            
+
             if oscillator_values[i] > signal_line[i]:
                 direction[i] = -2 if direction[i] > 0 else -1
             elif oscillator_values[i] < signal_line[i]:
@@ -1367,25 +1366,25 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
 
         # 4. Calcular as distâncias absolutas (Gaps) de todo o histórico
         gaps = [abs(o - s) for o, s in zip(oscillator_values, signal_line)]
-        
+
         gap_index = np.zeros(n)
         for i in range(1, n):
             if i < max_range:
                 gap_index[i] = 0
                 continue
-                
+
             # 4.1. Pegar na janela histórica de Gaps
-            window = gaps[i-max_range : i+1]
+            window = gaps[i - max_range: i + 1]
             min_gap = min(window)
             max_gap = max(window)
-            
+
             # 4.2. Normalizar o Gap atual para a escala 0-100
             if max_gap - min_gap == 0:
                 index = 0
             else:
                 # Formula: (Valor - Min) / (Max - Min) * 100
                 index = ((gaps[i] - min_gap) / (max_gap - min_gap)) * 100
-                
+
             gap_index[i] = index
 
         return oscillator_values.tolist(), signal_line.tolist(), signals.tolist(), gap_index.tolist(), direction.tolist()
@@ -1398,7 +1397,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         closes = self.closes
         opens = self.opens
         volumes = self.volumes
-        
+
         # 1. Calcular Delta de Volume (CVD)
         # delta_vol = volume se fecho > abertura, senão -volume
         delta_vols = [(v if cl > op else -v) for cl, op, v in zip(closes, opens, volumes)]
@@ -1407,9 +1406,9 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         # Delta 1: soma dos últimos 25
         d1 = sum(delta_vols[-period:])
         # Delta 2: soma dos 25 anteriores (de -50 a -25)
-        d2 = sum(delta_vols[-period*2 : -period])
+        d2 = sum(delta_vols[-period * 2: -period])
         # Delta 3: soma dos 25 anteriores ao 2 (de -75 a -50)
-        d3 = sum(delta_vols[-period*3 : -period*2])
+        d3 = sum(delta_vols[-period * 3: -period * 2])
 
         # 3. Projeção Future Trend (Cálculo Cíclico)
         future_values = []
@@ -1417,7 +1416,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         for i in range(period + 1):
             # Média do preço atual com o preço de 1 e 2 períodos atrás
             # Corresponde ao values.set(i, math.avg(src[i], src[i + period], src[i + period * 2]))
-            avg_val = (closes[-i-1] + closes[-i-1-period] + closes[-i-1-period*2]) / 3
+            avg_val = (closes[-i - 1] + closes[-i - 1 - period] + closes[-i - 1 - period * 2]) / 3
             future_values.append(avg_val)
 
         # Inverter para que o índice 0 seja o início da projeção (preço atual médio)
@@ -1426,10 +1425,10 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         # 4. Ajuste da Projeção ao Preço Atual (Offset)
         current_close = closes[-1]
         diff = current_close - future_values[0]
-        
+
         # O caminho projetado ajustado para começar no preço atual
         projected_path = [v + diff for v in future_values]
-        target_price = projected_path[-1] # Preço alvo daqui a 25 candles
+        target_price = projected_path[-1]  # Preço alvo daqui a 25 candles
 
         return {
             'projected_path': projected_path,
@@ -1440,32 +1439,31 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
             'is_bullish_projection': target_price > current_close
         }
 
-
     def calculate_andean_oscillator(self, length=50, sig_length=9):
         """
         Calcula o Andean Oscillator (Bullish, Bearish e Signal).
         ohlcv: lista de listas [[ts, open, high, low, close, vol], ...]
         """
-        #if len(ohlcv) < length:
+        # if len(ohlcv) < length:
         #    return None
 
         # Extrair Close e Open para listas simples
         closes = self.closes
         opens = self.opens
-        
+
         alpha = 2 / (length + 1)
         alpha_sig = 2 / (sig_length + 1)
 
         # Listas para armazenar os componentes ao longo do tempo
         bull_comp = []
         bear_comp = []
-        
+
         # Inicialização das variáveis recursivas (equivalente ao 'var' no Pine)
         # Começamos com os primeiros valores para "aquecer" o cálculo
         up1 = closes[0]
-        up2 = closes[0]**2
+        up2 = closes[0] ** 2
         dn1 = closes[0]
-        dn2 = closes[0]**2
+        dn2 = closes[0] ** 2
 
         # Loop principal (processa todo o histórico para garantir precisão nas Médias Exponenciais)
         for i in range(len(closes)):
@@ -1476,7 +1474,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
             # math.max(C, O, up1 - (up1 - C) * alpha)
             up1 = max(C, O, up1 - (up1 - C) * alpha)
             up2 = max(C * C, O * O, up2 - (up2 - C * C) * alpha)
-            
+
             dn1 = min(C, O, dn1 + (C - dn1) * alpha)
             dn2 = min(C * C, O * O, dn2 + (C * C - dn2) * alpha)
 
@@ -1486,7 +1484,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
             # Usamos max(0, ...) para evitar erros de floating point que gerem números negativos ínfimos
             bull = math.sqrt(max(0, dn2 - dn1 * dn1))
             bear = math.sqrt(max(0, up2 - up1 * up1))
-            
+
             bull_comp.append(bull)
             bear_comp.append(bear)
 
@@ -1494,7 +1492,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
         signal_list = []
         # Calculamos o máximo entre os dois em cada ponto
         max_components = [max(bull_comp[i], bear_comp[i]) for i in range(len(bull_comp))]
-        
+
         # EMA manual para o Sinal
         current_sig = max_components[0]
         for i in range(len(max_components)):
@@ -1507,10 +1505,113 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
             'signal': signal_list
         }
 
+    def atr_fibonacci_trend_envelopes(self, ma_length=100, atr_length=100, atr_mult=3.0):
+        """
+        ATR Fibonacci Trend Envelopes [BigBeluga]
 
+        Parameters
+        ----------
+        ma_length : int
+            Lookback period for the baseline (Basis EMA)
+        atr_length : int
+            Lookback period for Average True Range
+        atr_mult : float
+            ATR Multiplier to expand or contract the envelopes
 
+        Returns
+        -------
+        result : dict of np.ndarray
+            Calculated technical layers matching the series length
+        """
+        closes = np.asarray(self.closes, dtype=float)
+        highs = np.asarray(self.highs, dtype=float)
+        lows = np.asarray(self.lows, dtype=float)
+        n = len(closes)
 
+        # 1. CALCULAR O ATR MANUAL (Para evitar dependências externas e manter o padrão)
+        # True Range (TR)
+        tr = np.zeros(n)
+        tr[0] = highs[0] - lows[0]
+        for i in range(1, n):
+            hl = highs[i] - lows[i]
+            hc = abs(highs[i] - closes[i - 1])
+            lc = abs(lows[i] - closes[i - 1])
+            tr[i] = max(hl, hc, lc)
 
+        # RMA / EMA do ATR (O Pine Script usa RMA para o ATR por padrão)
+        atr = np.zeros(n)
+        if n >= atr_length:
+            atr[atr_length - 1] = np.mean(tr[:atr_length])
+            alpha_atr = 1.0 / atr_length
+            for i in range(atr_length, n):
+                atr[i] = alpha_atr * tr[i] + (1.0 - alpha_atr) * atr[i - 1]
 
+        # 2. CALCULAR A LINHA BASE (EMA de 100 períodos do Close)
+        basis = np.zeros(n)
+        if n >= ma_length:
+            basis[ma_length - 1] = np.mean(closes[:ma_length])
+            alpha_ma = 2.0 / (ma_length + 1)
+            for i in range(ma_length, n):
+                basis[i] = alpha_ma * closes[i] + (1.0 - alpha_ma) * basis[i - 1]
 
-        
+        # 3. CONSTRUIR ENVELOPES DINÂMICOS E TRAZAR A TENDÊNCIA RECURSIVA
+        upper_band = np.zeros(n)
+        lower_band = np.zeros(n)
+        trend = np.zeros(n)
+
+        current_trend = 0.0
+
+        start_idx = max(ma_length, atr_length)
+
+        for i in range(start_idx, n):
+            upper_band[i] = basis[i] + (atr[i] * atr_mult)
+            lower_band[i] = basis[i] - (atr[i] * atr_mult)
+
+            # Condições de cruzamento (Crossover / Crossunder do Pine)
+            if closes[i] > upper_band[i]:
+                current_trend = 1.0
+            elif closes[i] < lower_band[i]:
+                current_trend = -1.0
+
+            trend[i] = current_trend
+
+        # 4. CALCULAR OS NÍVEIS FIBONACCI DO GOLDEN POCKET (0.618 e 0.786)
+        fib_618 = np.full(n, np.nan)
+        fib_786 = np.full(n, np.nan)
+        in_pocket = np.zeros(n, dtype=int)
+        dist_mid = np.full(n, np.nan)
+
+        for i in range(start_idx, n):
+            if trend[i] == 0:
+                continue
+
+            band_range = upper_band[i] - lower_band[i]
+
+            if trend[i] == 1.0:
+                # Uptrend: Fibonacci calculado a partir da Lower Band
+                fib_618[i] = lower_band[i] + band_range * (1.0 - 0.618)
+                fib_786[i] = lower_band[i] + band_range * (1.0 - 0.786)
+            else:
+                # Downtrend: Fibonacci calculado a partir da Upper Band
+                fib_618[i] = upper_band[i] - band_range * (1.0 - 0.618)
+                fib_786[i] = upper_band[i] - band_range * (1.0 - 0.786)
+
+            # Encontrar os limites da "Bolsa"
+            p_max = max(fib_618[i], fib_786[i])
+            p_min = min(fib_618[i], fib_786[i])
+            p_mid = (fib_618[i] + fib_786[i]) / 2.0
+
+            # Verificar se o preço está dentro
+            if p_min <= closes[i] <= p_max:
+                in_pocket[i] = 1
+
+            # Calcular distância percentual ao centro do pocket
+            dist_mid[i] = ((closes[i] - p_mid) / closes[i]) * 100.0
+
+        return {
+            'trend': np.asarray(trend, dtype=float),
+            'in_pocket': np.asarray(in_pocket, dtype=int),
+            'dist_mid': np.asarray(dist_mid, dtype=float),
+            'fib_618': np.asarray(fib_618, dtype=float),
+            'fib_786': np.asarray(fib_786, dtype=float)
+        }
