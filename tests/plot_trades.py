@@ -152,6 +152,9 @@ class PlotTrades:
         ema50 = indicators_utils.ema(50)
         ax.plot(dates, ema50, color='red', linestyle='-', linewidth=1.5, label='EMA 50')
 
+        ema21 = indicators_utils.ema(21)
+        ax.plot(dates, ema21, color='green', linestyle='-', linewidth=1.5, label='EMA 21')
+
         # Plotar entradas e saídas
         PlotTrades.build_trade(ax, dates, trades)
 

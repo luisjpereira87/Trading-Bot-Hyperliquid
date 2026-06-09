@@ -1,4 +1,3 @@
-
 from enum import Enum
 
 
@@ -12,3 +11,4 @@ class StrategyEnum(Enum):
     CROSS_EMA = 'cross_ema'
     LUXALGO_SUPERTREND = 'luxalgo_supertrend'
     CROSS_EMA_LINEAR_REGRESSION = 'cross_ema_linear_regression'
+    DONCHIAN = 'donchian'

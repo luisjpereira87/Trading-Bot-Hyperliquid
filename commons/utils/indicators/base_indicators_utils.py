@@ -515,11 +515,11 @@ class BaseIndicatorsUtils:
                 continue
 
             final_upperband[i] = upperband if (
-                        upperband < final_upperband[i - 1] or closes[i - 1] > final_upperband[i - 1]) else \
-            final_upperband[i - 1]
+                    upperband < final_upperband[i - 1] or closes[i - 1] > final_upperband[i - 1]) else \
+                final_upperband[i - 1]
             final_lowerband[i] = lowerband if (
-                        lowerband > final_lowerband[i - 1] or closes[i - 1] < final_lowerband[i - 1]) else \
-            final_lowerband[i - 1]
+                    lowerband > final_lowerband[i - 1] or closes[i - 1] < final_lowerband[i - 1]) else \
+                final_lowerband[i - 1]
 
             prev_trend = trend[i - 1]
             if prev_trend == 1:
@@ -760,7 +760,7 @@ class BaseIndicatorsUtils:
 
         return atr_rel, profile, ema_spread
 
-    def classify_candles(self):
+    def classify_candles_(self):
         n = len(self.closes)
         # Inicializa o array com NEUTRAL
         candles_values = [CandleType.NEUTRAL] * n
@@ -801,6 +801,71 @@ class BaseIndicatorsUtils:
                     candles_values[i] = CandleType.BEAR
 
             # --- LÓGICA DOJI (FECHO == ABERTURA OU MUITO PRÓXIMO) ---
+            else:
+                candles_values[i] = CandleType.DOJI
+
+        return candles_values
+
+    def classify_candles(self):
+        n = len(self.closes)
+        candles_values = [CandleType.NEUTRAL] * n
+
+        atr = self.atr()
+        for i in range(0, n):
+            range_candle = self.highs[i] - self.lows[i]
+            if range_candle == 0:
+                continue
+
+            body = abs(self.closes[i] - self.opens[i])
+            upper_wick = self.highs[i] - max(self.opens[i], self.closes[i])
+            lower_wick = min(self.opens[i], self.closes[i]) - self.lows[i]
+
+            body_ratio = body / range_candle
+            upper_ratio = upper_wick / range_candle
+            lower_ratio = lower_wick / range_candle
+
+            # =========================================================================
+            # 🚨 REGRA SOBERANA: AS EXAUSTÕES VÊM PRIMEIRO
+            # =========================================================================
+            if upper_ratio > 0.55 and body_ratio < 0.35:
+                candles_values[i] = CandleType.TOP_EXHAUSTION
+                continue
+
+            elif lower_ratio > 0.55 and body_ratio < 0.35:
+                candles_values[i] = CandleType.BOTTOM_EXHAUSTION
+                continue
+
+            # =========================================================================
+            # FILTRO DE TAMANHO REAL (Mata as micro-velas na consolidação)
+            # =========================================================================
+            # Se passares o ATR, exigimos que a vela tenha pelo menos 70% do tamanho do ATR médio.
+            # Se for menor que isso, ela é considerada uma vela normal (BULL/BEAR) ou NEUTRAL, nunca STRONG.
+            eh_vela_relevante = True
+            if atr is not None and i >= 14:
+                # Se o tamanho total da vela for menor que 70% da volatilidade média recente
+                if range_candle < (atr[i] * 0.7):
+                    eh_vela_relevante = False
+
+            # --- LÓGICA BULL ---
+            if self.closes[i] > self.opens[i]:
+                if upper_wick > body:
+                    candles_values[i] = CandleType.WEAK_BULL
+                # 🚨 SÓ É STRONG SE TIVER CORPO E TAMANHO REAL NO GRÁFICO
+                elif body_ratio > 0.6 and eh_vela_relevante:
+                    candles_values[i] = CandleType.STRONG_BULL
+                else:
+                    candles_values[i] = CandleType.BULL
+
+            # --- LÓGICA BEAR ---
+            elif self.closes[i] < self.opens[i]:
+                if lower_wick > body:
+                    candles_values[i] = CandleType.WEAK_BEAR
+                # 🚨 SÓ É STRONG SE TIVER CORPO E TAMANHO REAL NO GRÁFICO
+                elif body_ratio > 0.6 and eh_vela_relevante:
+                    candles_values[i] = CandleType.STRONG_BEAR
+                else:
+                    candles_values[i] = CandleType.BEAR
+
             else:
                 candles_values[i] = CandleType.DOJI
 

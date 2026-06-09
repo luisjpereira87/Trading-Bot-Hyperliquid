@@ -1615,3 +1615,29 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
             'fib_618': np.asarray(fib_618, dtype=float),
             'fib_786': np.asarray(fib_786, dtype=float)
         }
+
+    def donchian_channels(self, length=20):
+        closes = np.asarray(self.closes, dtype=float)
+        highs = np.asarray(self.highs, dtype=float)
+        lows = np.asarray(self.lows, dtype=float)
+        n = len(closes)
+
+        dc_upper = np.full(n, np.nan)
+        dc_lower = np.full(n, np.nan)
+        dc_mid = np.full(n, np.nan)
+
+        # Usamos uma janela deslizante (rolling) pura do NumPy
+        for i in range(length - 1, n):
+            # O canal olha para as velas anteriores (excluindo a atual para evitar lookahead)
+            window_highs = highs[i - length + 1: i + 1]
+            window_lows = lows[i - length + 1: i + 1]
+
+            dc_upper[i] = np.max(window_highs)
+            dc_lower[i] = np.min(window_lows)
+            dc_mid[i] = (dc_upper[i] + dc_lower[i]) / 2.0
+
+        return {
+            'dc_upper': dc_upper,
+            'dc_lower': dc_lower,
+            'dc_mid': dc_mid
+        }
