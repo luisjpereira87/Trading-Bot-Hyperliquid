@@ -1,13 +1,13 @@
 from abc import ABC, abstractmethod
 from typing import Any, List
 
-from commons.models.strategy_params_dclass import StrategyParams
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
 
 
 class StrategyBase(ABC):
     MIN_REQUIRED_CANDLES = 50
     REQUIRED_CANDLES_200 = 200
+    REQUIRED_CANDLES_500 = 500
     VOLUME_ANALYSIS_PERIOD = 20
     ohlcv: OhlcvWrapper
 
@@ -24,7 +24,7 @@ class StrategyBase(ABC):
         self.ohlcv_higher = ohlcv_higher
 
     @abstractmethod
-    def required_init(self, ohlcv: OhlcvWrapper, ohlcv_higher: (OhlcvWrapper| None), symbol: str, price_ref: float):
+    def required_init(self, ohlcv: OhlcvWrapper, ohlcv_higher: (OhlcvWrapper | None), symbol: str, price_ref: float):
         pass
 
     def has_enough_candles(self) -> bool:

@@ -174,7 +174,7 @@ class DonchianStrategy(StrategyBase):
             """
 
             # print("AQUIII", adx[i], macro_trend, closes[i] > dc_upper[i], closes[i] < dc_lower[i])
-            if adx[i] > 20:
+            if adx[i] > 20 and spread_pct >= 0.010 and bandwidth_pct >= distancia_minima_pct:
                 if macro_trend == 1:
                     retest_ema21_bull = lows[i - 1] <= ema21[i - 1] and closes[i] > ema21[
                         i] and closes[i] > closes[i - 1]
