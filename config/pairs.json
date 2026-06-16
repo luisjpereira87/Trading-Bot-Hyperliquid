@@ -3,19 +3,19 @@
     "symbol": "BTC/USDC:USDC",
     "symbol_nado": "BTC-PERP",
     "leverage": 10,
-    "capital": 0.5
+    "capital": 0.4
 
   },
   {
     "symbol": "ETH/USDC:USDC",
     "symbol_nado": "ETH-PERP",
     "leverage": 10,
-    "capital": 0.5
+    "capital": 0.4
   },
   {
     "symbol": "SOL/USDC:USDC",
     "symbol_nado": "SOL-PERP",
     "leverage": 10,
-    "capital": 0.0
+    "capital": 0.2
   }
 ]
