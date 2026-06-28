@@ -65,7 +65,6 @@ class DonchianStrategy(StrategyBase):
         else:
             return SignalResult(signal, None, None, None, 0, signal_val[-2])
 
-        """
         # =========================================================================
         # 🎯 NOVA VALIDAÇÃO: TRAVA DE DISTÂNCIA MÁXIMA DO SL
         # =========================================================================
@@ -76,7 +75,7 @@ class DonchianStrategy(StrategyBase):
             # print(f"⚠️ {self.symbol} - Sinal {signal.name} abortado! SL muito largo: {sl_distance_pct:.2f}%")
             return SignalResult(Signal.HOLD, None, None, None, 0, signal_val[-2])
         # =========================================================================
-        """
+
         # valida relação risco/benefício
         risk = abs(close - sl)
         reward = abs(tp - close)
@@ -87,7 +86,7 @@ class DonchianStrategy(StrategyBase):
             tp_adjusted = close + (reward * 1.5) if signal == Signal.BUY else close - (reward * 1.5)
 
             # return SignalResult(Signal.HOLD, sl, tp_adjusted, None, 0, signal_val[-2])
-            return SignalResult(signal, None, None, None, 0, signal_val[-2])
+            return SignalResult(Signal.HOLD, None, None, None, 0, signal_val[-2])
 
         return SignalResult(signal, sl, tp, None, 0, signal_val[-2])
 
@@ -99,6 +98,7 @@ class DonchianStrategy(StrategyBase):
         n = len(closes)
         trend_signal = [Signal.HOLD] * n
 
+        """
         ema21 = indicators.ema(21)
         ema50 = indicators.ema(50)
         ema200 = indicators.ema(200)
@@ -113,11 +113,65 @@ class DonchianStrategy(StrategyBase):
 
         classify_candles = indicators.classify_candles()
         atr = indicators.atr()
+        """
         cooldown_n = 10
 
+        # direction = indicators.market_structure_rsi()
+
+        ema5_h = indicators.ema_list(highs, 5)
+        ema5_l = indicators.ema_list(lows, 5)
+        ema100_h = indicators.ema_list(highs, 100)
+        ema100_l = indicators.ema_list(lows, 100)
+        ema200 = indicators.ema_list(closes, 200)
+        # rsi, rsi_ema = indicators.rsi()
+
+        # Listas para Sinais
+        buy_idx, buy_val = [], []
+        sell_idx, sell_val = [], []
+
+        # Variáveis de Estado (Memória do Pullback)
+        waiting_buy = False
+        waiting_sell = False
+
         macro_trend = 0
-        for i in range(3, n):
+        for i in range(200, n):
             current_signal = None
+
+            slope_200 = ema200[i] - ema200[i - 5]
+            min_slope = ema200[i] * 0.0001  # Filtro de inclinação mínima (ajustável)
+
+            # 2. LÓGICA DE COMPRA (LONG)
+            if closes[i] > ema200[i] and slope_200 > min_slope:
+                # Verificamos se o RSI está acima de 50 (Confirmação de força)
+                # if rsi[i] > 30 and rsi[i] > rsi_ema[i]:
+                if lows[i] <= ema100_h[i]:  # Toque no canal de Pullback
+                    waiting_buy = True
+
+                if waiting_buy and closes[i] > ema5_h[i]:
+                    # Filtro extra: O candle de sinal deve ter volume acima da média
+                    # if volumes[i] > np.mean(volumes[i - 20:i]):
+                    buy_idx.append(i)
+                    buy_val.append(lows[i])
+                    current_signal = Signal.BUY
+                    waiting_buy = False
+
+            # 3. LÓGICA DE VENDA (SHORT)
+            elif closes[i] < ema200[i] and slope_200 < -min_slope:
+                # if rsi[i] < 70 and rsi[i] < rsi_ema[i]:
+                if highs[i] >= ema100_l[i]:
+                    waiting_sell = True
+
+                if waiting_sell and closes[i] < ema5_l[i]:
+                    # if volumes[i] > np.mean(volumes[i - 20:i]):
+                    sell_idx.append(i)
+                    sell_val.append(highs[i])
+                    current_signal = Signal.SELL
+                    waiting_sell = False
+
+            # 4. INVALIDAÇÃO AUTOMÁTICA
+            # Se o preço cruzar a EMA 200 antes do sinal de entrada, o pullback faliu
+            if waiting_buy and closes[i] < ema200[i]: waiting_buy = False
+            if waiting_sell and closes[i] > ema200[i]: waiting_sell = False
 
             """
             dc_mid_ascending = dc_lower[i] > dc_mid[i - 3]
@@ -130,7 +184,7 @@ class DonchianStrategy(StrategyBase):
             else:
                 macro_trend = 0  # Neutro / Lateralização agressiva
             """
-
+            """
             canal_range = dc_upper[i] - dc_lower[i]
             bandwidth_pct = (canal_range / closes[i]) * 100
 
@@ -144,13 +198,14 @@ class DonchianStrategy(StrategyBase):
                 macro_trend = 1
             else:
                 macro_trend = -1
-
+            """
+            """
             if spread_pct < 0.010:
                 continue
 
             if bandwidth_pct < distancia_minima_pct:
                 continue
-
+            """
             """
             # Verificar se pelo menos uma das bandas se moveu nas últimas 3 velas
             banda_sup_a_subir = dc_upper[i] > dc_upper[i - 3]
@@ -173,6 +228,16 @@ class DonchianStrategy(StrategyBase):
                 macro_trend = 0
             """
 
+            """
+            bull_ema = ema21[i] > ema50[i] > ema200[i]
+            bear_ema = ema21[i] < ema50[i] < ema200[i]
+
+            if direction[i] == 1:
+                current_signal = Signal.BUY
+            elif direction[i] == -1:
+                current_signal = Signal.SELL
+            """
+            """
             # print("AQUIII", adx[i], macro_trend, closes[i] > dc_upper[i], closes[i] < dc_lower[i])
             if adx[i] > 20 and spread_pct >= 0.010 and bandwidth_pct >= distancia_minima_pct:
                 if macro_trend == 1:
@@ -194,6 +259,7 @@ class DonchianStrategy(StrategyBase):
 
                     if retest_ema21_bear or retest_ema50_bear:
                         current_signal = Signal.SELL
+            """
 
             if current_signal is not None:
 
