@@ -55,17 +55,20 @@ class TrailingStopHelpers:
         if max_pnl_pct < 0.008:
             return 0, "⏳", "Aguardando fôlego (0.4%)..."
 
+        max_fixed_target = TrailingStopHelpers.TRAILING_STRATEGY[0]["target"]
+
         # 2. VERIFICAR A LISTA DE METAS (O que tu já tinhas definido)
         # Isto garante que se bateres 1% ou 0.4%, ele fixa logo um lucro
-        for strategy in TrailingStopHelpers.TRAILING_STRATEGY:
-            if max_pnl_pct >= strategy["target"]:
-                secure = strategy["secure"]
-                return secure, strategy["icon"], strategy["log"]
+        if max_pnl_pct <= max_fixed_target:
+            for strategy in TrailingStopHelpers.TRAILING_STRATEGY:
+                if max_pnl_pct >= strategy["target"]:
+                    return strategy["secure"], strategy["icon"], strategy["log"]
 
-        # 3. LÓGICA DINÂMICA (Caso não esteja na lista)
-        # Se estiver entre metas, usamos um rácio para o stop subir ponto a ponto
-        ratio = 0.50
-        if max_pnl_pct >= 0.01: ratio = 0.65
+        # 3. LÓGICA DINÂMICA (Para trades explosivos > 2%)
+        # Em vez de multiplicar o PnL por um rácio (que distorce o stop),
+        # definimos quantos % do lucro permitimos que o mercado "devolva" (Giveback)
+        # Se vais com 4% de PnL, um giveback de 30% significa que o stop fica a 2.8% de lucro garantido
+        giveback_ratio = 0.30  # Permite o preço recuar 30% do topo atingido
 
-        secure = max_pnl_pct * ratio
-        return secure, "🚀", f"Proteção dinâmica: {secure:.2%}"
+        secure = max_pnl_pct * (1 - giveback_ratio)
+        return secure, "🚀", f"Proteção ultra-dinâmica: Garantindo {secure:.2%} (PnL Max: {max_pnl_pct:.2%})"
