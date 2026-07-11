@@ -1,3 +1,5 @@
+import numpy as np
+
 from commons.enums.signal_enum import Signal
 from commons.models.signal_result_dclass import SignalResult
 from commons.models.strategy_base_dclass import StrategyBase
@@ -91,7 +93,7 @@ class DonchianStrategy(StrategyBase):
         return SignalResult(signal, sl, tp, None, 0, signal_val[-2])
 
     @staticmethod
-    def build_signal(indicators: IndicatorsUtils, ohlcv: OhlcvWrapper, trailing_n=3):
+    def build_signal_(indicators: IndicatorsUtils, ohlcv: OhlcvWrapper, trailing_n=3):
         closes = ohlcv.closes
         lows = ohlcv.lows
         highs = ohlcv.highs
@@ -260,6 +262,257 @@ class DonchianStrategy(StrategyBase):
                     if retest_ema21_bear or retest_ema50_bear:
                         current_signal = Signal.SELL
             """
+
+            if current_signal is not None:
+
+                if all(trend_signal[i - k] == Signal.HOLD for k in range(1, cooldown_n + 1)):
+                    # Histórico limpo! Pode abrir o trade.
+                    trend_signal[i] = current_signal
+                else:
+                    # Se pelo menos uma não foi HOLD, significa que há um sinal recente. Trava!
+                    trend_signal[i] = Signal.HOLD
+
+                # trend_signal[i] = current_signal
+                last_signal = current_signal
+                entry_price = closes[i]
+                profits = []
+
+        return trend_signal
+
+    @staticmethod
+    def build_signal__(indicators: IndicatorsUtils, ohlcv: OhlcvWrapper, trailing_n=3):
+        closes = ohlcv.closes
+        lows = ohlcv.lows
+        highs = ohlcv.highs
+        n = len(closes)
+        trend_signal = [Signal.HOLD] * n
+
+        ema21 = indicators.ema(21)
+        ema50 = indicators.ema(50)
+        ema200 = indicators.ema(200)
+        adx = indicators.adx()
+        rsi, rsi_ema = indicators.rsi()
+
+        donchian = indicators.donchian_channels(52)
+        dc_upper = donchian['dc_upper']
+        dc_lower = donchian['dc_lower']
+        dc_mid = donchian['dc_mid']
+        distancia_minima_pct = 3.0
+
+        classify_candles = indicators.classify_candles()
+        atr = indicators.atr()
+        cooldown_n = 10
+
+        macro_trend = 0
+        for i in range(3, n):
+            current_signal = None
+
+            """
+            dc_mid_ascending = dc_lower[i] > dc_mid[i - 3]
+            dc_mid_descending = dc_mid[i] < dc_mid[i - 3]
+
+            if dc_mid_ascending and closes[i] > dc_mid[i]:
+                macro_trend = 1  # Tendência de Alta oficializada! 📈
+            elif dc_mid_descending and closes[i] < dc_mid[i]:
+                macro_trend = -1  # Tendência de Baixa oficializada! 📉
+            else:
+                macro_trend = 0  # Neutro / Lateralização agressiva
+            """
+
+            canal_range = dc_upper[i] - dc_lower[i]
+            bandwidth_pct = (canal_range / closes[i]) * 100
+
+            spread = abs(ema50[i] - ema200[i])
+            spread_pct = spread / closes[i]
+
+            # _, _, ema_spread = indicators.get_volatility_profile(atr)
+            # print("AQUIII", i, spread_pct, ema_spread)
+
+            if closes[i] > ema200[i]:
+                macro_trend = 1
+            else:
+                macro_trend = -1
+
+            if spread_pct < 0.010:
+                continue
+
+            if bandwidth_pct < distancia_minima_pct:
+                continue
+
+            """
+            # Verificar se pelo menos uma das bandas se moveu nas últimas 3 velas
+            banda_sup_a_subir = dc_upper[i] > dc_upper[i - 3]
+            banda_inf_a_subir = dc_lower[i] > dc_lower[i - 3]
+
+            banda_sup_a_descer = dc_upper[i] < dc_upper[i - 3]
+            banda_inf_a_descer = dc_lower[i] < dc_lower[i - 3]
+
+            # 🟢 TENDÊNCIA DE ALTA (OR): Pelo menos uma linha empurra para cima
+            # E o preço confirma negociando acima do meio do canal
+            if (banda_sup_a_subir or banda_inf_a_subir) and closes[i] > dc_mid[i]:
+                macro_trend = 1
+
+            # 🔴 TENDÊNCIA DE BAIXA (OR): Pelo menos uma linha empurra para baixo
+            # E o preço confirma negociando abaixo do meio do canal
+            elif (banda_sup_a_descer or banda_inf_a_descer) and closes[i] < dc_mid[i]:
+                macro_trend = -1
+
+            else:
+                macro_trend = 0
+            """
+
+            # print("AQUIII", adx[i], macro_trend, closes[i] > dc_upper[i], closes[i] < dc_lower[i])
+            if adx[i] > 20 and spread_pct >= 0.010 and bandwidth_pct >= distancia_minima_pct:
+                if macro_trend == 1:
+                    retest_ema21_bull = lows[i - 1] <= ema21[i - 1] and closes[i] > ema21[
+                        i] and closes[i] > closes[i - 1]
+
+                    retest_ema50_bull = lows[i - 1] <= ema50[i - 1] and closes[i] > ema50[
+                        i] and closes[i] > closes[i - 1]
+
+                    if retest_ema21_bull or retest_ema50_bull:
+                        current_signal = Signal.BUY
+
+                elif macro_trend == -1:
+                    retest_ema21_bear = highs[i - 1] >= ema21[i - 1] and closes[i] < ema21[
+                        i] and closes[i] < closes[i - 1]
+
+                    retest_ema50_bear = highs[i - 1] >= ema50[i - 1] and closes[i] < ema50[
+                        i] and closes[i] < closes[i - 1]
+
+                    if retest_ema21_bear or retest_ema50_bear:
+                        current_signal = Signal.SELL
+
+            if current_signal is not None:
+
+                if all(trend_signal[i - k] == Signal.HOLD for k in range(1, cooldown_n + 1)):
+                    # Histórico limpo! Pode abrir o trade.
+                    trend_signal[i] = current_signal
+                else:
+                    # Se pelo menos uma não foi HOLD, significa que há um sinal recente. Trava!
+                    trend_signal[i] = Signal.HOLD
+
+                # trend_signal[i] = current_signal
+                last_signal = current_signal
+                entry_price = closes[i]
+                profits = []
+
+        return trend_signal
+
+    @staticmethod
+    def build_signal(indicators: IndicatorsUtils, ohlcv: OhlcvWrapper, trailing_n=3):
+        closes = ohlcv.closes
+        lows = ohlcv.lows
+        highs = ohlcv.highs
+        opens = ohlcv.opens
+        n = len(closes)
+        trend_signal = [Signal.HOLD] * n
+
+        ema21 = indicators.ema(21)
+        ema50 = indicators.ema(50)
+        ema200 = indicators.ema(200)
+        adx = indicators.adx()
+        rsi, rsi_ema = indicators.rsi()
+
+        cooldown_n = 10
+
+        lower_band = np.full(n, np.nan)
+        upper_band = np.full(n, np.nan)
+
+        lookback = 14
+        is_enter = True
+        lower_band_raw = None
+        upper_band_raw = None
+
+        top_idx, top_val = [], []
+        bottom_idx, bottom_val = [], []
+
+        # State memory flags
+        waiting_buy_confirmation = False
+        waiting_sell_confirmation = False
+        EMA_PROXIMITY_THRESHOLD = 0.001
+
+        for i in range(lookback, n):
+            current_signal = None
+
+            current_price = closes[i]
+            is_green_candle = closes[i] > opens[i]
+            is_red_candle = closes[i] < opens[i]
+
+            # --- 1. VALIDATE CANDLE N+1 (CONTINUATION OR REVERSAL) ---
+
+            if waiting_buy_confirmation:
+                if is_red_candle:  # ✅ Continuation: Trend entry confirmed
+                    if rsi[i - 1] > 70 and rsi[i] < rsi[i - 1]:
+                        current_signal = Signal.SELL
+                waiting_buy_confirmation = False  # Reset state
+
+            elif waiting_sell_confirmation:
+                if is_green_candle:  # ✅ Continuation: Trend entry confirmed
+                    if rsi[i - 1] < 30 and rsi[i] > rsi[i - 1]:
+                        current_signal = Signal.BUY
+                waiting_sell_confirmation = False  # Reset state
+
+            # --- 2. DETECT INITIAL BREAKOUT ---
+            if lower_band_raw is not None and upper_band_raw is not None:
+
+                if current_price > upper_band_raw:
+                    ema21_inside = (lows[i] <= ema21[i] <= highs[i]) or (
+                            abs(lows[i] - ema21[i]) / lows[i] <= EMA_PROXIMITY_THRESHOLD)
+                    ema50_inside = (lows[i] <= ema50[i] <= highs[i]) or (
+                            abs(lows[i] - ema50[i]) / lows[i] <= EMA_PROXIMITY_THRESHOLD)
+                    is_near_ema = ema21_inside or ema50_inside
+                    if closes[i] > ema200[i] and is_near_ema:
+                        current_signal = Signal.BUY
+                    waiting_buy_confirmation = True  # Trigger check for the next candle
+                    is_enter = True
+                    lower_band_raw = None
+                    upper_band_raw = None
+
+                elif current_price < lower_band_raw:
+                    ema21_inside = (lows[i] <= ema21[i] <= highs[i]) or (
+                            abs(highs[i] - ema21[i]) / highs[i] <= EMA_PROXIMITY_THRESHOLD)
+                    ema50_inside = (lows[i] <= ema50[i] <= highs[i]) or (
+                            abs(highs[i] - ema50[i]) / highs[i] <= EMA_PROXIMITY_THRESHOLD)
+                    is_near_ema = ema21_inside or ema50_inside
+                    if closes[i] < ema200[i] and is_near_ema:
+                        current_signal = Signal.SELL
+                    waiting_sell_confirmation = True  # Trigger check for the next candle
+                    is_enter = True
+                    lower_band_raw = None
+                    upper_band_raw = None
+
+            last_highs = highs[i - lookback + 1: i + 1]
+            last_lows = lows[i - lookback + 1: i + 1]
+
+            channel_high = np.max(last_highs)
+            channel_low = np.min(last_lows)
+            channel_width = channel_high - channel_low
+
+            current_price = closes[i]
+
+            if current_price == 0:
+                continue  # Usa 'continue' em vez de return para o loop não morrer a meio do histórico
+
+            range_percent = channel_width / current_price
+
+            # 2. CAPTURA E BLOQUEIO (Gatilhada quando o mercado comprime < 2%)
+            if range_percent < 0.02 and is_enter:
+                range_percent_half = range_percent / 2
+                # CORRIGIDO: Uma banda subtrai do preço, a outra soma!
+                lower_band_raw = current_price - (current_price * range_percent_half)
+                upper_band_raw = current_price + (current_price * range_percent_half)
+                is_enter = False
+
+            # 3. PREENCHIMENTO DO HISTÓRICO
+            if lower_band_raw is not None and upper_band_raw is not None:
+                # Se estiver trancado na consolidação, mantém os valores fixos (linhas horizontais)
+                lower_band[i] = lower_band_raw
+                upper_band[i] = upper_band_raw
+            else:
+                # Se estiver em modo dinâmico, acompanha o preço da vela atual
+                lower_band[i] = lows[i]
+                upper_band[i] = highs[i]
 
             if current_signal is not None:
 
