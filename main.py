@@ -65,10 +65,10 @@ async def run_bot():
 
     helpers = TradingHelpers()
     hl_client = ExchangeClient(exchange, wallet_address)
-    nado_client = NadoExchangeClient(private_key, None, wallet_address, pairs)
+    #nado_client = NadoExchangeClient(private_key, None, wallet_address, pairs)
     hl_strategy = StrategyManager(hl_client, StrategyEnum.DONCHIAN)
-    nado_strategy = StrategyManager(nado_client, StrategyEnum.DONCHIAN)
-    nado_bot = TradingBot(nado_client, nado_strategy, helpers, pairs, timeframe, 'NADO')
+    #nado_strategy = StrategyManager(nado_client, StrategyEnum.DONCHIAN)
+    #nado_bot = TradingBot(nado_client, nado_strategy, helpers, pairs, timeframe, 'NADO')
     hl_bot = TradingBot(hl_client, hl_strategy, helpers, pairs, timeframe, 'HYPERLIQUID')
 
     logging.info("🚀 Lançando Bots em paralelo (NADO + HYPERLIQUID)...")
@@ -82,7 +82,7 @@ async def run_bot():
 
     # 3. Rodar ambos simultaneamente com proteção
     await asyncio.gather(
-        safe_run(nado_bot),
+        #safe_run(nado_bot),
         safe_run(hl_bot)
     )
 
