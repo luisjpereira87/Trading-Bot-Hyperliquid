@@ -43,9 +43,10 @@ class DonchianStrategy(StrategyBase):
 
         last_closed_candle = self.ohlcv.get_last_closed_candle()
         supertrend, trend, upperband, lowerband, supertrend_smooth, _, _ = self.indicators.supertrend()
-        signal_val = DonchianStrategy.build_signal(self.indicators, self.ohlcv)
+        #signal_val = DonchianStrategy.build_signal(self.indicators, self.ohlcv)
 
-        signal = signal_val[-2]
+        #signal = signal_val[-2]
+        signal = self.indicators.analyze_and_execute_candles()
         close = last_closed_candle.close
         closes = self.ohlcv.closes
 
@@ -65,17 +66,19 @@ class DonchianStrategy(StrategyBase):
             sl = max(upperband[-lookback:])  # SL no ponto mais alto da banda
             tp = min(lowerband[-lookback:]) - (sl - min(lowerband[-lookback:])) * 0.5
         else:
-            return SignalResult(signal, None, None, None, 0, signal_val[-2])
+            return SignalResult(signal, None, None, None, 0, signal)
 
         # =========================================================================
         # 🎯 NOVA VALIDAÇÃO: TRAVA DE DISTÂNCIA MÁXIMA DO SL
         # =========================================================================
+        """
         sl_distance_pct = (abs(close - sl) / close) * 100
 
         if sl_distance_pct > MAX_SL_DIST_PCT:
             # Se o stop estiver demasiado longe, cancelamos a entrada para evitar a perda de $70-$100
             # print(f"⚠️ {self.symbol} - Sinal {signal.name} abortado! SL muito largo: {sl_distance_pct:.2f}%")
             return SignalResult(Signal.HOLD, None, None, None, 0, signal_val[-2])
+        """
         # =========================================================================
 
         # valida relação risco/benefício
@@ -88,9 +91,9 @@ class DonchianStrategy(StrategyBase):
             tp_adjusted = close + (reward * 1.5) if signal == Signal.BUY else close - (reward * 1.5)
 
             # return SignalResult(Signal.HOLD, sl, tp_adjusted, None, 0, signal_val[-2])
-            return SignalResult(Signal.HOLD, None, None, None, 0, signal_val[-2])
+            return SignalResult(Signal.HOLD, None, None, None, 0, signal)
 
-        return SignalResult(signal, sl, tp, None, 0, signal_val[-2])
+        return SignalResult(signal, sl, tp, None, 0, signal)
 
     @staticmethod
     def build_signal_(indicators: IndicatorsUtils, ohlcv: OhlcvWrapper, trailing_n=3):
@@ -440,7 +443,7 @@ class DonchianStrategy(StrategyBase):
             is_red_candle = closes[i] < opens[i]
 
             # --- 1. VALIDATE CANDLE N+1 (CONTINUATION OR REVERSAL) ---
-
+            """
             if waiting_buy_confirmation:
                 if is_red_candle:  # ✅ Continuation: Trend entry confirmed
                     if rsi[i - 1] > 70 and rsi[i] < rsi[i - 1]:
@@ -452,7 +455,7 @@ class DonchianStrategy(StrategyBase):
                     if rsi[i - 1] < 30 and rsi[i] > rsi[i - 1]:
                         current_signal = Signal.BUY
                 waiting_sell_confirmation = False  # Reset state
-
+            """
             # --- 2. DETECT INITIAL BREAKOUT ---
             if lower_band_raw is not None and upper_band_raw is not None:
 
@@ -462,7 +465,8 @@ class DonchianStrategy(StrategyBase):
                     ema50_inside = (lows[i] <= ema50[i] <= highs[i]) or (
                             abs(lows[i] - ema50[i]) / lows[i] <= EMA_PROXIMITY_THRESHOLD)
                     is_near_ema = ema21_inside or ema50_inside
-                    if closes[i] > ema200[i] and is_near_ema:
+                    is_trend_up = closes[i] > ema200[i] and ema50[i] < ema21[i]
+                    if is_trend_up:
                         current_signal = Signal.BUY
                     waiting_buy_confirmation = True  # Trigger check for the next candle
                     is_enter = True
@@ -475,7 +479,8 @@ class DonchianStrategy(StrategyBase):
                     ema50_inside = (lows[i] <= ema50[i] <= highs[i]) or (
                             abs(highs[i] - ema50[i]) / highs[i] <= EMA_PROXIMITY_THRESHOLD)
                     is_near_ema = ema21_inside or ema50_inside
-                    if closes[i] < ema200[i] and is_near_ema:
+                    is_trend_down = closes[i] < ema200[i] and ema50[i] > ema21[i]
+                    if is_trend_down:
                         current_signal = Signal.SELL
                     waiting_sell_confirmation = True  # Trigger check for the next candle
                     is_enter = True
@@ -497,7 +502,7 @@ class DonchianStrategy(StrategyBase):
             range_percent = channel_width / current_price
 
             # 2. CAPTURA E BLOQUEIO (Gatilhada quando o mercado comprime < 2%)
-            if range_percent < 0.02 and is_enter:
+            if range_percent < 0.01 and is_enter:
                 range_percent_half = range_percent / 2
                 # CORRIGIDO: Uma banda subtrai do preço, a outra soma!
                 lower_band_raw = current_price - (current_price * range_percent_half)
@@ -515,15 +520,15 @@ class DonchianStrategy(StrategyBase):
                 upper_band[i] = highs[i]
 
             if current_signal is not None:
-
+                """
                 if all(trend_signal[i - k] == Signal.HOLD for k in range(1, cooldown_n + 1)):
                     # Histórico limpo! Pode abrir o trade.
                     trend_signal[i] = current_signal
                 else:
                     # Se pelo menos uma não foi HOLD, significa que há um sinal recente. Trava!
                     trend_signal[i] = Signal.HOLD
-
-                # trend_signal[i] = current_signal
+                """
+                trend_signal[i] = current_signal
                 last_signal = current_signal
                 entry_price = closes[i]
                 profits = []

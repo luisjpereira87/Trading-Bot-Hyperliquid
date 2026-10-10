@@ -4,6 +4,7 @@ from collections import deque
 import numpy as np
 import pandas as pd
 
+from commons.enums.signal_enum import Signal
 from commons.utils.indicators.base_indicators_utils import BaseIndicatorsUtils
 from commons.utils.indicators.tv_indicators_utils import TvIndicatorsUtils
 from commons.utils.ohlcv_wrapper import OhlcvWrapper
@@ -323,4 +324,100 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
         keltner_down = basis - (multiplier * atr)
 
         return keltner_up, basis, keltner_down
+
+    def analyze_and_execute_candles(self, trend_threshold=0.3) -> Signal:
+        """
+        Equivalente em Python do método TypeScript analyzeAndExecuteCoin.
+        Recebe uma lista de candles, calcula RSI, EMA do RSI, variação de tendência
+        e valida a força do candle corrente antes de disparar o sinal.
+        """
+
+        # Cálculo do RSI atual (14 períodos) e respetiva EMA
+        rsi, ema_rsi = self.rsi(signal_period=9)
+        current_rsi = rsi[-1]
+        current_ema_rsi = ema_rsi[-1]
+
+        is_rsi_bullish = current_rsi > current_ema_rsi
+        is_rsi_bearish = current_rsi < current_ema_rsi
+
+        # Variação de tendência baseada nos últimos blocos (garantindo compatibilidade com lista de floats ou dicts)
+        recent = self.closes[-5:]
+        older = self.closes[-10:-5]
+
+        # Helper seguro para extrair o valor do fecho (seja float direto ou dicionário)
+        def get_close(val):
+            return float(val['close']) if isinstance(val, dict) else float(val)
+
+        recent_avg = sum(get_close(c) for c in recent) / len(recent)
+        older_avg = sum(get_close(c) for c in older) / len(older)
+
+        change_percent = ((recent_avg - older_avg) / older_avg) * 100
+        threshold = trend_threshold
+
+        trend = 'neutral'
+        if change_percent > threshold:
+            trend = 'up'
+        elif change_percent < -threshold:
+            trend = 'down'
+
+        """
+        print(
+            f"KLINE: 📊 Variação: {change_percent:.4f}% | RSI: {current_rsi:.1f} (EMA: {current_ema_rsi:.1f}) | Tendência: {trend.upper()}"
+        )
+        """
+        if trend == 'neutral':
+            return Signal.HOLD
+
+        # 🛡️ FILTRO DE RSI: Validar se o momento técnico apoia a tendência
+        if trend == 'up' and not is_rsi_bullish:
+            """
+            print(
+                f"WARN: ⏳ Sinal UP ignorado: Variação positiva mas RSI ({current_rsi:.1f}) abaixo da EMA ({current_ema_rsi:.1f}) - Falta de momentum comprador."
+            )
+            """
+            return Signal.HOLD
+        if trend == 'down' and not is_rsi_bearish:
+            """
+            print(
+                f"WARN: ⏳ Sinal DOWN ignorado: Variação negativa mas RSI ({current_rsi:.1f}) acima da EMA ({current_ema_rsi:.1f}) - Falta de momentum vendedor."
+            )
+            """
+            return Signal.HOLD
+
+        # 🕯️ FILTRO DE ANÁLISE DO CORPO E DIREÇÃO DO CANDLE CORRENTE
+        candle_open = float(self.opens[-1]) if isinstance(self.opens[-1], (int, float, str)) else float(
+            self.opens[-1].get('open', 0))
+        candle_close = get_close(self.closes[-1])
+        candle_high = float(self.highs[-1]) if isinstance(self.highs[-1], (int, float, str)) else float(
+            self.highs[-1].get('high', 0))
+        candle_low = float(self.lows[-1]) if isinstance(self.lows[-1], (int, float, str)) else float(
+            self.lows[-1].get('low', 0))
+
+        body_size = abs(candle_close - candle_open)
+        total_range = candle_high - candle_low
+
+        # 1. Evitar velas de indecisão (Dojis / corpos muito esmagados face ao pavio)
+        min_body_ratio = 0.25
+        if total_range > 0 and (body_size / total_range) < min_body_ratio:
+            #print("WARN: ⏳ Ignorado: Candle atual sem corpo expressivo (Doji/Indecisão). A aguardar força real.")
+            return Signal.HOLD
+
+        # 2. Validar se o corpo do candle está na direção correta do sinal
+        if trend == 'up' and candle_close <= candle_open:
+            #print(f"WARN: ⏳ Sinal UP ignorado: Candle atual está vermelho (Open: ${candle_open} > Close: ${candle_close}).")
+            return Signal.HOLD
+        if trend == 'down' and candle_close >= candle_open:
+            #print(f"WARN: ⏳ Sinal DOWN ignorado: Candle atual está verde (Open: ${candle_open} < Close: ${candle_close}).")
+            return Signal.HOLD
+
+        #print(f"SIGNAL: ✅ Todos os filtros técnicos validados com sucesso para tendência {trend.upper()}!")
+
+        if trend == 'up':
+            return Signal.BUY
+        elif trend == 'down':
+            return Signal.SELL
+
+        return Signal.HOLD
+
+        # Ponto de disparo para a ordem na Hyperliquid...
         
