@@ -193,7 +193,7 @@ class TradingBot:
         else:
             return 60
 
-    async def start(self):
+    async def start__(self):
         while True:
             try:
                 logging.info("⏳ Loop de execução de 5 em 5 min (Candle Atual) iniciado")
@@ -268,7 +268,7 @@ class TradingBot:
         else:
             return 60
 
-    async def start__(self):
+    async def start(self):
         while True:
             try:
                 logging.info("⏳ Loop principal iniciado")
