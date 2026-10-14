@@ -129,7 +129,7 @@ class TradingBot:
 
         return SignalResult(Signal.HOLD, None, None, None)
 
-    def _calculate_sleep_time(self):
+    def _calculate_sleep_time_interval(self):
         now = datetime.now(timezone.utc)
         check_interval = 5  # Acordar de 5 em 5 minutos
 
@@ -147,6 +147,51 @@ class TradingBot:
 
         sleep_seconds = (next_check - now).total_seconds()
         return max(sleep_seconds, 10)  # Garante pelo menos 10s de respiro
+
+    def _calculate_sleep_time(self):
+        now = datetime.now(timezone.utc)
+
+        # 🛡️ LÊ DINAMICAMENTE O TIMEFRAME (ex: "15m" vira 15 minutos reais)
+        unit = self.timeframe[-1]
+        amount = int(self.timeframe[:-1])
+
+        if unit == "m":
+            minutes = now.minute
+            next_minute = (math.floor(minutes / amount) + 1) * amount
+
+            if next_minute >= 60:
+                next_check = now.replace(
+                    minute=0, second=0, microsecond=0
+                ) + timedelta(hours=1)
+            else:
+                next_check = now.replace(
+                    minute=next_minute, second=0, microsecond=0
+                )
+
+            sleep_seconds = (next_check - now).total_seconds()
+
+            # 🛡️ BUFFER DE 15 SEGUNDOS: Acorda 15s DEPOIS da vela fechar
+            BUFFER_SECONDS = 15
+            return max(sleep_seconds + BUFFER_SECONDS, BUFFER_SECONDS)
+
+        elif unit == "h":
+            hour = now.hour
+            next_hour = (math.floor(hour / amount) + 1) * amount
+            if next_hour >= 24:
+                next_candle = now.replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                ) + timedelta(days=1)
+            else:
+                next_candle = now.replace(
+                    hour=next_hour, minute=0, second=0, microsecond=0
+                )
+            sleep_seconds = (next_candle - now).total_seconds()
+
+            BUFFER_SECONDS = 15
+            return max(sleep_seconds + BUFFER_SECONDS, BUFFER_SECONDS)
+
+        else:
+            return 60
 
     async def start(self):
         while True:
