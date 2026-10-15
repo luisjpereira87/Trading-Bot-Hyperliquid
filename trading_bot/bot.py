@@ -206,6 +206,29 @@ class TradingBot:
 
     def _calculate_sleep_time_with_buffer(self):
         now = datetime.now(timezone.utc)
+        minutes = now.minute
+        
+        # FORÇAMOS SEMPRE A 5 MINUTOS, pois o loop corre de 5 em 5 min
+        amount = 5
+        next_minute = (math.floor(minutes / amount) + 1) * amount
+
+        if next_minute >= 60:
+            next_check = now.replace(
+                minute=0, second=0, microsecond=0
+            ) + timedelta(hours=1)
+        else:
+            next_check = now.replace(
+                minute=next_minute, second=0, microsecond=0
+            )
+
+        sleep_seconds = (next_check - now).total_seconds()
+
+        # 🛡️ BUFFER DE 15 SEGUNDOS: Acorda 15s DEPOIS da vela de 5m fechar
+        BUFFER_SECONDS = 15
+        return max(sleep_seconds + BUFFER_SECONDS, BUFFER_SECONDS)
+
+    def _calculate_sleep_time_with_buffer_(self):
+        now = datetime.now(timezone.utc)
 
         # 🛡️ LÊ DINAMICAMENTE O TIMEFRAME (ex: "15m" vira 15 minutos reais)
         unit = self.timeframe[-1]
