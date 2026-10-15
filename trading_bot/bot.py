@@ -129,7 +129,7 @@ class TradingBot:
 
         return SignalResult(Signal.HOLD, None, None, None)
 
-    def _calculate_sleep_time_interval(self):
+    def _calculate_sleep_time(self):
         now = datetime.now(timezone.utc)
         check_interval = 5  # Acordar de 5 em 5 minutos
 
@@ -148,7 +148,63 @@ class TradingBot:
         sleep_seconds = (next_check - now).total_seconds()
         return max(sleep_seconds, 10)  # Garante pelo menos 10s de respiro
 
-    def _calculate_sleep_time(self):
+    async def start(self):
+        while True:
+            try:
+                logging.info("⏳ Loop de execução de 5 em 5 min (com filtro do candle em fecho) iniciado")
+    
+                now = datetime.now(pytz.utc)
+                lisbon_tz = pytz.timezone('Europe/Lisbon')
+                now_lisbon = now.astimezone(lisbon_tz)
+    
+                # Descobrir o minuto atual
+                current_minute = now_lisbon.minute
+                
+                # O bloco de 15 minutos atual (0, 15, 30, 45)
+                block_15m = (current_minute // 15) * 15
+                
+                # Quanto tempo passou desde o início do bloco de 15 min? (0, 5, ou 10 minutos)
+                elapsed_in_block = current_minute - block_15m
+    
+                # 🚫 IGNORAR O ÚLTIMO CICLO DE 5 MINUTOS:
+                # Se elapsed_in_block == 10, significa que estamos no intervalo dos 10 aos 15 minutos (o candle está a fechar). 
+                # O bot salta esta execução e vai logo dormir para o próximo bloco de 15m!
+                if elapsed_in_block == 10:
+                    logging.info(f"⏳ Estamos no minuto {current_minute} (último terço do bloco de 15m). A ignorar o candle em fecho.")
+                    sleep_time = self._calculate_sleep_time_with_buffer()
+                    await asyncio.sleep(sleep_time)
+                    continue
+    
+                # Caso contrário (minuto 0 ou minuto 5 do bloco), executa normalmente
+                minute_block = (current_minute // 5) * 5
+                current_5m_slot = now_lisbon.replace(minute=minute_block, second=0, microsecond=0)
+    
+                for pair in self.pairs:
+                    last_exec = self.last_candle_times.get(pair.symbol)
+    
+                    if last_exec != current_5m_slot:
+                        logging.info(
+                            f"\n⚡ Executando para {pair.symbol} no slot de 5m ({current_5m_slot.strftime('%H:%M')})...")
+                        self.last_candle_times[pair.symbol] = current_5m_slot
+                        await self.run_pair(pair)
+                    else:
+                        logging.info(f"⌛ Já executado para {pair.symbol} no slot {current_5m_slot.strftime('%H:%M')}.")
+    
+                sleep_time = self._calculate_sleep_time_with_buffer()
+                logging.info(f"⏳ Dormindo por {sleep_time:.1f} segundos até ao próximo slot.")
+                await asyncio.sleep(sleep_time)
+    
+            except ccxt.NetworkError as e:
+                logging.error(f"⚠️ Network error no loop principal: {str(e)}")
+                await asyncio.sleep(60)
+            except ccxt.ExchangeError as e:
+                logging.error(f"⚠️ Exchange error no loop principal: {str(e)}")
+                await asyncio.sleep(60)
+            except Exception:
+                logging.exception("❌ Erro no loop principal")
+                await asyncio.sleep(60)
+
+    def _calculate_sleep_time_with_buffer(self):
         now = datetime.now(timezone.utc)
 
         # 🛡️ LÊ DINAMICAMENTE O TIMEFRAME (ex: "15m" vira 15 minutos reais)
@@ -193,7 +249,7 @@ class TradingBot:
         else:
             return 60
 
-    async def start__(self):
+    async def start_with_interval_5(self):
         while True:
             try:
                 logging.info("⏳ Loop de execução de 5 em 5 min (Candle Atual) iniciado")
@@ -232,7 +288,7 @@ class TradingBot:
                 logging.exception("❌ Erro no loop principal")
                 await asyncio.sleep(60)
 
-    def _calculate_sleep_time__(self):
+    def _calculate_sleep_time_old(self):
         now = datetime.now(timezone.utc)
         unit = self.timeframe[-1]
         amount = int(self.timeframe[:-1])
@@ -268,7 +324,7 @@ class TradingBot:
         else:
             return 60
 
-    async def start(self):
+    async def start_old(self):
         while True:
             try:
                 logging.info("⏳ Loop principal iniciado")
