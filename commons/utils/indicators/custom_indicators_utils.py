@@ -420,4 +420,102 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
         return Signal.HOLD
 
         # Ponto de disparo para a ordem na Hyperliquid...
-        
+
+    from typing import List, Dict, Any, Union
+
+    def analyze_candles_history(
+            self,
+            trend_threshold: float = 0.3
+    ) -> List[Any]:  # Retorna uma lista de Signal (ex: Signal.BUY, Signal.SELL, Signal.HOLD)
+        """
+        Varre o histórico completo de candles de forma iterativa, aplicando
+        os mesmos filtros de tendência, RSI, EMA e proporção de corpo de vela,
+        e devolve uma lista de sinais correspondente a cada período.
+        """
+        signals = []
+
+        # Precisamos de pelo menos 20+10 candles para começar a ter histórico válido para RSI e médias móveis
+        min_required_len = 30
+        total_candles = len(self.closes)
+
+        if total_candles < min_required_len:
+            return [Signal.HOLD] * total_candles
+
+        # Pré-calculamos o RSI e a EMA do RSI para toda a série histórica de uma só vez (otimização)
+        # (Assumindo que os teus métodos internos conseguem calcular com base numa fatia ou no total)
+        rsi_full, ema_rsi_full = self.rsi(signal_period=9)
+
+        for i in range(min_required_len, total_candles):
+            # Fatiamos os dados até ao índice atual `i` para evitar "look-ahead bias" (viés de olhar o futuro)
+            slice_closes = self.closes[:i + 1]
+
+            current_rsi = rsi_full[i]
+            current_ema_rsi = ema_rsi_full[i]
+
+            is_rsi_bullish = current_rsi > current_ema_rsi
+            is_rsi_bearish = current_rsi < current_ema_rsi
+
+            # Variação de tendência baseada nos blocos anteriores até ao momento `i`
+            recent = slice_closes[-5:]
+            older = slice_closes[-10:-5]
+
+            def get_val(val, key='close'):
+                if isinstance(val, dict):
+                    return float(val.get(key, 0))
+                return float(val)
+
+            recent_avg = sum(get_val(c) for c in recent) / len(recent)
+            older_avg = sum(get_val(c) for c in older) / len(older)
+
+            change_percent = ((recent_avg - older_avg) / older_avg) * 100
+
+            trend = 'neutral'
+            if change_percent > trend_threshold:
+                trend = 'up'
+            elif change_percent < -trend_threshold:
+                trend = 'down'
+
+            if trend == 'neutral':
+                signals.append(Signal.HOLD)
+                continue
+
+            # 🛡️ FILTRO DE RSI
+            if trend == 'up' and not is_rsi_bullish:
+                signals.append(Signal.HOLD)
+                continue
+            if trend == 'down' and not is_rsi_bearish:
+                signals.append(Signal.HOLD)
+                continue
+
+            # 🕯️ FILTRO DE ANÁLISE DO CORPO E DIREÇÃO DO CANDLE ATUAL (no índice `i`)
+            c_open = get_val(self.opens[i], 'open') if isinstance(self.opens[i], (dict, list)) else float(self.opens[i])
+            c_close = get_val(self.closes[i], 'close')
+            c_high = get_val(self.highs[i], 'high') if isinstance(self.highs[i], (dict, list)) else float(self.highs[i])
+            c_low = get_val(self.lows[i], 'low') if isinstance(self.lows[i], (dict, list)) else float(self.lows[i])
+
+            body_size = abs(c_close - c_open)
+            total_range = c_high - c_low
+
+            # 1. Evitar Dojis / velas de indecisão
+            min_body_ratio = 0.25
+            if total_range > 0 and (body_size / total_range) < min_body_ratio:
+                signals.append(Signal.HOLD)
+                continue
+
+            # 2. Direção do candle
+            if trend == 'up' and c_close <= c_open:
+                signals.append(Signal.HOLD)
+                continue
+            if trend == 'down' and c_close >= c_open:
+                signals.append(Signal.HOLD)
+                continue
+
+            # Se passou por todos os filtros neste exato candle:
+            if trend == 'up':
+                signals.append(Signal.BUY)
+            else:
+                signals.append(Signal.SELL)
+
+        # Preenche os primeiros candles iniciais (onde não havia histórico suficiente) com HOLD
+        padding = [Signal.HOLD] * (total_candles - len(signals))
+        return padding + signals
