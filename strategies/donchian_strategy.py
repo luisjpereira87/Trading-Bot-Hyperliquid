@@ -46,8 +46,10 @@ class DonchianStrategy(StrategyBase):
         #signal_val = DonchianStrategy.build_signal(self.indicators, self.ohlcv)
 
         #signal = signal_val[-2]
-        signal = self.indicators.analyze_and_execute_candles()
-        close = last_closed_candle.close
+
+        signal_val = self.indicators.analyze_candles_history()
+        signal = signal_val[-1]
+        close = self.ohlcv.closes[-1]
         closes = self.ohlcv.closes
 
         lookback = 1
@@ -90,8 +92,8 @@ class DonchianStrategy(StrategyBase):
             sl_adjusted = close - (risk * 0.5) if signal == Signal.BUY else close + (risk * 0.5)
             tp_adjusted = close + (reward * 1.5) if signal == Signal.BUY else close - (reward * 1.5)
 
-            # return SignalResult(Signal.HOLD, sl, tp_adjusted, None, 0, signal_val[-2])
-            return SignalResult(Signal.HOLD, None, None, None, 0, signal)
+            return SignalResult(signal, sl_adjusted, tp_adjusted, None, 0, signal_val[-2])
+            #return SignalResult(Signal.HOLD, None, None, None, 0, signal)
 
         return SignalResult(signal, sl, tp, None, 0, signal)
 
@@ -410,114 +412,13 @@ class DonchianStrategy(StrategyBase):
         opens = ohlcv.opens
         n = len(closes)
         trend_signal = [Signal.HOLD] * n
-
-        ema21 = indicators.ema(21)
-        ema50 = indicators.ema(50)
-        ema200 = indicators.ema(200)
-        adx = indicators.adx()
-        rsi, rsi_ema = indicators.rsi()
-
-        cooldown_n = 10
-
-        lower_band = np.full(n, np.nan)
-        upper_band = np.full(n, np.nan)
-
+        cooldown_n = 5
         lookback = 14
-        is_enter = True
-        lower_band_raw = None
-        upper_band_raw = None
 
-        top_idx, top_val = [], []
-        bottom_idx, bottom_val = [], []
+        signal_val = indicators.analyze_candles_history()
 
-        # State memory flags
-        waiting_buy_confirmation = False
-        waiting_sell_confirmation = False
-        EMA_PROXIMITY_THRESHOLD = 0.001
-
-        for i in range(lookback, n):
-            current_signal = None
-
-            current_price = closes[i]
-            is_green_candle = closes[i] > opens[i]
-            is_red_candle = closes[i] < opens[i]
-
-            # --- 1. VALIDATE CANDLE N+1 (CONTINUATION OR REVERSAL) ---
-            """
-            if waiting_buy_confirmation:
-                if is_red_candle:  # ✅ Continuation: Trend entry confirmed
-                    if rsi[i - 1] > 70 and rsi[i] < rsi[i - 1]:
-                        current_signal = Signal.SELL
-                waiting_buy_confirmation = False  # Reset state
-
-            elif waiting_sell_confirmation:
-                if is_green_candle:  # ✅ Continuation: Trend entry confirmed
-                    if rsi[i - 1] < 30 and rsi[i] > rsi[i - 1]:
-                        current_signal = Signal.BUY
-                waiting_sell_confirmation = False  # Reset state
-            """
-            # --- 2. DETECT INITIAL BREAKOUT ---
-            if lower_band_raw is not None and upper_band_raw is not None:
-
-                if current_price > upper_band_raw:
-                    ema21_inside = (lows[i] <= ema21[i] <= highs[i]) or (
-                            abs(lows[i] - ema21[i]) / lows[i] <= EMA_PROXIMITY_THRESHOLD)
-                    ema50_inside = (lows[i] <= ema50[i] <= highs[i]) or (
-                            abs(lows[i] - ema50[i]) / lows[i] <= EMA_PROXIMITY_THRESHOLD)
-                    is_near_ema = ema21_inside or ema50_inside
-                    is_trend_up = closes[i] > ema200[i] and ema50[i] < ema21[i]
-                    if is_trend_up:
-                        current_signal = Signal.BUY
-                    waiting_buy_confirmation = True  # Trigger check for the next candle
-                    is_enter = True
-                    lower_band_raw = None
-                    upper_band_raw = None
-
-                elif current_price < lower_band_raw:
-                    ema21_inside = (lows[i] <= ema21[i] <= highs[i]) or (
-                            abs(highs[i] - ema21[i]) / highs[i] <= EMA_PROXIMITY_THRESHOLD)
-                    ema50_inside = (lows[i] <= ema50[i] <= highs[i]) or (
-                            abs(highs[i] - ema50[i]) / highs[i] <= EMA_PROXIMITY_THRESHOLD)
-                    is_near_ema = ema21_inside or ema50_inside
-                    is_trend_down = closes[i] < ema200[i] and ema50[i] > ema21[i]
-                    if is_trend_down:
-                        current_signal = Signal.SELL
-                    waiting_sell_confirmation = True  # Trigger check for the next candle
-                    is_enter = True
-                    lower_band_raw = None
-                    upper_band_raw = None
-
-            last_highs = highs[i - lookback + 1: i + 1]
-            last_lows = lows[i - lookback + 1: i + 1]
-
-            channel_high = np.max(last_highs)
-            channel_low = np.min(last_lows)
-            channel_width = channel_high - channel_low
-
-            current_price = closes[i]
-
-            if current_price == 0:
-                continue  # Usa 'continue' em vez de return para o loop não morrer a meio do histórico
-
-            range_percent = channel_width / current_price
-
-            # 2. CAPTURA E BLOQUEIO (Gatilhada quando o mercado comprime < 2%)
-            if range_percent < 0.01 and is_enter:
-                range_percent_half = range_percent / 2
-                # CORRIGIDO: Uma banda subtrai do preço, a outra soma!
-                lower_band_raw = current_price - (current_price * range_percent_half)
-                upper_band_raw = current_price + (current_price * range_percent_half)
-                is_enter = False
-
-            # 3. PREENCHIMENTO DO HISTÓRICO
-            if lower_band_raw is not None and upper_band_raw is not None:
-                # Se estiver trancado na consolidação, mantém os valores fixos (linhas horizontais)
-                lower_band[i] = lower_band_raw
-                upper_band[i] = upper_band_raw
-            else:
-                # Se estiver em modo dinâmico, acompanha o preço da vela atual
-                lower_band[i] = lows[i]
-                upper_band[i] = highs[i]
+        for i in range(max(lookback, cooldown_n), n):
+            current_signal = signal_val[i]
 
             if current_signal is not None:
                 """
@@ -528,10 +429,22 @@ class DonchianStrategy(StrategyBase):
                     # Se pelo menos uma não foi HOLD, significa que há um sinal recente. Trava!
                     trend_signal[i] = Signal.HOLD
                 """
-                trend_signal[i] = current_signal
-                last_signal = current_signal
-                entry_price = closes[i]
-                profits = []
+                current_signal = signal_val[i]
+
+                if current_signal is not None and current_signal != Signal.HOLD:
+
+                    # 1. Olhar para trás nos últimos 'cooldown_n' candles do nosso array de sinais decididos
+                    recent_signals = trend_signal[i - cooldown_n: i]
+
+                    # 2. Verificar se o histórico recente está totalmente limpo (apenas HOLD)
+                    # Isto garante que se houve um sinal há menos de 5 candles, ele bloqueia novos disparos
+                    if all(s == Signal.HOLD for s in recent_signals):
+                        trend_signal[i] = current_signal
+                    else:
+                        # Ainda estamos em período de cooldown (rescaldo do sinal anterior)
+                        trend_signal[i] = Signal.HOLD
+                else:
+                    trend_signal[i] = Signal.HOLD
 
         return trend_signal
 
