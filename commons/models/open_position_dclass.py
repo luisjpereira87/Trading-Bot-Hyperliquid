@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 from typing import List, Optional, Union
 
 from commons.enums.signal_enum import Signal
@@ -14,3 +15,5 @@ class OpenPosition:
     sl: (float | None)
     tp: (float | None)
     unrealizedPnl: (float | None)
+    entry_time: datetime
+    duration_minutes :float

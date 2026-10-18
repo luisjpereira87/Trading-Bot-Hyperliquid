@@ -200,6 +200,30 @@ class ExchangeClient(ExchangeBase):
         except Exception as e:
             logging.error(f"Erro ao cancelar ordens: {e}")
 
+    async def get_position_duration_from_api(self, pair_symbol) -> tuple[float, datetime] | float:
+        try:
+            # Pede os trades mais recentes da conta para este símbolo
+            trades = await self.exchange.fetch_my_trades(pair_symbol, limit=5)
+
+            # Filtra o último trade que abriu/modificou a posição
+            if trades:
+                # O trade mais recente tem um campo 'timestamp' e 'datetime' preenchidos pela exchange!
+                last_trade = trades[-1]
+                trade_timestamp = last_trade['timestamp']  # Em milissegundos
+
+                # Converter para datetime UTC
+                entry_time = datetime.fromtimestamp(trade_timestamp / 1000, tz=timezone.utc)
+
+                # Calcular a duração em minutos
+                now = datetime.now(timezone.utc)
+                duration_minutes = (now - entry_time).total_seconds() / 60
+                return duration_minutes, entry_time
+
+        except Exception as e:
+            logging.error(f"⚠️ Erro ao ir buscar os trades à API: {e}")
+
+        return 0.0
+
     async def get_open_position(self, symbol: str = '') -> (OpenPosition | None):
         try:
             positions = await self.exchange.fetch_positions(params={'user': self.wallet_address})
@@ -207,11 +231,12 @@ class ExchangeClient(ExchangeBase):
                 if pos["symbol"] == symbol and float(pos.get('contracts', 0)) > 0: # type: ignore
 
                     size = float(pos['contracts']) # type: ignore
-                    entry_price = pos.get('entryPrice') or pos.get('entry_price') or pos.get('averagePrice') or 0.0
+                    entry_price = pos.get('entryPrice') or 0.0
                     id = pos.get('id') or pos.get('info', {}).get('order', {}).get('oid')
-                    unrealizedPnl = pos.get('unrealizedPnl') or pos.get('unrealizedPnl')
-                    
-                    return OpenPosition(self.helpers.position_side_to_signal_side(pos['side']), size, entry_price, id, size * entry_price, None, None, unrealizedPnl) # type: ignore
+                    unrealizedPnl = pos.get('unrealizedPnl')
+                    duration_minutes, entry_time = await self.get_position_duration_from_api(symbol)
+
+                    return OpenPosition(self.helpers.position_side_to_signal_side(pos['side']), size, entry_price, id, size * entry_price, None, None, unrealizedPnl, entry_time, duration_minutes) # type: ignore
 
         except Exception as e:
             logging.error(f"Erro ao obter posições abertas: {e}")

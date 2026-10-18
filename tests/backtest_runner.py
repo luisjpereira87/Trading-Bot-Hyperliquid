@@ -1,5 +1,6 @@
 import os
 import sys
+from datetime import datetime, timezone
 from typing import List
 
 from commons.helpers.trailing_stop_helpers import TrailingStopHelpers
@@ -187,6 +188,8 @@ class ExchangeClientMock(ExchangeBase):
             "entryPrice": price,
             "sl": sl,
             "tp": tp,
+            "entry_time": datetime.fromtimestamp(self.last_closed_candle.timestamp / 1000, tz=timezone.utc),
+            "duration_minutes": 0.0
         }
 
         # Verifica se existe mais entries que exits, posição não fechada mas sim reversão
@@ -309,8 +312,14 @@ class ExchangeClientMock(ExchangeBase):
         # Simula uma posição aberta se existir para o símbolo
         pos = self.positions.get(symbol)
         if pos:
+            # Converter o timestamp do candle atual para datetime (ajusta para / 1000 se estiver em milissegundos)
+            current_time = datetime.fromtimestamp(self.last_closed_candle.timestamp / 1000, tz=timezone.utc)
+
+            # Calcular a diferença em minutos entre o momento atual do backtest e a entrada
+            duration_minutes = (current_time - pos['entry_time']).total_seconds() / 60
+
             return OpenPosition(pos['side'], pos['size'], pos['entryPrice'], '', pos['size'] * pos['entryPrice'],
-                                pos['sl'], pos['tp'], self.__calculate_profit(symbol))
+                                pos['sl'], pos['tp'], self.__calculate_profit(symbol), pos['entry_time'], duration_minutes)
         return None
 
     async def modify_stop_loss_order(self, symbol: str, entry_id: str, new_stop_price: float):
@@ -558,7 +567,7 @@ class BacktestRunner:
         # Configura sua exchange Hyperliquid
         exchange = hyperliquid({
             "enableRateLimit": True,
-            "testnet": False,
+            "testnet": True,
         })  # type: ignore
 
         exchange.fetch_spot_markets = safe_fetch_spot_markets.__get__(exchange, exchange.__class__)
@@ -586,10 +595,10 @@ class BacktestRunner:
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    pair = get_pair_by_symbol("ETH/USDC:USDC")
+    pair = get_pair_by_symbol("SOL/USDC:USDC")
 
     if pair is not None:
-        runner = BacktestRunner(StrategyEnum.DONCHIAN, TimeframeEnum.M15, pair, 1000, 1000)
+        runner = BacktestRunner(StrategyEnum.DONCHIAN, TimeframeEnum.M15, pair, 2000, 1000)
 
         await runner.run(True)
     # print(LoadParams.load_best_params_with_weights())
