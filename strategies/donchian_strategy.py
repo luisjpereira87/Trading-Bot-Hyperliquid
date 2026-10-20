@@ -47,12 +47,14 @@ class DonchianStrategy(StrategyBase):
 
         #signal = signal_val[-2]
 
-        signal_val = self.indicators.analyze_candles_history()
+        signal_val, _,_ = self.indicators.analyze_candles_history()
         signal = signal_val[-1]
-        close = self.ohlcv.closes[-1]
+        close = self.ohlcv.closes[-2]
         closes = self.ohlcv.closes
 
-        lookback = 1
+        #print("AQUIII", change_percent_list)
+
+        lookback = 3
         MAX_SL_DIST_PCT = 1.5
 
         if signal == Signal.BUY:

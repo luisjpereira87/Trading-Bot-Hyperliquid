@@ -1,5 +1,6 @@
 import math
 from collections import deque
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -421,18 +422,46 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
 
         # Ponto de disparo para a ordem na Hyperliquid...
 
-    from typing import List, Dict, Any, Union
+    def is_healthy_acceleration(self, variations, trend='up', min_candles=5, max_allowed_spike=1.5):
+        if len(variations) < min_candles:
+            return False
 
-    def analyze_candles_history(
+        recent_vars = variations[-min_candles:]
+
+        # 1. Verificar picos de exaustão (usando o valor absoluto, pois tanto serve para cima como para baixo)
+        if abs(recent_vars[-1]) >= max_allowed_spike:
+            return False
+
+        mid = len(recent_vars) // 2
+        first_half_avg = sum(recent_vars[:mid]) / mid
+        second_half_avg = sum(recent_vars[mid:]) / (len(recent_vars) - mid)
+
+        if trend == 'up':
+            # Tendência de alta: variações positivas, a segunda metade deve ser maior que a primeira
+            is_accelerating = second_half_avg > first_half_avg
+            is_valid_end = recent_vars[-1] > 0
+            return is_accelerating and is_valid_end
+
+        elif trend == 'down':
+            # Tendência de baixa: variações negativas.
+            # Aceleração significa a média ficar *mais negativa* (menor numericamente na segunda metade)
+            is_accelerating = second_half_avg < first_half_avg
+            is_valid_end = recent_vars[-1] < 0
+            return is_accelerating and is_valid_end
+
+        return False
+
+    def analyze_candles_history__(
             self,
             trend_threshold: float = 0.3
-    ) -> List[Any]:  # Retorna uma lista de Signal (ex: Signal.BUY, Signal.SELL, Signal.HOLD)
+    ) -> list[Signal] | tuple[list[Signal], list[Any]]:  # Retorna uma lista de Signal (ex: Signal.BUY, Signal.SELL, Signal.HOLD)
         """
         Varre o histórico completo de candles de forma iterativa, aplicando
         os mesmos filtros de tendência, RSI, EMA e proporção de corpo de vela,
         e devolve uma lista de sinais correspondente a cada período.
         """
         signals = []
+        change_percent_list = []
 
         # Precisamos de pelo menos 20+10 candles para começar a ter histórico válido para RSI e médias móveis
         min_required_len = 30
@@ -452,8 +481,8 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
             current_rsi = rsi_full[i]
             current_ema_rsi = ema_rsi_full[i]
 
-            is_rsi_bullish = current_rsi > current_ema_rsi
-            is_rsi_bearish = current_rsi < current_ema_rsi
+            is_rsi_bullish = current_rsi > current_ema_rsi and current_rsi > 50
+            is_rsi_bearish = current_rsi < current_ema_rsi and current_rsi < 50
 
             # Variação de tendência baseada nos blocos anteriores até ao momento `i`
             recent = slice_closes[-5:]
@@ -468,6 +497,7 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
             older_avg = sum(get_val(c) for c in older) / len(older)
 
             change_percent = ((recent_avg - older_avg) / older_avg) * 100
+            change_percent_list.append(change_percent)
 
             trend = 'neutral'
             if change_percent > trend_threshold:
@@ -510,6 +540,24 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
                 signals.append(Signal.HOLD)
                 continue
 
+            # 3. 🚨 NOVO FILTRO: Evitar Candle com Corpo Demasiado Esticado (Comparado com o passado recente)
+            # Em vez de olhar para o range total (que inclui pavios), olhamos para o CORPO da vela (`body_size`).
+            # Se o corpo atual for desproporcionadamente maior que a média dos corpos anteriores, é um estirão de exaustão.
+            """
+            lookback_bodies = 5
+            if i >= lookback_bodies:
+                recent_bodies = [
+                    abs(get_val(self.closes[j], 'close') - get_val(self.opens[j], 'open'))
+                    for j in range(i - lookback_bodies, i)
+                ]
+                avg_body_size = sum(recent_bodies) / len(recent_bodies)
+
+                # Se o corpo da vela atual for mais do que 2.0x ou 2.5x o tamanho médio dos corpos recentes, rejeita!
+                max_body_multiplier = 2.0
+                if avg_body_size > 0 and body_size > (avg_body_size * max_body_multiplier):
+                    signals.append(Signal.HOLD)
+                    continue
+            """
             # Se passou por todos os filtros neste exato candle:
             if trend == 'up':
                 signals.append(Signal.BUY)
@@ -518,4 +566,147 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
 
         # Preenche os primeiros candles iniciais (onde não havia histórico suficiente) com HOLD
         padding = [Signal.HOLD] * (total_candles - len(signals))
-        return padding + signals
+        return padding + signals, change_percent_list
+
+    def analyze_candles_history(
+            self
+    ) -> tuple[list[Signal], list[float], list[float]]:
+        """
+        Varre o histórico de candles aplicando RSI (ignição), quebra de
+        estrutura (BOS), filtro de Doji e cálculo dinâmico de SL e TP.
+        """
+        signals = []
+        stop_losses = []
+        take_profits = []
+
+        min_required_len = 30
+        total_candles = len(self.closes)
+
+        if total_candles < min_required_len:
+            hold_pad = [Signal.HOLD] * total_candles
+            return hold_pad, [0.0] * total_candles, [0.0] * total_candles
+
+        rsi_full, ema_rsi_full = self.rsi(signal_period=9)
+
+        # Obter estrutura de mercado
+        last_HL, last_LH = self.tvIndicators.market_structure(2, 2)
+
+        # 🛡️ SALVAGUARDA: Garantir que propagamos os valores se houver NaNs (Forward Fill)
+        # (Assume que last_LH e last_HL podem ser listas ou pandas Series)
+        def clean_structural_series(series):
+            cleaned = []
+            last_valid = 0.0
+            for val in series:
+                if val is not None and not (isinstance(val, float) and str(val).lower() == 'nan'):
+                    last_valid = float(val)
+                cleaned.append(last_valid)
+            return cleaned
+
+        safe_last_LH = clean_structural_series(last_LH)
+        safe_last_HL = clean_structural_series(last_HL)  # Ou last_HL consoante o teu indicador
+
+        for i in range(min_required_len, total_candles):
+            slice_closes = self.closes[:i + 1]
+
+            current_rsi = rsi_full[i]
+            current_ema_rsi = ema_rsi_full[i]
+
+            # Níveis estruturais atuais e anteriores com valores limpos
+            lh_curr = safe_last_LH[i]
+            lh_prev = safe_last_LH[i - 1]
+
+            hl_curr = safe_last_HL[i]
+            hl_prev = safe_last_HL[i - 1]
+
+            # 🛡️ FILTRO DE IGNIÇÃO DE RSI
+            is_rsi_ignition_bullish = current_rsi > current_ema_rsi
+            is_rsi_ignition_bearish = current_rsi < current_ema_rsi
+
+            def get_val(val, key='close'):
+                if isinstance(val, dict):
+                    return float(val.get(key, 0))
+                return float(val)
+
+            c_open = get_val(self.opens[i], 'open') if isinstance(self.opens[i], (dict, list)) else float(self.opens[i])
+            c_close = get_val(self.closes[i], 'close')
+            c_high = get_val(self.highs[i], 'high') if isinstance(self.highs[i], (dict, list)) else float(self.highs[i])
+            c_low = get_val(self.lows[i], 'low') if isinstance(self.lows[i], (dict, list)) else float(self.lows[i])
+
+            prev_close = get_val(self.closes[i - 1], 'close')
+
+            body_size = abs(c_close - c_open)
+            total_range = c_high - c_low
+
+            # 1. Evitar Dojis / velas de indecisão
+            min_body_ratio = 0.25
+            if total_range > 0 and (body_size / total_range) < min_body_ratio:
+                signals.append(Signal.HOLD)
+                stop_losses.append(0.0)
+                take_profits.append(0.0)
+                continue
+
+            # Determinar a direção pelo corpo do candle atual
+            if c_close > c_open:
+                trend = 'up'
+            elif c_close < c_open:
+                trend = 'down'
+            else:
+                signals.append(Signal.HOLD)
+                stop_losses.append(0.0)
+                take_profits.append(0.0)
+                continue
+
+            # 2. FILTRO DE RSI
+            if trend == 'up' and not is_rsi_ignition_bullish:
+                signals.append(Signal.HOLD)
+                stop_losses.append(0.0)
+                take_profits.append(0.0)
+                continue
+            if trend == 'down' and not is_rsi_ignition_bearish:
+                signals.append(Signal.HOLD)
+                stop_losses.append(0.0)
+                take_profits.append(0.0)
+                continue
+
+            # 🚀 3. QUEBRA DE ESTRUTURA REAL (BOS)
+            if trend == 'up':
+                # O preço estava abaixo ou na resistência (Lower High) e rompeu estritamente para cima
+                if not (prev_close <= lh_prev and c_close > lh_curr):
+                    signals.append(Signal.HOLD)
+                    stop_losses.append(0.0)
+                    take_profits.append(0.0)
+                    continue
+            elif trend == 'down':
+                # O preço estava acima ou no suporte (Higher Low) e rompeu estritamente para baixo
+                if not (prev_close >= hl_prev and c_close < hl_curr):
+                    signals.append(Signal.HOLD)
+                    stop_losses.append(0.0)
+                    take_profits.append(0.0)
+                    continue
+
+            # 🎯 4. CÁLCULO DINÂMICO DE SL E TP
+            risk_reward_ratio = 2.0
+
+            if trend == 'up':
+                sl = c_low * 0.999
+                risk = c_close - sl
+                tp = c_close + (risk * risk_reward_ratio)
+
+                signals.append(Signal.BUY)
+                stop_losses.append(sl)
+                take_profits.append(tp)
+            else:
+                sl = c_high * 1.001
+                risk = sl - c_close
+                tp = c_close - (risk * risk_reward_ratio)
+
+                signals.append(Signal.SELL)
+                stop_losses.append(sl)
+                take_profits.append(tp)
+
+        padding_len = total_candles - len(signals)
+        return (
+            [Signal.HOLD] * padding_len + signals,
+            [0.0] * padding_len + stop_losses,
+            [0.0] * padding_len + take_profits
+        )
