@@ -568,7 +568,7 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
         padding = [Signal.HOLD] * (total_candles - len(signals))
         return padding + signals, change_percent_list
 
-    def analyze_candles_history(
+    def analyze_candles_history_old(
             self
     ) -> tuple[list[Signal], list[float], list[float]]:
         """
@@ -699,6 +699,143 @@ class CustomIndicatorsUtils(BaseIndicatorsUtils):
                 sl = c_high * 1.001
                 risk = sl - c_close
                 tp = c_close - (risk * risk_reward_ratio)
+
+                signals.append(Signal.SELL)
+                stop_losses.append(sl)
+                take_profits.append(tp)
+
+        padding_len = total_candles - len(signals)
+        return (
+            [Signal.HOLD] * padding_len + signals,
+            [0.0] * padding_len + stop_losses,
+            [0.0] * padding_len + take_profits
+        )
+
+    def analyze_candles_history(
+            self,
+            breakout_lookback: int = 5,  # Número de velas anteriores a verificar para a quebra de extremos
+            min_trailing_activation_pct: float = 0.008
+    ) -> tuple[list[Signal], list[float], list[float]]:
+        """
+        Varre o histórico filtrando ruído: exige quebra de máximos/mínimos de um
+        período maior (ex: 5 velas), ignição sólida do RSI (eixo 50) e filtro de Doji.
+        """
+        signals = []
+        stop_losses = []
+        take_profits = []
+
+        min_required_len = max(30, breakout_lookback + 5)
+        total_candles = len(self.closes)
+
+        if total_candles < min_required_len:
+            hold_pad = [Signal.HOLD] * total_candles
+            return hold_pad, [0.0] * total_candles, [0.0] * total_candles
+
+        rsi_full, ema_rsi_full = self.rsi(signal_period=9)
+
+        for i in range(min_required_len, total_candles):
+            def get_val(val, key='close'):
+                if isinstance(val, dict):
+                    return float(val.get(key, 0))
+                return float(val)
+
+            c_open = get_val(self.opens[i], 'open') if isinstance(self.opens[i], (dict, list)) else float(self.opens[i])
+            c_close = get_val(self.closes[i], 'close')
+            c_high = get_val(self.highs[i], 'high') if isinstance(self.highs[i], (dict, list)) else float(self.highs[i])
+            c_low = get_val(self.lows[i], 'low') if isinstance(self.lows[i], (dict, list)) else float(self.lows[i])
+
+            # 🛡️ FILTRO DE IGNIÇÃO DE RSI RIGOROSO (Eixo 50)
+            current_rsi = rsi_full[i]
+            current_ema_rsi = ema_rsi_full[i]
+
+            is_rsi_ignition_bullish = (current_rsi > 50) and (current_ema_rsi < 50 or current_rsi > current_ema_rsi)
+            is_rsi_ignition_bearish = (current_rsi < 50) and (current_ema_rsi > 50 or current_rsi < current_ema_rsi)
+
+            body_size = abs(c_close - c_open)
+            total_range = c_high - c_low
+
+            # 1. Evitar Dojis / velas de indecisão
+            min_body_ratio = 0.25
+            if total_range > 0 and (body_size / total_range) < min_body_ratio:
+                signals.append(Signal.HOLD)
+                stop_losses.append(0.0)
+                take_profits.append(0.0)
+                continue
+
+            # Determinar a direção pelo corpo do candle atual
+            if c_close > c_open:
+                trend = 'up'
+            elif c_close < c_open:
+                trend = 'down'
+            else:
+                signals.append(Signal.HOLD)
+                stop_losses.append(0.0)
+                take_profits.append(0.0)
+                continue
+
+            # 2. FILTRO DE RSI
+            if trend == 'up' and not is_rsi_ignition_bullish:
+                signals.append(Signal.HOLD)
+                stop_losses.append(0.0)
+                take_profits.append(0.0)
+                continue
+            if trend == 'down' and not is_rsi_ignition_bearish:
+                signals.append(Signal.HOLD)
+                stop_losses.append(0.0)
+                take_profits.append(0.0)
+                continue
+
+            # 🚀 3. QUEBRA DOS MÁXIMOS/MÍNIMOS DAS ÚLTIMAS 'N' VELAS
+            # Recolher os máximos e mínimos do período anterior definido em breakout_lookback
+            past_highs = []
+            past_lows = []
+            for j in range(1, breakout_lookback + 1):
+                idx = i - j
+                past_highs.append(
+                    get_val(self.highs[idx], 'high') if isinstance(self.highs[idx], (dict, list)) else float(
+                        self.highs[idx]))
+                past_lows.append(get_val(self.lows[idx], 'low') if isinstance(self.lows[idx], (dict, list)) else float(
+                    self.lows[idx]))
+
+            max_past_high = max(past_highs)
+            min_past_low = min(past_lows)
+
+            if trend == 'up':
+                # O fecho atual tem de ultrapassar o MAIOR máximo das últimas N velas
+                if c_close <= max_past_high:
+                    signals.append(Signal.HOLD)
+                    stop_losses.append(0.0)
+                    take_profits.append(0.0)
+                    continue
+            elif trend == 'down':
+                # O fecho atual tem de furar o MENOR mínimo das últimas N velas
+                if c_close >= min_past_low:
+                    signals.append(Signal.HOLD)
+                    stop_losses.append(0.0)
+                    take_profits.append(0.0)
+                    continue
+
+            # 🎯 4. CÁLCULO DINÂMICO DE SL E TP (Com salvaguarda do trailing)
+            risk_reward_ratio = 2.0
+
+            if trend == 'up':
+                sl = c_low * 0.999
+                risk = c_close - sl
+                tp_calculated = c_close + (risk * risk_reward_ratio)
+
+                min_tp_allowed = c_close * (1.0 + min_trailing_activation_pct)
+                tp = max(tp_calculated, min_tp_allowed)
+
+                signals.append(Signal.BUY)
+                stop_losses.append(sl)
+                take_profits.append(tp)
+            else:
+                sl = c_high * 1.001
+                risk = sl - c_close
+                tp_calculated = c_close - (risk * risk_reward_ratio)
+
+                min_tp_allowed = c_close * (1.0 - min_trailing_activation_pct)
+                tp = min(tp_calculated, min_tp_allowed)
 
                 signals.append(Signal.SELL)
                 stop_losses.append(sl)
