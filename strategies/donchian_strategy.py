@@ -94,8 +94,8 @@ class DonchianStrategy(StrategyBase):
             sl_adjusted = close - (risk * 0.5) if signal == Signal.BUY else close + (risk * 0.5)
             tp_adjusted = close + (reward * 1.5) if signal == Signal.BUY else close - (reward * 1.5)
 
-            return SignalResult(signal, sl_adjusted, tp_adjusted, None, 0, signal_val[-2])
-            #return SignalResult(Signal.HOLD, None, None, None, 0, signal)
+            #return SignalResult(signal, sl_adjusted, tp_adjusted, None, 0, signal_val[-2])
+            return SignalResult(Signal.HOLD, None, None, None, 0, signal)
 
         return SignalResult(signal, sl, tp, None, 0, signal)
 
