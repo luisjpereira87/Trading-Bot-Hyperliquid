@@ -6,6 +6,7 @@ from strategies.cross_ema_linear_regression_strategy import \
     CrossEmaLinearRegressionStrategy
 from strategies.cross_ema_strategy import CrossEmaStrategy
 from strategies.donchian_strategy import DonchianStrategy
+from strategies.double_bollinger_bands_strategy import DoubleBollingerBandsStrategy
 from strategies.luxalgo_supertrend_strategy import LuxAlgoSupertrendStrategy
 from strategies.ml_strategy import MLModelType, MLStrategy
 from trading_bot.exchange_base import ExchangeBase
@@ -43,6 +44,8 @@ class StrategyManager(StrategyBase):
             self.strategy = CrossEmaLinearRegressionStrategy(self.exchange)
         elif self.name == StrategyEnum.DONCHIAN:
             self.strategy = DonchianStrategy(self.exchange)
+        elif self.name == StrategyEnum.DOUBLE_BOLLINGER_BANDS:
+            self.strategy = DoubleBollingerBandsStrategy(self.exchange)
         else:
             raise ValueError(f"Estratégia '{self.name}' não reconhecida.")
 

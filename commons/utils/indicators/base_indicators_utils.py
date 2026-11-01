@@ -69,13 +69,17 @@ class BaseIndicatorsUtils:
 
     def ema(self, period=21):
         if self.mode == 'custom':
+            # Forçamos sempre o cálculo customizado para garantir consistência com o teu gráfico positivo
             ema = []
             k = 2 / (period + 1)
-            for i in range(len(self.closes)):
+            closes_clean = [float(c['close']) if isinstance(c, dict) else float(c) for c in self.closes]
+
+            for i in range(len(closes_clean)):
                 if i < period:
-                    ema.append(np.mean(self.closes[:i + 1]))
+                    ema.append(np.mean(closes_clean[:i + 1]))
                 else:
-                    ema.append((self.closes[i] * k) + (ema[i - 1] * (1 - k)))
+                    val = (closes_clean[i] * k) + (ema[i - 1] * (1 - k))
+                    ema.append(val)
             return ema
         else:
             ema_series = self.EMAIndicator(close=self.df['close'], window=period).ema_indicator()
@@ -596,20 +600,40 @@ class BaseIndicatorsUtils:
         return supertrend, trend, final_upperband, final_lowerband, supertrend_smooth, direction, perf_score
 
     def kalman_filter(self, data):
-        data = np.array(data)
+        data = np.array(data, dtype=float)
         n = len(data)
+
+        if n == 0:
+            return np.array([])
 
         # Parâmetros conforme o script Pine
         process_noise = 0.2
         measurement_error = 2.0
         error_est = 1.0
 
-        # Inicialização
-        estimate = data[0] if n > 0 else 0
-        kalman_values = np.zeros(n)
+        kalman_values = np.full(n, np.nan)
 
-        for i in range(n):
-            # No Pine: prediction := estimate
+        # 1. Encontrar o primeiro índice onde os dados NÃO são NaN
+        first_valid_idx = None
+        for idx in range(n):
+            if not np.isnan(data[idx]):
+                first_valid_idx = idx
+                break
+
+        # Se o array for todo composto por NaN, devolve tudo NaN com segurança
+        if first_valid_idx is None:
+            return kalman_values
+
+        # 2. Inicializar a estimativa com o primeiro valor real válido
+        estimate = data[first_valid_idx]
+
+        # 3. Executar o loop a partir do primeiro valor válido
+        for i in range(first_valid_idx, n):
+            # Ignorar pontualmente se houver algum NaN no meio do histórico
+            if np.isnan(data[i]):
+                kalman_values[i] = estimate
+                continue
+
             prediction = estimate
 
             # Cálculo do ganho de Kalman
@@ -759,6 +783,28 @@ class BaseIndicatorsUtils:
             ema_spread = 0.004
 
         return atr_rel, profile, ema_spread
+
+    def get_normalized_atr_series(self, atr, lookback=100):
+        """
+        Normaliza a série de ATR usando Min-Max Rolling (escala 0 a 1)
+        com base no histórico recente de cada ativo.
+        """
+        atr_arr = np.array(atr, dtype=float)
+        normalized = np.zeros_like(atr_arr)
+
+        for i in range(len(atr_arr)):
+            start_idx = max(0, i - lookback + 1)
+            window = atr_arr[start_idx:i + 1]
+
+            min_val = np.min(window)
+            max_val = np.max(window)
+
+            if max_val - min_val > 0:
+                normalized[i] = (atr_arr[i] - min_val) / (max_val - min_val)
+            else:
+                normalized[i] = 0.5  # Valor neutro se não houver variação
+
+        return normalized
 
     def classify_candles_(self):
         n = len(self.closes)

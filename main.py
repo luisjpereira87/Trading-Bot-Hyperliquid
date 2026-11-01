@@ -66,7 +66,7 @@ async def run_bot():
     helpers = TradingHelpers()
     hl_client = ExchangeClient(exchange, wallet_address)
     #nado_client = NadoExchangeClient(private_key, None, wallet_address, pairs)
-    hl_strategy = StrategyManager(hl_client, StrategyEnum.DONCHIAN)
+    hl_strategy = StrategyManager(hl_client, StrategyEnum.DOUBLE_BOLLINGER_BANDS)
     #nado_strategy = StrategyManager(nado_client, StrategyEnum.DONCHIAN)
     #nado_bot = TradingBot(nado_client, nado_strategy, helpers, pairs, timeframe, 'NADO')
     hl_bot = TradingBot(hl_client, hl_strategy, helpers, pairs, timeframe, 'HYPERLIQUID')
@@ -134,6 +134,7 @@ async def safe_fetch_spot_markets(self, params={}):
 
 
 if __name__ == "__main__":
+    asyncio.run(run_bot())
     if len(sys.argv) < 2:
         asyncio.run(run_bot())
     else:

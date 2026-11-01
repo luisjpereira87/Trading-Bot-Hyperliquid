@@ -751,7 +751,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
 
         return last_HL, last_LH
 
-    def market_structure_rsi(self):
+    def market_structure_rsi(self, left=10, right=10):
         high = np.array(self.highs)
         low = np.array(self.lows)
         closes = np.array(self.closes)
@@ -759,7 +759,7 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
 
         direction = np.zeros(n)
 
-        last_HL, last_LH = self.market_structure()
+        last_HL, last_LH = self.market_structure(left, right)
 
         for i in range(1, n):
 
@@ -1641,3 +1641,141 @@ class TvIndicatorsUtils(BaseIndicatorsUtils):
             'dc_lower': dc_lower,
             'dc_mid': dc_mid
         }
+
+    def calculate_poly_regression_channel(self, length=200, num_bins=20):
+        """
+        Implementação completa do Polynomial Regression Volume Profile (Grau 2)
+        Fiel ao comportamento visual e matemático do indicador do BigBeluga (Pine Script v6).
+
+        Corrige:
+        1. Integração do Volume Financeiro Real (e não apenas contagem de frequência).
+        2. Inclinação instantânea do 'is_bullish' baseada na derivada da curva.
+        3. Alinhamento contínuo do POC com a baseline, eliminando o efeito "escada".
+        """
+        import numpy as np
+
+        # Garantir que usamos os arrays em formato float do NumPy
+        closes = np.asarray(self.closes, dtype=float)
+        highs = np.asarray(self.highs, dtype=float)
+        lows = np.asarray(self.lows, dtype=float)
+        volumes = np.asarray(self.volumes, dtype=float)
+        n = len(closes)
+
+        # Inicializar os arrays de output preenchidos com NaN para manter o tamanho 'n'
+        baselines = np.full(n, np.nan)
+        chans_high = np.full(n, np.nan)
+        chans_low = np.full(n, np.nan)
+        is_bullish_arr = np.full(n, False, dtype=bool)
+        stdev_arr = np.full(n, np.nan)
+
+        # Matriz para guardar o histórico da distribuição dos perfis de volume
+        bin_volumes_hist = np.zeros((n, num_bins * 2))
+
+        # Validação de histórico mínimo
+        if n < length:
+            return {
+                "baseline": baselines, "chan_high": chans_high, "chan_low": chans_low,
+                "poc_level": np.full(n, np.nan), "poc_volume": np.full(n, np.nan),
+                "is_bullish": is_bullish_arr, "stdev": stdev_arr, "bin_volumes_hist": bin_volumes_hist
+            }
+
+        # Pré-criar a matriz X fixa para regressão de Grau 2: y = b0 + b1*x + b2*x^2
+        # Como a janela deslizante tem tamanho fixo, X e a sua pseudo-inversa são constantes.
+        x = np.arange(length, dtype=float)
+        X = np.vstack([np.ones(length), x, x ** 2]).T
+        XtX_inv = np.linalg.inv(X.T @ X)
+        X_T = X.T
+
+        # -------------------------------------------------------------------------
+        # 1. JANELA DESLIZANTE: PROCESSAMENTO DOS CANAIS E DISTRIBUIÇÃO DE VOLUME
+        # -------------------------------------------------------------------------
+        for t in range(length, n + 1):
+            idx_fim = t
+            idx_ini = t - length
+
+            y_window = closes[idx_ini:idx_fim]
+            v_window = volumes[idx_ini:idx_fim]
+
+            # Resolver mínimos quadrados (OLS) para achar os coeficientes da curva
+            b = XtX_inv @ (X_T @ y_window)
+
+            # Gerar a curva estimada dentro desta janela
+            predictions = X @ b
+            baseline_atual = predictions[-1]  # Ponto final da curva na vela 't'
+
+            # Medir a volatilidade (ta.stdev) e o tamanho (espessura) de cada bin
+            stdev_val = np.std(y_window, ddof=1)
+            dev = (stdev_val * 3) / num_bins if stdev_val > 0 else 0.00001
+
+            chan_high_val = baseline_atual + (num_bins * dev)
+            chan_low_val = baseline_atual - (num_bins * dev)
+
+            # Mapeamento curvo: calcula a distância de cada fecho para a sua curva correspondente
+            bin_volumes = np.zeros(num_bins * 2)
+            diffs = y_window - predictions
+
+            for i in range(length):
+                bin_idx = int(np.floor(diffs[i] / dev)) + num_bins
+                if 0 <= bin_idx < (num_bins * 2):
+                    bin_volumes[bin_idx] += v_window[i]  # 🚀 Acumula Volume Real
+
+            # 🚀 CORREÇÃO DO TREND DIRECTION: Compara a vela atual com a anterior imediata da curva
+            is_bullish_val = predictions[-1] > predictions[-2] if length > 1 else True
+
+            # Guardar dados respeitando a indexação do histórico (Vela t-1)
+            pos = t - 1
+            baselines[pos] = baseline_atual
+            chans_high[pos] = chan_high_val
+            chans_low[pos] = chan_low_val
+            is_bullish_arr[pos] = is_bullish_val
+            stdev_arr[pos] = stdev_val
+            bin_volumes_hist[pos] = bin_volumes
+
+        # -------------------------------------------------------------------------
+        # 2. 🎯 CORREÇÃO DO POC ESTILO TRADINGVIEW (SEM SALTOS NO HISTÓRICO)
+        # -------------------------------------------------------------------------
+        # Extraímos a distribuição de volume gerada na ÚLTIMA janela processada (o estado atual do mercado)
+        ultima_distribuicao = bin_volumes_hist[-1]
+        poc_bin_idx = np.argmax(ultima_distribuicao)
+        max_poc_volume = ultima_distribuicao[poc_bin_idx]
+
+        # Calcular o offset fixo baseado no desvio padrão mais recente
+        ultimo_stdev = stdev_arr[-1]
+        ultimo_dev = (ultimo_stdev * 3) / num_bins if ultimo_stdev > 0 else 0.00001
+        poc_offset = (poc_bin_idx - num_bins) * ultimo_dev
+
+        # 🚀 A mágica: A linha inteira do POC passa a ser a baseline transladada por esse offset fixo.
+        # Isto faz com que ela desenhe uma curva suave contínua idêntica ao ecrã do TradingView.
+        pocs_level = baselines + poc_offset
+        pocs_volume = np.full(n, max_poc_volume)
+
+        return {
+            "baseline": baselines,
+            "chan_high": chans_high,
+            "chan_low": chans_low,
+            "poc_level": pocs_level,  # 🌟 Linha curva contínua e sem escadas
+            "poc_volume": pocs_volume,  # Volume absoluto do pico do POC
+            "is_bullish": is_bullish_arr,  # Direção exata da inclinação atual
+            "stdev": stdev_arr,
+            "bin_volumes_hist": bin_volumes_hist
+        }
+
+    def calculate_bbw_expansion(self, length: int = 20, mult: float = 2.0, expansion_length: int = 125):
+        # Garantir que tratamos os closes como uma Series do Pandas
+        closes_series = pd.Series(self.closes)
+
+        # 1. Calcular a base (SMA) e o desvio padrão das bandas de Bollinger
+        basis = closes_series.rolling(window=length).mean()
+        dev = mult * closes_series.rolling(window=length).std()
+
+        upper = basis + dev
+        lower = basis - dev
+
+        # 2. Calcular o BandWidth (BBW) em percentagem
+        bbw = ((upper - lower) / basis) * 100
+
+        # 3. Calcular a Highest Expansion (A linha vermelha do Pine: ta.highest)
+        highest_expansion = bbw.rolling(window=expansion_length).max()
+
+        # Se precisares que o retorno sejam listas puras ou mantenhas o formato numpy/pandas:
+        return bbw, highest_expansion

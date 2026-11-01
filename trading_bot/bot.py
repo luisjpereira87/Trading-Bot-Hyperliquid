@@ -38,6 +38,10 @@ class TradingBot:
         # self.params_loader = BestParamsLoader()
         self.exit_logic = ExitLogicTrailingStop(self.helpers, self.exchange_client)
 
+        self.check_interval_seconds = 15 * 60
+        self.buffer_seconds = 20
+        self.tf_seconds = self._parse_timeframe_to_seconds(timeframe)
+
     async def run_pair(self, pair: PairConfig) -> SignalResult:
         symbol = pair.symbol
         leverage = int(pair.leverage)
@@ -129,188 +133,62 @@ class TradingBot:
 
         return SignalResult(Signal.HOLD, None, None, None)
 
-    def _calculate_sleep_time(self):
-        now = datetime.now(timezone.utc)
-        check_interval = 5  # Acordar de 5 em 5 minutos
+    @staticmethod
+    def _parse_timeframe_to_seconds(tf: str) -> int:
+        unit = tf[-1].lower()
+        value = int(tf[:-1])
+        if unit == 'm':
+            return value * 60
+        elif unit == 'h':
+            return value * 3600
+        elif unit == 'd':
+            return value * 86400
+        raise ValueError(f"Timeframe não suportada: {tf}")
 
-        minutes = now.minute
-        next_minute = (math.floor(minutes / check_interval) + 1) * check_interval
+    def _calculate_sleep_time(self, now_timestamp: float) -> float:
+        """Calcula o tempo exato de espera até ao próximo intervalo de verificação + buffer."""
+        next_check_timestamp = math.ceil(
+            now_timestamp / self.check_interval_seconds) * self.check_interval_seconds + self.buffer_seconds
 
-        if next_minute >= 60:
-            next_check = now.replace(
-                minute=0, second=0, microsecond=0
-            ) + timedelta(hours=1)
-        else:
-            next_check = now.replace(
-                minute=next_minute, second=0, microsecond=0
-            )
+        if next_check_timestamp <= now_timestamp:
+            next_check_timestamp += self.check_interval_seconds
 
-        sleep_seconds = (next_check - now).total_seconds()
-        return max(sleep_seconds, 10)  # Garante pelo menos 10s de respiro
+        sleep_seconds = next_check_timestamp - now_timestamp
+        return max(sleep_seconds, 5)  # Garante um respiro mínimo de 5s
 
     async def start(self):
+        logging.info(
+            f"🚀 Bot contínuo iniciado | Timeframe: {self.timeframe} | "
+            f"Check a cada {self.check_interval_seconds / 60} min | Buffer: {self.buffer_seconds}s"
+        )
+
         while True:
             try:
-                logging.info(
-                    "⏳ Loop de execução ajustado para o minuto 2 de cada bloco (com filtro do candle em fecho) iniciado")
+                now = datetime.now(timezone.utc)
+                now_timestamp = now.timestamp()
 
-                now = datetime.now(pytz.utc)
-                lisbon_tz = pytz.timezone('Europe/Lisbon')
-                now_lisbon = now.astimezone(lisbon_tz)
+                current_candle_timestamp = math.floor(now_timestamp / self.tf_seconds) * self.tf_seconds
+                current_candle_slot = datetime.fromtimestamp(current_candle_timestamp, tz=timezone.utc)
 
-                current_minute = now_lisbon.minute
-
-                # O bloco de 15 minutos atual (0, 15, 30, 45)
-                block_15m = (current_minute // 15) * 15
-                elapsed_in_block = current_minute - block_15m
-
-                # 🚫 IGNORAR O ÚLTIMO CICLO DE 5 MINUTOS (agora o equivalente a 10-15 do bloco)
-                if elapsed_in_block == 10:
-                    logging.info(f"⏳ Estamos no minuto {current_minute} (último terço do bloco de 15m). A ignorar.")
-                    sleep_time = self._calculate_sleep_time_minute_2()
-                    await asyncio.sleep(sleep_time)
-                    continue
-
-                # O slot de 5 minutos base (0, 5, 10...)
-                minute_block = (current_minute // 5) * 5
-
-                # O slot efetivo onde executamos é o minuto base + 2 minutos (ex: 12:02, 12:07, 12:17...)
-                target_execution_minute = minute_block + 2
-                current_slot = now_lisbon.replace(minute=target_execution_minute, second=0, microsecond=0)
+                logging.info(f"\n⚡ Iteração a decorrer (Vela ativa: {current_candle_slot.strftime('%H:%M:%S UTC')})")
 
                 for pair in self.pairs:
-                    last_exec = self.last_candle_times.get(pair.symbol)
+                    await self.run_pair(pair)
 
-                    if last_exec != current_slot:
-                        logging.info(
-                            f"\n⚡ Executando para {pair.symbol} no slot das {current_slot.strftime('%H:%M:%S')}...")
-                        self.last_candle_times[pair.symbol] = current_slot
-                        await self.run_pair(pair)
-                    else:
-                        logging.info(f"⌛ Já executado para {pair.symbol} no slot {current_slot.strftime('%H:%M:%S')}.")
+                # Usa o método dedicado para calcular o sono de forma limpa
+                sleep_time = self._calculate_sleep_time(now_timestamp)
 
-                sleep_time = self._calculate_sleep_time_minute_2()
-                logging.info(f"⏳ Dormindo por {sleep_time:.1f} segundos até ao próximo slot.")
+                logging.info(f"⏳ Dormindo por {sleep_time:.1f} segundos até à próxima iteração...")
                 await asyncio.sleep(sleep_time)
 
             except ccxt.NetworkError as e:
-                logging.error(f"⚠️ Network error no loop principal: {str(e)}")
+                logging.error(f"⚠️ Network error no loop: {str(e)}")
                 await asyncio.sleep(60)
             except ccxt.ExchangeError as e:
-                logging.error(f"⚠️ Exchange error no loop principal: {str(e)}")
+                logging.error(f"⚠️ Exchange error no loop: {str(e)}")
                 await asyncio.sleep(60)
             except Exception:
-                logging.exception("❌ Erro no loop principal")
-                await asyncio.sleep(60)
-
-    def _calculate_sleep_time_minute_2(self):
-        now = datetime.now(timezone.utc)
-        minutes = now.minute
-
-        # Queremos acordar sempre nos minutos: 02, 07, 12, 17, 22, 27, 32, 37, 42, 47, 52, 57
-        # Para isso, descobrimos o próximo múltiplo de 5 e somamos 2 minutos.
-        amount = 5
-        next_block_minute = (math.floor(minutes / amount) + 1) * amount
-        target_minute = next_block_minute + 2
-
-        if target_minute >= 60:
-            next_check = now.replace(
-                minute=target_minute - 60, second=0, microsecond=0
-            ) + timedelta(hours=1)
-        else:
-            next_check = now.replace(
-                minute=target_minute, second=0, microsecond=0
-            )
-
-        # Se já passámos do minuto alvo atual, avançamos 5 minutos no cálculo
-        if next_check <= now:
-            target_minute += amount
-            if target_minute >= 60:
-                next_check = now.replace(
-                    minute=target_minute - 60, second=0, microsecond=0
-                ) + timedelta(hours=1)
-            else:
-                next_check = now.replace(
-                    minute=target_minute, second=0, microsecond=0
-                )
-
-        sleep_seconds = (next_check - now).total_seconds()
-        return max(sleep_seconds, 1)
-
-    def _calculate_sleep_time_old(self):
-        now = datetime.now(timezone.utc)
-        unit = self.timeframe[-1]
-        amount = int(self.timeframe[:-1])
-
-        if unit == "m":
-            minutes = now.minute
-            next_minute = (math.floor(minutes / amount) + 1) * amount
-            if next_minute >= 60:
-                next_candle = now.replace(
-                    minute=0, second=0, microsecond=0
-                ) + timedelta(hours=1)
-            else:
-                next_candle = now.replace(
-                    minute=0, second=0, microsecond=0
-                ) + timedelta(minutes=next_minute)
-            sleep_seconds = (next_candle - now).total_seconds()
-            return max(sleep_seconds, 0)
-
-        elif unit == "h":
-            hour = now.hour
-            next_hour = (math.floor(hour / amount) + 1) * amount
-            if next_hour >= 24:
-                next_candle = now.replace(
-                    hour=0, minute=0, second=0, microsecond=0
-                ) + timedelta(days=1)
-            else:
-                next_candle = now.replace(
-                    hour=next_hour, minute=0, second=0, microsecond=0
-                )
-            sleep_seconds = (next_candle - now).total_seconds()
-            return max(sleep_seconds, 0)
-
-        else:
-            return 60
-
-    async def start_old(self):
-        while True:
-            try:
-                logging.info("⏳ Loop principal iniciado")
-
-                # Assumimos que todas as velas fecharam neste timestamp
-                now = datetime.now(pytz.utc)
-
-                # Converter para hora de Lisboa (Europa/Lisbon)
-                lisbon_tz = pytz.timezone('Europe/Lisbon')
-                now_lisbon = now.astimezone(lisbon_tz)
-
-                rounded_now = self._get_last_closed_candle_time_global(now_lisbon)
-
-                for pair in self.pairs:
-                    if self.last_candle_times[pair.symbol] != rounded_now:
-                        logging.info(f"\n🕒 Nova vela detectada para {pair.symbol} ({rounded_now}). Executando bot...")
-                        self.last_candle_times[pair.symbol] = rounded_now
-                        await self.run_pair(pair)
-                    else:
-                        logging.info(
-                            f"⌛ Aguardando nova vela para {pair.symbol}... Última executada: {self.last_candle_times[pair.symbol]}")
-
-                sleep_time = self._calculate_sleep_time()
-                logging.info(
-                    f"⏳ Dormindo por {sleep_time:.1f} segundos até próxima vela."
-                )
-                logging.info("✅ Loop principal finalizado. Aguardando próximo ciclo...")
-                await asyncio.sleep(sleep_time)
-
-            except ccxt.NetworkError as e:
-                logging.error(f"⚠️ Network error no loop principal: {str(e)}")
-                await asyncio.sleep(60)
-            except ccxt.ExchangeError as e:
-                logging.error(f"⚠️ Exchange error no loop principal: {str(e)}")
-                await asyncio.sleep(60)
-            except Exception:
-                logging.exception("❌ Erro no loop principal")
+                logging.exception("❌ Erro fatal no loop principal")
                 await asyncio.sleep(60)
 
     async def get_last_closed_candle_time(self, symbol):

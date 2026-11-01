@@ -146,13 +146,16 @@ class PlotTrades:
             ax.plot([dates[i], dates[i]], [opens[i], closes[i]], color=color, linewidth=5)  # corpo candle
 
         # EMA 50
+        ema800 = indicators_utils.ema(800)
+        ax.plot(dates, ema800, color='black', linestyle='-', linewidth=1.5, label='EMA 800')
+
         ema200 = indicators_utils.ema(200)
         ax.plot(dates, ema200, color='blue', linestyle='-', linewidth=1.5, label='EMA 200')
 
         ema50 = indicators_utils.ema(50)
         ax.plot(dates, ema50, color='red', linestyle='-', linewidth=1.5, label='EMA 50')
 
-        ema21 = indicators_utils.ema(21)
+        ema21 = indicators_utils.ema(20)
         ax.plot(dates, ema21, color='green', linestyle='-', linewidth=1.5, label='EMA 21')
 
         # Plotar entradas e saídas
@@ -998,6 +1001,7 @@ class PlotTrades:
 
         # 1. Indicadores
         indicatorsUtils = TvIndicatorsUtils(ohlcv)
+        indicators_utils = IndicatorsUtils(ohlcv)
         # SHA para cores das velas
         trend_sha, o2, h2, l2, c2 = indicatorsUtils.smoothed_heikin_ashi(len1=34, len2=34)
         # MACD para os sinais em bruto
@@ -1011,6 +1015,15 @@ class PlotTrades:
         dates_array = np.array(dates)
         delta = dates_array[1] - dates_array[0] if n > 1 else 0.0005
         width = delta * 0.8
+
+        ema200 = indicators_utils.ema(200)
+        ax1.plot(dates, ema200, color='blue', linestyle='-', linewidth=1.5, label='EMA 200')
+
+        ema50 = indicators_utils.ema(50)
+        ax1.plot(dates, ema50, color='red', linestyle='-', linewidth=1.5, label='EMA 50')
+
+        ema21 = indicators_utils.ema(21)
+        ax1.plot(dates, ema21, color='green', linestyle='-', linewidth=1.5, label='EMA 21')
 
         # --- QUADRO 1: VELAS DE PREÇO (Cor baseada no SHA) ---
         for i in range(n):
@@ -1254,41 +1267,10 @@ class PlotTrades:
         # bull_pct, bear_pct, slope_ma_14, polarity_osc, signal_line = indicatorsUtils.calculate_lux_bb_oscillator()
         # base_mult=2, min_mult=1.5, base_length=7
         supertrend, trend, upperband, lowerband, supertrend_smooth, direction, perf_score = indicatorsUtils.supertrend()
-        tv_indicators = TvIndicatorsUtils(ohlcv)
-        andean = tv_indicators.calculate_andean_oscillator()
-        andean_bull = andean['bull']
-        andean_bear = andean['bear']
-        andean_signal = andean['signal']
+        #tv_indicators = TvIndicatorsUtils(ohlcv)
 
         # --- PLOTAGEM ---
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 10), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
-
-        """
-        # 1. DESENHO DAS CAIXAS DE ESTRUTURA (Pivots)
-        left, right = 5, 5
-        for i in range(left, n - right):
-            # Detecção de Pivot Low (HL) para desenhar a caixa
-            if all(lows[i] <= lows[i - k] for k in range(1, left + 1)) and \
-                    all(lows[i] < lows[i + k] for k in range(1, right + 1)):
-                # Criar retângulo: x=início do pivot, y=mínimo, largura=11 velas, altura=corpo do pivot
-                rect_h = max(highs[i - left:i + right]) - lows[i]
-                rect = patches.Rectangle((i - left, lows[i]), left + right, rect_h,
-                                         linewidth=1, edgecolor='green', facecolor='green', alpha=0.1, zorder=1)
-                ax1.add_patch(rect)
-
-            # Detecção de Pivot High (LH)
-            if all(highs[i] >= highs[i - k] for k in range(1, left + 1)) and \
-                    all(highs[i] > highs[i + k] for k in range(1, right + 1)):
-                rect_h = highs[i] - min(lows[i - left:i + right])
-                rect = patches.Rectangle((i - left, min(lows[i - left:i + right])), left + right, rect_h,
-                                         linewidth=1, edgecolor='red', facecolor='red', alpha=0.1, zorder=1)
-                ax1.add_patch(rect)
-
-        # 2. LINHAS DE ESCADA (Last HL / Last LH)
-        # 'where=post' garante que a linha só muda quando o pivot é confirmado
-        ax1.step(indices, last_HL, color='#26a69a', linewidth=1, alpha=0.8, where='post', label='Structure HL')
-        ax1.step(indices, last_LH, color='#ef5350', linewidth=1, alpha=0.8, where='post', label='Structure LH')
-        """
         # Desenho dos Candles (Simplificado)
         width = 0.6
         for i in range(n):
@@ -1303,35 +1285,11 @@ class PlotTrades:
         ax1.plot(indices, bb80_up, color='orange', linewidth=1.5, alpha=0.6, label='BB 80 (1h Projection)')
         ax1.plot(indices, bb80_low, color='orange', linewidth=1.5, alpha=0.6)
         ax1.plot(indices, bb80_mid, color='orange', linewidth=1.5, alpha=0.6)
+        # Linha de Tendência (200)
+        ax1.plot(indices, ema200, color='red', linewidth=1.5, alpha=0.6, label='EMA 200 (Trend)')
 
         ax1.plot(indices, bb80_mid, color='orange', linewidth=1.5, alpha=0.6)
-
-        # ax1.plot(indices, ema200, color='red', linewidth=1.5, alpha=0.6)
-
-        ax1.plot(indices, upperband, color='green', linestyle='--', linewidth=1.5, alpha=0.6, label='Supertrend Upper')
-        ax1.plot(indices, lowerband, color='red', linestyle='--', linewidth=1.5, alpha=0.6, label='Supertrend Upper')
-
-        # --- PLOT NO AX1 (Onde está o preço) ---
-        # Vamos desenhar apenas a linha superior (Up) que é o teu foco para o SELL
-        # ax1.plot(indices, k_up, color='green', linestyle='--', linewidth=1.5, label='Keltner ATR 3.0', alpha=0.8)
-
-        # Opcional: sombrear a zona entre a média e o topo para veres o "vácuo"
-        # ax1.fill_between(indices, k_mid, k_up, color='magenta', alpha=0.05)
-
-        # Preenchimento entre as bandas da 1h (zona de exaustão extrema)
         ax1.fill_between(indices, bb80_low, bb80_up, color='orange', alpha=0.03)
-
-        # 2. Plot dos Círculos (Entrada Real/Gatilho) - Símbolo sólido e marcante
-
-        """
-        ax1.scatter(entry_buy_idx, entry_buy_val, marker='o', color='#00ff00',
-                    s=150, edgecolors='black', linewidth=1.5, label='ENTRADA (Evolução)')
-        ax1.scatter(entry_sell_idx, entry_sell_val, marker='o', color='#ff0000', 
-                    s=150, edgecolors='black', linewidth=1.5)
-        """
-        margem = 0.001
-
-        # Criar máscaras booleanas para os cruzamentos
 
         # TOPO: BB20 Upper ACIMA da BB80 Upper
         topo_extremo = bb20_up > bb80_up
@@ -1343,233 +1301,46 @@ class PlotTrades:
         ax1.fill_between(range(len(bb20_low)), bb80_low, bb20_low,
                          where=fundo_extremo, color='green', alpha=0.3, label='Exaustão Fundo')
 
-        for i in range(1, len(direction)):
-            # 1. COMPRA NA EXAUSTÃO DE VENDA (Fundo)
-            # Se a tendência é de BAIXA, mas o preço tocou na banda de BAIXO
+        for i in range(1, n):
+            # Verifica se estamos perante um sinal de Compra válido e se o índice existe nos arrays de valores
+            if signals[i] == 1:
+                val = entry_buy_val[i] if i < len(entry_buy_val) and entry_buy_val[i] is not None else closes[i]
+                idx_label = entry_buy_idx[i] if i < len(entry_buy_idx) else i
 
-            # 1. IDENTIFICAR AS ZONAS (Contexto que já tens no gráfico)
-            # 1. CONTEXTO: Estamos na Zona de Exaustão de Fundo (Pintada de Verde)?
-            na_zona_fundo = bb20_low[i] < bb80_low[i]
-            """    
-            if na_zona_fundo:
-                # --- O CANDLE ANTERIOR (i-1) ---
-                # Ele foi de venda (vermelho) e tentou furar ou "sentou" na linha
-                bearish_attempt = closes[i - 1] < opens[i - 1]
-                support_tested = lows[i - 1] <= lowerband[i - 1]
-
-                # --- O CANDLE ATUAL (i) ---
-                # Ele é de reversão (verde) e recuperou a linha ou engoliu a queda
-                bottom_reversal = closes[i] > opens[i] and closes[i] > lowerband[i]
-
-                # Filtro de RSI (Exaustão confirmada)
-                rsi_exhausted = rsi[i] <= 40
-                prev_bear_body = opens[i - 1] - closes[i - 1]  # Tamanho da queda
-                bear_body_midpoint = closes[i - 1] + (prev_bear_body * 0.5)
-                price_action_buy = closes[i] > bear_body_midpoint
-
-                is_curve_bb_lower = bb20_low[i] > bb20_low[i - 1]
-
-                lowerband_reversal = lowerband[i] > lowerband[i - 1]
-
-                if (bearish_attempt and support_tested and bottom_reversal and is_curve_bb_lower):
-                    # Entrada de Alta Confiança
-                    ax1.scatter(i, lows[i], marker='$\u2131$', color='#00ff00', s=250, zorder=20)
-                    ax1.text(i, lows[i] - 0.4, f"REVERSÃO, idx {i}", color='green', fontsize=8, ha='center',
-                             fontweight='bold')
-                    print(
-                        f"✅ COMPRA: O candle {i - 1} testou a muralha e o candle {i} reverteu! lowerband[i]={lowerband[i]}, lowerband[i-1]={lowerband[i - 1]}")
-
-            # --- LÓGICA ESPELHADA PARA O TOPO (VENDA) ---
-            na_zona_topo = bb20_up[i] > bb80_up[i]
-            if na_zona_topo:
-                bullish_attempt = closes[i - 1] > opens[i - 1]
-                resistance_tested = highs[i - 1] >= upperband[i - 1]
-                top_reversal = closes[i] < opens[i] and closes[i] < upperband[i]
-                prev_bull_body = closes[i - 1] - opens[i - 1]
-                bull_body_midpoint = opens[i - 1] + (prev_bull_body * 0.5)
-                price_action_sell = closes[i] < bull_body_midpoint
-                is_curve_bb_up = bb20_up[i] < bb20_up[i - 1]
-
-                if bullish_attempt and resistance_tested and top_reversal and is_curve_bb_up:
-                    ax1.scatter(i, highs[i], marker='$\u2131$', color='#ff0000', s=250, zorder=20)
-                    ax1.text(i, highs[i] + 0.4, f"REVERSÃO, idx {i}", color='red', fontsize=8, ha='center',
-                             fontweight='bold')
-                    print(
-                        f"✅ Venda: O candle {i - 1} testou a muralha e o candle {i} reverteu! upperband[i]={upperband[i]}, upperband[i-1]={upperband[i - 1]}")
-            """
-
-            if direction[i] == 1 and direction[i - 1] == -1:
-                # TENDÊNCIA CONFIRMADA
-                ax1.scatter(i, lows[i], marker='o', color='#00ff00', s=150, edgecolors='black')
+                ax1.scatter(i, val, marker='^', color='#00ff00',
+                            s=150, edgecolors='black', linewidth=1.5, zorder=5)
                 ax1.text(
-                    i,
-                    lows[i],
-                    f"Idx {i}, {perf_score[i]}",  # Usamos o idx real do ponto
-                    fontsize=8,
-                    ha='center',
-                    va='top',
+                    i, val, f"Idx {idx_label}",
+                    fontsize=8, ha='center', va='bottom',
                     color='darkgreen',
                     bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
                     zorder=6
                 )
-            # 2. VIRAGEM PARA BAIXA (Crossunder no i-1)
-            elif direction[i] == -1 and direction[i - 1] == 1:
-                # TENDÊNCIA CONFIRMADA
-                ax1.scatter(i, highs[i], marker='o', color='#ff0000', s=150, edgecolors='black')
+
+            # Verifica se estamos perante um sinal de Venda válido
+            elif signals[i] == -1:
+                val = entry_sell_val[i] if i < len(entry_sell_val) and entry_sell_val[i] is not None else closes[i]
+                idx_label = entry_sell_idx[i] if i < len(entry_sell_idx) else i
+
+                ax1.scatter(i, val, marker='v', color='#ff0000',
+                            s=150, edgecolors='black', linewidth=1.5, zorder=5)
                 ax1.text(
-                    i,
-                    highs[i],
-                    f"Idx {i}, {perf_score[i]}",
-                    fontsize=8,
-                    ha='center',
-                    va='bottom',  # Para o sell, talvez seja melhor 'bottom' para ficar acima da seta
+                    i, val, f"Idx {idx_label}",
+                    fontsize=8, ha='center', va='top',
                     color='darkred',
                     bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
                     zorder=6
                 )
-            """
-            if direction[i] == 1:
-                if bb20_up[i] <= bb20_up[i-1] and upperband[i] <= upperband[i-1] and bb20_up[i-1] > upperband[i-1] and highs[i-1] >= upperband[i-1]:
-                    print("SELL", i, upperband[i], upperband[i - 1])
-                    ax1.scatter(i, highs[i], marker='o', color='#ff0000',
-                                s=150, edgecolors='black', linewidth=1.5)
-                    ax1.text(
-                        i,
-                        highs[i],
-                        f"Idx {i}, {perf_score[i]}",
-                        fontsize=8,
-                        ha='center',
-                        va='bottom',  # Para o sell, talvez seja melhor 'bottom' para ficar acima da seta
-                        color='darkred',
-                        bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
-                        zorder=6
-                    )
-            elif direction[i] == -1:
-                if bb20_low[i] >= bb20_low[i-1] and lowerband[i] >= lowerband[i-1] and bb20_low[i-1] < lowerband[i-1] and lows[i-1] <= lowerband[i-1]:
-                    print("BUY", i, lowerband[i], lowerband[i-1])
-                    ax1.scatter(i, lows[i], marker='o', color='#00ff00',
-                                s=150, edgecolors='black', linewidth=1.5)
-                    ax1.text(
-                        i,
-                        lows[i],
-                        f"Idx {i}, {perf_score[i]}",  # Usamos o idx real do ponto
-                        fontsize=8,
-                        ha='center',
-                        va='top',
-                        color='darkgreen',
-                        bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
-                        zorder=6
-                    )
-            """
 
-            """
-            if direction[i] == -1:
-                if lows[i] <= lowerband[i]:
-                    # Se o preço rejeitou a queda (fechou acima da mínima e RSI subiu)
-                    if closes[i] > lows[i] and rsi[i] > rsi_ema[i]:
-                        # GATILHO: O preço está a tentar "voltar para dentro"
-                        print(f"🟢 COMPRA (REVERSAL): Exaustão de venda no Idx {i}")
-                        # [Plotar sinal de compra aqui]
-                        ax1.scatter(i, lows[i], marker='o', color='#00ff00',
-                                    s=150, edgecolors='black', linewidth=1.5)
-                        ax1.text(
-                            i,
-                            lows[i],
-                            f"Idx {i}, {perf_score[i]}",  # Usamos o idx real do ponto
-                            fontsize=8,
-                            ha='center',
-                            va='top',
-                            color='darkgreen',
-                            bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
-                            zorder=6
-                        )
 
-            # 2. VENDA NA EXAUSTÃO DE COMPRA (Topo)
-            # Se a tendência é de ALTA, mas o preço tocou na banda de CIMA
-            elif direction[i] == 1:
-                if highs[i] >= upperband[i]:
-                    # Se o preço rejeitou a subida (deixou pavio e RSI caiu)
-                    if closes[i] < highs[i] and rsi[i] < rsi_ema[i]:
-                        print(f"🔴 VENDA (REVERSAL): Exaustão de compra no Idx {i}")
-                        # [Plotar sinal de venda aqui]
-                        ax1.scatter(i, highs[i], marker='o', color='#ff0000',
-                                    s=150, edgecolors='black', linewidth=1.5)
-                        ax1.text(
-                            i,
-                            highs[i],
-                            f"Idx {i}, {perf_score[i]}",
-                            fontsize=8,
-                            ha='center',
-                            va='bottom',  # Para o sell, talvez seja melhor 'bottom' para ficar acima da seta
-                            color='darkred',
-                            bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
-                            zorder=6
-                        )
 
-            """
-            """
-            if direction[i] == 1 and direction[i-1] == -1:
-                ax1.scatter(i, lows[i], marker='o', color='#00ff00',
-                            s=150, edgecolors='black', linewidth=1.5)
-                ax1.text(
-                    i,
-                    lows[i],
-                    f"Idx {i}, {perf_score[i]}",  # Usamos o idx real do ponto
-                    fontsize=8,
-                    ha='center',
-                    va='top',
-                    color='darkgreen',
-                    bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
-                    zorder=6
-                )
-            elif direction[i] == -1 and direction[i-1] == 1:
-                ax1.scatter(i, highs[i], marker='o', color='#ff0000',
-                            s=150, edgecolors='black', linewidth=1.5)
-                ax1.text(
-                    i,
-                    highs[i],
-                     f"Idx {i}, {perf_score[i]}",
-                    fontsize=8,
-                    ha='center',
-                    va='bottom',  # Para o sell, talvez seja melhor 'bottom' para ficar acima da seta
-                    color='darkred',
-                    bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
-                    zorder=6
-                )
-            """
-        """
-        for idx, val in zip(entry_buy_idx, entry_buy_val):
-            ax1.text(
-                idx,
-                val,
-                f"Idx {idx}", # Usamos o idx real do ponto
-                fontsize=8,
-                ha='center',
-                va='top',
-                color='darkgreen',
-                bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
-                zorder=6
-            )
 
-        for idx, val in zip(entry_sell_idx, entry_sell_val):
-            ax1.text(
-                idx, 
-                val, 
-                f"Idx {idx}", 
-                fontsize=8,
-                ha='center',
-                va='bottom', # Para o sell, talvez seja melhor 'bottom' para ficar acima da seta
-                color='darkred',
-                bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.1'),
-                zorder=6
-            )
-        """
         ax1.set_facecolor('#131722')
         ax1.grid(True, color='#2a2e39', alpha=0.5)
         ax1.legend()
 
         # RSI 6
-        """
+
         ax2.plot(indices, rsi, color='#9b59b6', linewidth=2)
         # ax2.plot(indices, rsi_higher, color='#368921', linewidth=2)
         ax2.plot(indices, rsi_ema, color="#368921", linewidth=2)
@@ -1579,8 +1350,8 @@ class PlotTrades:
         ax2.axhline(30, color='green', linestyle='--', alpha=0.3)
         ax2.set_facecolor('#131722')
         ax2.set_ylim(0, 100)
-        """
 
+        """
         # Andean
         ax2.plot(indices, andean_bear, color='red', linewidth=2, label='Andean Bear')
         ax2.plot(indices, andean_bull, color="green", linewidth=2, label='Andean Bull')
@@ -1597,7 +1368,7 @@ class PlotTrades:
         print(andean_signal)
 
         """
-
+        """
         # Super score
         ax2.plot(indices, super_score, color='#9b59b6', linewidth=2, label='Super Score')
         ax2.plot(indices, ema_score, color="#137169", linewidth=2, label='Ema score')
@@ -1635,7 +1406,7 @@ class PlotTrades:
         plt.show()
 
     @staticmethod
-    def plot_soheil_pko_strategy(ohlcv, symbol: str):
+    def plot_soheil_pko_strategy__(ohlcv, symbol: str):
         opens, highs, lows, closes, volumes = ohlcv.opens, ohlcv.highs, ohlcv.lows, ohlcv.closes, ohlcv.volumes
         n = len(closes)
         indices = np.arange(n)
@@ -1668,28 +1439,28 @@ class PlotTrades:
             # 2. LÓGICA DE COMPRA (LONG)
             if closes[i] > ema200[i] and slope_200 > min_slope:
                 # Verificamos se o RSI está acima de 50 (Confirmação de força)
-                if rsi[i] > 30 and rsi[i] > rsi_ema[i]:
-                    if lows[i] <= ema100_h[i]:  # Toque no canal de Pullback
-                        waiting_buy = True
+                # if rsi[i] > 30 and rsi[i] > rsi_ema[i]:
+                if lows[i] <= ema100_h[i]:  # Toque no canal de Pullback
+                    waiting_buy = True
 
-                    if waiting_buy and closes[i] > ema5_h[i]:
-                        # Filtro extra: O candle de sinal deve ter volume acima da média
-                        if volumes[i] > np.mean(volumes[i - 20:i]):
-                            buy_idx.append(i)
-                            buy_val.append(lows[i])
-                            waiting_buy = False
+                if waiting_buy and closes[i] > ema5_h[i]:
+                    # Filtro extra: O candle de sinal deve ter volume acima da média
+                    # if volumes[i] > np.mean(volumes[i - 20:i]):
+                    buy_idx.append(i)
+                    buy_val.append(lows[i])
+                    waiting_buy = False
 
             # 3. LÓGICA DE VENDA (SHORT)
             elif closes[i] < ema200[i] and slope_200 < -min_slope:
-                if rsi[i] < 70 and rsi[i] < rsi_ema[i]:
-                    if highs[i] >= ema100_l[i]:
-                        waiting_sell = True
+                # if rsi[i] < 70 and rsi[i] < rsi_ema[i]:
+                if highs[i] >= ema100_l[i]:
+                    waiting_sell = True
 
-                    if waiting_sell and closes[i] < ema5_l[i]:
-                        if volumes[i] > np.mean(volumes[i - 20:i]):
-                            sell_idx.append(i)
-                            sell_val.append(highs[i])
-                            waiting_sell = False
+                if waiting_sell and closes[i] < ema5_l[i]:
+                    # if volumes[i] > np.mean(volumes[i - 20:i]):
+                    sell_idx.append(i)
+                    sell_val.append(highs[i])
+                    waiting_sell = False
 
             # 4. INVALIDAÇÃO AUTOMÁTICA
             # Se o preço cruzar a EMA 200 antes do sinal de entrada, o pullback faliu
@@ -1697,7 +1468,8 @@ class PlotTrades:
             if waiting_sell and closes[i] > ema200[i]: waiting_sell = False
 
         # 3. Desenho do Gráfico
-        fig, ax1 = plt.subplots(figsize=(16, 8))
+        # fig, ax1 = plt.subplots(figsize=(16, 8))
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 10), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
         ax1.set_facecolor('#131722')
 
         # Candles
@@ -1730,6 +1502,1227 @@ class PlotTrades:
         ax1.legend(facecolor='#1b1e2e', edgecolor='white', labelcolor='white')
         ax1.grid(True, color='#2a2e39', alpha=0.3)
 
+        adx = utils.adx()
+
+        # ax2.plot(indices, rsi, color='#9b59b6', linewidth=2, label='RSI')
+        ax2.plot(indices, adx, color='#9b59b6', linewidth=2, label='ADX')
+        # ax2.plot(indices, rsi_ema, color="#368921", linewidth=1.5, label='RSI EMA')
+        ax2.axhline(70, color='red', linestyle='--', alpha=0.3)
+        ax2.axhline(50, color='yellow', linestyle='--', alpha=0.3)
+        ax2.axhline(30, color='green', linestyle='--', alpha=0.3)
+        ax2.set_facecolor('#131722')
+        ax2.set_ylim(0, 100)
+        ax2.tick_params(colors='white')
+        ax2.grid(True, color='#2a2e39', alpha=0.2)
+
+        plt.tight_layout()
+        plt.show()
+
+    @staticmethod
+    def plot_soheil_pko_strategy(ohlcv, symbol: str):
+        opens, highs, lows, closes, volumes = ohlcv.opens, ohlcv.highs, ohlcv.lows, ohlcv.closes, ohlcv.volumes
+        n = len(closes)
+        indices = np.arange(n)
+
+        # 1. Indicadores Base (Canais de EMA e Momentum)
+        utils = BaseIndicatorsUtils(ohlcv)
+        ema5_h = utils.ema_list(highs, 5)
+        ema5_l = utils.ema_list(lows, 5)
+        ema100_h = utils.ema_list(highs, 100)
+        ema100_l = utils.ema_list(lows, 100)
+        ema200 = utils.ema_list(closes, 200)
+        ema50 = utils.ema_list(closes, 50)
+        adx = utils.adx()  # Extraído aqui para ser usado tanto na lógica como no plot
+
+        # Listas para Armazenamento de Sinais
+        buy_idx, buy_val = [], []
+        sell_idx, sell_val = [], []
+
+        # Variáveis de Estado (Memória e Timers do Pullback)
+        waiting_buy = False
+        waiting_sell = False
+        buy_timer = 0
+        sell_timer = 0
+
+        # Restrição de proximidade para evitar sinais colados no mesmo movimento
+        last_buy_bar = -20
+        last_sell_bar = -20
+
+        # 2. Lógica Algorítmica de Sinais
+        for i in range(200, n):
+            # Filtro de Inclinação da Tendência (Slope)
+            slope_200 = ema200[i] - ema200[i - 5]
+            min_slope = ema200[i] * 0.0001  # Filtro adaptativo baseado no preço do ativo
+
+            # Filtro de Força Direcional (ADX > 22 indica tendência clara)
+            adx_forte = adx[i] > 22
+
+            # Incrementar os cronómetros se o alerta de pullback estiver ativo
+            if waiting_buy: buy_timer += 1
+            if waiting_sell: sell_timer += 1
+
+            # 🟢 LÓGICA DE COMPRA (LONG)
+            if ema50[i] > ema200[i] and slope_200 > min_slope:
+                # Condição 1: A mínima do candle vem testar o canal de Pullback (EMA 100 alta)
+                if lows[i] <= ema100_h[i]:
+                    waiting_buy = True
+                    buy_timer = 0  # Faz reset ao cronómetro para exigir reação rápida
+
+                # Condição 2: Reação imediata com fecho acima da EMA 5 alta dentro do limite de tempo
+                if waiting_buy and closes[i] > ema5_h[i] and buy_timer <= 7:
+                    # Condição 3: Volume acima da média e respeito pelo cooldown de barras
+                    # if volumes[i] > np.mean(volumes[i - 20:i]) and (i - last_buy_bar > 10):
+                    buy_idx.append(i)
+                    buy_val.append(lows[i])
+                    last_buy_bar = i
+                    waiting_buy = False
+
+            # 🔴 LÓGICA DE VENDA (SHORT)
+            elif ema50[i] < ema200[i] and slope_200 < -min_slope:
+                # Condição 1: A máxima do candle vem testar o canal de Pullback (EMA 100 baixa)
+                if highs[i] >= ema100_l[i]:
+                    waiting_sell = True
+                    sell_timer = 0
+
+                # Condição 2: Reação rápida com fecho abaixo da EMA 5 baixa dentro do limite de tempo
+                if waiting_sell and closes[i] < ema5_l[i] and sell_timer <= 7:
+                    # Condição 3: Volume acima da média e respeito pelo cooldown de barras
+                    # if volumes[i] > np.mean(volumes[i - 20:i]) and (i - last_sell_bar > 10):
+                    sell_idx.append(i)
+                    sell_val.append(highs[i])
+                    last_sell_bar = i
+                    waiting_sell = False
+
+            # ❌ INVALIDAÇÃO AUTOMÁTICA & TIMEOUTS
+            # O alerta é desligado se o preço romper a EMA 200 contra a tendência ou se demorar mais de 7 velas a reagir
+            if waiting_buy and (closes[i] < ema200[i] or buy_timer > 7):
+                waiting_buy = False
+            if waiting_sell and (closes[i] > ema200[i] or sell_timer > 7):
+                waiting_sell = False
+
+        # 3. Desenho Estruturado do Gráfico (Duplo Painel)
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 10), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
+        ax1.set_facecolor('#131722')
+        fig.patch.set_facecolor('#131722')
+
+        # Renderização dos Candles Japoneses
+        for i in range(n):
+            candle_color = '#26a69a' if closes[i] >= opens[i] else '#ef5350'
+            ax1.plot([i, i], [lows[i], highs[i]], color='white', linewidth=0.8, alpha=0.3)
+            ax1.bar(i, abs(closes[i] - opens[i]), bottom=min(opens[i], closes[i]), width=0.6, color=candle_color)
+
+        # Plot dos Canais de EMA
+        # Canal Micro Reação (EMA 5 High/Low em Branco)
+        ax1.plot(indices, ema5_h, color='white', alpha=0.4, linewidth=1, label='EMA 5 (H/L)')
+        ax1.plot(indices, ema5_l, color='white', alpha=0.4, linewidth=1)
+        ax1.fill_between(indices, ema5_l, ema5_h, color='white', alpha=0.03)
+
+        # Canal Pullback Estrutural (EMA 100 High/Low em Verde Água)
+        ax1.plot(indices, ema100_h, color='#26a69a', alpha=0.7, linewidth=1.5, label='EMA 100 (H/L)')
+        ax1.plot(indices, ema100_l, color='#26a69a', alpha=0.7, linewidth=1.5)
+        ax1.fill_between(indices, ema100_l, ema100_h, color='#26a69a', alpha=0.08)
+
+        # Média Móvel Macro (EMA 200 em Laranja)
+        ax1.plot(indices, ema200, color='orange', linewidth=2, label='EMA 200 (Trend Direction)')
+        ax1.plot(indices, ema50, color='red', alpha=0.7,linewidth=2, label='EMA 50 (Trend Direction)')
+
+        # Impressão Visual dos Sinais Executados
+        ax1.scatter(buy_idx, buy_val, marker=MarkerStyle('^'), color='lime', s=180, edgecolors='black',
+                    label='PKO BUY Trigger', zorder=5)
+        ax1.scatter(sell_idx, sell_val, marker=MarkerStyle('v'), color='red', s=180, edgecolors='black',
+                    label='PKO SELL Trigger', zorder=5)
+
+        ax1.set_title(f"Soheil PKO Strategy Pro - {symbol}", color='white', fontsize=14, pad=15)
+        ax1.legend(facecolor='#1b1e2e', edgecolor='white', labelcolor='white', loc='upper left')
+        ax1.grid(True, color='#2a2e39', alpha=0.3)
+        ax1.tick_params(colors='white')
+
+        # Painel Inferior: Força de Tendência (ADX)
+        ax2.set_facecolor('#131722')
+        ax2.plot(indices, adx, color='#9b59b6', linewidth=2, label='ADX Matrix')
+
+        # Níveis horizontais clássicos de validação do ADX
+        ax2.axhline(22, color='yellow', linestyle='--', alpha=0.4, label='Trend Threshold (22)')
+        ax2.axhline(40, color='red', linestyle=':', alpha=0.3)
+
+        ax2.set_ylim(0, 70)
+        ax2.tick_params(colors='white')
+        ax2.grid(True, color='#2a2e39', alpha=0.2)
+        ax2.legend(facecolor='#1b1e2e', edgecolor='white', labelcolor='white', loc='upper left')
+
+        plt.tight_layout()
+        plt.show()
+
+    @staticmethod
+    def plot_test_(ohlcv, ohlcvHigher, symbol: str):
+        opens, highs, lows, closes, volumes = ohlcv.opens, ohlcv.highs, ohlcv.lows, ohlcv.closes, ohlcv.volumes
+        n = len(closes)
+        indices = np.arange(n)
+
+        # 1. Indicadores Base (Canais de EMA e Momentum)
+        utils = BaseIndicatorsUtils(ohlcv)
+        utils_higher = BaseIndicatorsUtils(ohlcvHigher)
+        ema21 = utils.ema(21)
+        ema50 = utils.ema(50)
+        ema200 = utils.ema_list(closes, 200)
+        adx = utils.adx()  # Extraído aqui para ser usado tanto na lógica como no plot
+        atr = utils.atr()
+
+        rsi, rsi_ema = utils.rsi(period=14, signal_period=14)
+        rsi_h, rsi_ema_h = utils_higher.rsi(period=14, signal_period=14)
+
+        ema21 = utils.kalman_filter(ema21)
+        ema50 = utils.kalman_filter(ema50)
+        ema200 = utils.kalman_filter(ema200)
+
+        # print(ema21, ema50)
+
+        # Listas para Armazenamento de Sinais
+        buy_idx, buy_val = [], []
+        sell_idx, sell_val = [], []
+
+        # Variáveis de Estado (Memória e Timers do Pullback)
+        waiting_buy = False
+        waiting_sell = False
+        buy_timer = 0
+        sell_timer = 0
+
+        # Restrição de proximidade para evitar sinais colados no mesmo movimento
+        last_buy_bar = -20
+        last_sell_bar = -20
+
+        lower_band = np.full(n, np.nan)
+        upper_band = np.full(n, np.nan)
+
+        lookback = 14
+        is_enter = True
+        lower_band_raw = None
+        upper_band_raw = None
+
+        top_idx, top_val = [], []
+        bottom_idx, bottom_val = [], []
+
+        # State memory flags
+        waiting_buy_confirmation = False
+        waiting_sell_confirmation = False
+        EMA_PROXIMITY_THRESHOLD = 0.001
+        for i in range(lookback, n):
+
+            current_price = closes[i]
+            is_green_candle = closes[i] > opens[i]
+            is_red_candle = closes[i] < opens[i]
+
+            # --- CALCULAR PROXIMIDADE DAS EMAs ---
+            # dist_ema21 = abs(current_price - ema21[i]) / current_price
+            # dist_ema50 = abs(current_price - ema50[i]) / current_price
+            # is_near_ema = (dist_ema21 <= EMA_PROXIMITY_THRESHOLD) or (dist_ema50 <= EMA_PROXIMITY_THRESHOLD)
+
+            # --- 1. VALIDATE CANDLE N+1 (CONTINUATION OR REVERSAL) ---
+
+            candle_range = highs[i] - lows[i]
+
+            is_top_wick_rejection = False
+            if candle_range > 0:
+                # Tamanho da sombra superior (Upper Wick)
+                upper_wick = highs[i] - max(opens[i], closes[i])
+                wick_ratio = upper_wick / candle_range
+
+                # Se a sombra superior for mais de 45% do tamanho total do candle -> Rejeição / Topo
+                is_top_wick_rejection = wick_ratio > 0.45
+
+            """
+            if waiting_buy_confirmation:
+                if is_red_candle:  # ✅ Continuation: Trend entry confirmed
+                    if rsi[i - 1] > 70 and rsi[i] < rsi[i - 1]:
+                        print("SELL", i, rsi[i - 1], rsi[i], is_top_wick_rejection)
+                        # top_idx.append(i)
+                        # top_val.append(highs[i])
+                waiting_buy_confirmation = False  # Reset state
+
+            elif waiting_sell_confirmation:
+                if is_green_candle:  # ✅ Continuation: Trend entry confirmed
+                    if rsi[i - 1] < 30 and rsi[i] > rsi[i - 1]:
+                        print("BUY", i, rsi[i - 1], rsi[i], is_top_wick_rejection)
+                        # bottom_idx.append(i)
+                        # bottom_val.append(lows[i])
+                waiting_sell_confirmation = False  # Reset state
+            """
+            # --- 2. DETECT INITIAL BREAKOUT ---
+            if lower_band_raw is not None and upper_band_raw is not None:
+
+                if current_price > upper_band_raw:
+
+                    ema21_inside = (lows[i] <= ema21[i] <= highs[i]) or (
+                            abs(lows[i] - ema21[i]) / lows[i] <= EMA_PROXIMITY_THRESHOLD)
+                    ema50_inside = (lows[i] <= ema50[i] <= highs[i]) or (
+                            abs(lows[i] - ema50[i]) / lows[i] <= EMA_PROXIMITY_THRESHOLD)
+                    is_near_ema = ema21_inside or ema50_inside
+                    is_trend_up = closes[i] > ema200[i] and ema50[i] < ema21[i]
+                    if is_trend_up:
+                        buy_idx.append(i)
+                        buy_val.append(lows[i])
+                        print(f"BUY index: {i}, rsi: {rsi[i]}")
+
+                    waiting_buy_confirmation = True  # Trigger check for the next candle
+                    is_enter = True
+                    lower_band_raw = None
+                    upper_band_raw = None
+
+                elif current_price < lower_band_raw:
+
+                    ema21_inside = (lows[i] <= ema21[i] <= highs[i]) or (
+                            abs(highs[i] - ema21[i]) / highs[i] <= EMA_PROXIMITY_THRESHOLD)
+                    ema50_inside = (lows[i] <= ema50[i] <= highs[i]) or (
+                            abs(highs[i] - ema50[i]) / highs[i] <= EMA_PROXIMITY_THRESHOLD)
+                    is_near_ema = ema21_inside or ema50_inside
+                    is_trend_down = closes[i] < ema200[i] and ema50[i] > ema21[i]
+                    if is_trend_down:
+                        sell_idx.append(i)
+                        sell_val.append(highs[i])
+                        print(f"SELL index: {i}, rsi: {rsi[i]}")
+
+                    waiting_sell_confirmation = True  # Trigger check for the next candle
+                    is_enter = True
+                    lower_band_raw = None
+                    upper_band_raw = None
+
+            last_highs = highs[i - lookback + 1: i + 1]
+            last_lows = lows[i - lookback + 1: i + 1]
+
+            channel_high = np.max(last_highs)
+            channel_low = np.min(last_lows)
+            channel_width = channel_high - channel_low
+
+            current_price = closes[i]
+
+            if current_price == 0:
+                continue  # Usa 'continue' em vez de return para o loop não morrer a meio do histórico
+
+            range_percent = channel_width / current_price
+
+            # 2. CAPTURA E BLOQUEIO (Gatilhada quando o mercado comprime < 2%)
+            if range_percent < 0.01 and is_enter:
+                range_percent_half = range_percent / 2
+                # CORRIGIDO: Uma banda subtrai do preço, a outra soma!
+                lower_band_raw = current_price - (current_price * range_percent_half)
+                upper_band_raw = current_price + (current_price * range_percent_half)
+                is_enter = False
+
+            # 3. PREENCHIMENTO DO HISTÓRICO
+            if lower_band_raw is not None and upper_band_raw is not None:
+                # Se estiver trancado na consolidação, mantém os valores fixos (linhas horizontais)
+                lower_band[i] = lower_band_raw
+                upper_band[i] = upper_band_raw
+            else:
+                # Se estiver em modo dinâmico, acompanha o preço da vela atual
+                lower_band[i] = lows[i]
+                upper_band[i] = highs[i]
+
+        # 3. Desenho Estruturado do Gráfico (Duplo Painel)
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 10), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
+        ax1.set_facecolor('#131722')
+        fig.patch.set_facecolor('#131722')
+
+        # Renderização dos Candles Japoneses
+        for i in range(n):
+            candle_color = '#26a69a' if closes[i] >= opens[i] else '#ef5350'
+            ax1.plot([i, i], [lows[i], highs[i]], color='white', linewidth=0.8, alpha=0.3)
+            ax1.bar(i, abs(closes[i] - opens[i]), bottom=min(opens[i], closes[i]), width=0.6, color=candle_color)
+
+        # Plot dos Canais de EMA
+        # Canal Micro Reação (EMA 5 High/Low em Branco)
+        ax1.plot(indices, lower_band, color='white', alpha=0.4, linewidth=1, label='Lower band')
+        ax1.plot(indices, upper_band, color='white', alpha=0.4, linewidth=1, label='Upper band')
+        # ax1.fill_between(indices, ema5_l, ema5_h, color='white', alpha=0.03)
+
+        # Canal Pullback Estrutural (EMA 100 High/Low em Verde Água)
+        ax1.plot(indices, ema21, color='#26a69a', alpha=0.7, linewidth=1.5, label='EMA 21')
+        ax1.plot(indices, ema50, color='#26a69a', alpha=0.7, linewidth=1.5, label='EMA 50')
+        ax1.fill_between(indices, ema21, ema50, color='#26a69a', alpha=0.08)
+
+        # Média Móvel Macro (EMA 200 em Laranja)
+        ax1.plot(indices, ema200, color='orange', linewidth=2, label='EMA 200 (Trend Direction)')
+
+        # Impressão Visual dos Sinais Executados
+        ax1.scatter(buy_idx, buy_val, marker=MarkerStyle('^'), color='lime', s=180, edgecolors='black',
+                    label='PKO BUY Trigger', zorder=5)
+        ax1.scatter(sell_idx, sell_val, marker=MarkerStyle('v'), color='red', s=180, edgecolors='black',
+                    label='PKO SELL Trigger', zorder=5)
+
+        ax1.scatter(bottom_idx, bottom_val, marker=MarkerStyle('o'), color='lime', s=180, edgecolors='black',
+                    label='PKO BUY Trigger', zorder=5)
+        ax1.scatter(top_idx, top_val, marker=MarkerStyle('o'), color='red', s=180, edgecolors='black',
+                    label='PKO SELL Trigger', zorder=5)
+
+        ax1.set_title(f"Soheil PKO Strategy Pro - {symbol}", color='white', fontsize=14, pad=15)
+        ax1.legend(facecolor='#1b1e2e', edgecolor='white', labelcolor='white', loc='upper left')
+        ax1.grid(True, color='#2a2e39', alpha=0.3)
+        ax1.tick_params(colors='white')
+
+        # Painel Inferior: Força de Tendência (ADX)
+        """
+        ax2.set_facecolor('#131722')
+        ax2.plot(indices, adx, color='#9b59b6', linewidth=2, label='ADX Matrix')
+
+        # Níveis horizontais clássicos de validação do ADX
+        # ax2.axhline(22, color='yellow', linestyle='--', alpha=0.4, label='Trend Threshold (22)')
+        # ax2.axhline(40, color='red', linestyle=':', alpha=0.3)
+    
+        ax2.set_ylim(0, 70)
+        ax2.tick_params(colors='white')
+        ax2.grid(True, color='#2a2e39', alpha=0.2)
+        ax2.legend(facecolor='#1b1e2e', edgecolor='white', labelcolor='white', loc='upper left')
+        """
+
+        ax2.plot(indices, rsi, color='#9b59b6', linewidth=2)
+        # ax2.plot(indices, rsi_higher, color='#368921', linewidth=2)
+        ax2.plot(indices, rsi_ema, color="#368921", linewidth=2)
+        # ax2.plot(indices, rsi_ema, color="#368921", linewidth=2)
+        ax2.axhline(70, color='red', linestyle='--', alpha=0.3)
+        ax2.axhline(50, color='yellow', linestyle='--', alpha=0.3)
+        ax2.axhline(30, color='green', linestyle='--', alpha=0.3)
+        ax2.set_facecolor('#131722')
+        ax2.set_ylim(0, 100)
+
+        ax2.plot(indices, rsi_h, color='#9b59b6', linewidth=2)
+        # ax2.plot(indices, rsi_higher, color='#368921', linewidth=2)
+        ax2.plot(indices, rsi_ema_h, color="#368921", linewidth=2)
+        # ax2.plot(indices, rsi_ema, color="#368921", linewidth=2)
+        ax2.axhline(70, color='red', linestyle='--', alpha=0.3)
+        ax2.axhline(50, color='yellow', linestyle='--', alpha=0.3)
+        ax2.axhline(30, color='green', linestyle='--', alpha=0.3)
+        ax2.set_facecolor('#131722')
+        ax2.set_ylim(0, 100)
+
+        plt.tight_layout()
+        plt.show()
+
+    @staticmethod
+    def plot_test(ohlcv, ohlcvHigher, symbol: str):
+        opens, highs, lows, closes, volumes, dates = ohlcv.opens, ohlcv.highs, ohlcv.lows, ohlcv.closes, ohlcv.volumes, ohlcv.dates
+        n = len(closes)
+        indices = np.arange(n)
+
+        # 1. Indicadores Base (Canais de EMA e Momentum)
+        utils = BaseIndicatorsUtils(ohlcv)
+        utils_higher = BaseIndicatorsUtils(ohlcvHigher)
+        ema21 = utils.ema(21)
+        ema50 = utils.ema(50)
+        ema200 = utils.ema_list(closes, 200)
+        adx = utils.adx()
+        atr = utils.atr()
+
+        # RSIs Micro (15m) e Macro (1h)
+        rsi, rsi_ema = utils.rsi(period=14, signal_period=14)
+        rsi_h, rsi_ema_h = utils_higher.rsi(period=14, signal_period=14)
+
+        # --- A TUA PRIMEIRA IDEIA: MAPEAMENTO EM DEGRAU (4 CANDLES POR VELA DE 1H) ---
+        ratio = 4  # 1 candle de 1h = 4 candles de 15m
+
+        # 1. Repete cada valor de 1h 4 vezes consecutivas
+        rsi_h_stepped = np.repeat(rsi_h, ratio)
+        rsi_ema_h_stepped = np.repeat(rsi_ema_h, ratio)
+
+        # 2. Corta ou ajusta diretamente ao tamanho 'n' de 15m (SEM SHIFT MANUAL)
+        # O timestamp do fecho da vela de 1h já alinha com o fecho do 4º candle de 15m
+        n_valid = min(len(rsi_h_stepped), n)
+
+        rsi_h_aligned = np.full(n, np.nan)
+        rsi_ema_h_aligned = np.full(n, np.nan)
+
+        rsi_h_aligned[:n_valid] = rsi_h_stepped[:n_valid]
+        rsi_ema_h_aligned[:n_valid] = rsi_ema_h_stepped[:n_valid]
+        # Filtro de Suavização (Kalman)
+        ema21 = utils.kalman_filter(ema21)
+        ema50 = utils.kalman_filter(ema50)
+        ema200 = utils.kalman_filter(ema200)
+
+        # Listas para Armazenamento de Sinais
+        buy_idx, buy_val = [], []
+        sell_idx, sell_val = [], []
+
+        lower_band = np.full(n, np.nan)
+        upper_band = np.full(n, np.nan)
+
+        lookback = 10
+        is_enter = True
+        lower_band_raw = None
+        upper_band_raw = None
+
+        top_idx, top_val = [], []
+        bottom_idx, bottom_val = [], []
+
+        EMA_PROXIMITY_THRESHOLD = 0.001
+
+        # --- LOOP DE EXECUÇÃO DA ESTRATÉGIA ---
+        for i in range(lookback, n):
+            current_price = closes[i]
+
+            if current_price == 0:
+                continue
+
+            # --- DETETAR BREAKOUT DAS BANDAS ---
+            if lower_band_raw is not None and upper_band_raw is not None:
+
+                if current_price > upper_band_raw:
+                    ema21_inside = (lows[i] <= ema21[i] <= highs[i]) or (
+                            abs(lows[i] - ema21[i]) / lows[i] <= EMA_PROXIMITY_THRESHOLD)
+                    ema50_inside = (lows[i] <= ema50[i] <= highs[i]) or (
+                            abs(lows[i] - ema50[i]) / lows[i] <= EMA_PROXIMITY_THRESHOLD)
+                    is_near_ema = ema21_inside or ema50_inside
+                    is_trend_up = closes[i] > ema200[i] and ema50[i] < ema21[i]
+
+                    if is_trend_up:
+                        buy_idx.append(i)
+                        buy_val.append(lows[i])
+                        print(f"BUY index: {i}, rsi_15m: {rsi[i]:.1f}, rsi_1h: {rsi_h_aligned[i]:.1f}")
+
+                    is_enter = True
+                    lower_band_raw = None
+                    upper_band_raw = None
+
+                elif current_price < lower_band_raw:
+                    ema21_inside = (lows[i] <= ema21[i] <= highs[i]) or (
+                            abs(highs[i] - ema21[i]) / highs[i] <= EMA_PROXIMITY_THRESHOLD)
+                    ema50_inside = (lows[i] <= ema50[i] <= highs[i]) or (
+                            abs(highs[i] - ema50[i]) / highs[i] <= EMA_PROXIMITY_THRESHOLD)
+                    is_near_ema = ema21_inside or ema50_inside
+                    is_trend_down = closes[i] < ema200[i] and ema50[i] > ema21[i]
+
+                    if is_trend_down:
+                        sell_idx.append(i)
+                        sell_val.append(highs[i])
+                        print(f"SELL index: {i}, rsi_15m: {rsi[i]:.1f}, rsi_1h: {rsi_h_aligned[i]:.1f}")
+
+                    is_enter = True
+                    lower_band_raw = None
+                    upper_band_raw = None
+
+            # --- DETETAR COMPRESSÃO (PANELA DE PRESSÃO) ---
+            last_highs = highs[i - lookback + 1: i + 1]
+            last_lows = lows[i - lookback + 1: i + 1]
+
+            channel_high = np.max(last_highs)
+            channel_low = np.min(last_lows)
+            channel_width = channel_high - channel_low
+
+            range_percent = channel_width / current_price
+
+            # Captura quando o mercado comprime < 1%
+            if range_percent < 0.01 and is_enter:
+                range_percent_half = range_percent / 2
+                lower_band_raw = current_price - (current_price * range_percent_half)
+                upper_band_raw = current_price + (current_price * range_percent_half)
+                is_enter = False
+
+            # Preenchimento do Histórico das Bandas
+            if lower_band_raw is not None and upper_band_raw is not None:
+                lower_band[i] = lower_band_raw
+                upper_band[i] = upper_band_raw
+            else:
+                lower_band[i] = lows[i]
+                upper_band[i] = highs[i]
+
+        # --- DESENHO ESTRUTURADO DO GRÁFICO (DUPLO PAINEL) ---
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 10), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
+        ax1.set_facecolor('#131722')
+        fig.patch.set_facecolor('#131722')
+
+        # Renderização das Velas Japonesas
+        for i in range(n):
+            candle_color = '#26a69a' if closes[i] >= opens[i] else '#ef5350'
+            # ax.plot([dates[i], dates[i]], [lows[i], highs[i]], color='black', linewidth=1)  # high-low
+            # ax.plot([dates[i], dates[i]], [opens[i], closes[i]], color=color, linewidth=5)
+
+            ax1.plot([i, i], [lows[i], highs[i]], color='white', linewidth=0.8, alpha=0.3)
+            ax1.bar(i, abs(closes[i] - opens[i]), bottom=min(opens[i], closes[i]), width=0.6, color=candle_color)
+
+        # Plot das Bandas e Médias Móveis no Painel Principal
+        ax1.plot(indices, lower_band, color='white', alpha=0.4, linewidth=1, label='Lower band')
+        ax1.plot(indices, upper_band, color='white', alpha=0.4, linewidth=1, label='Upper band')
+        ax1.plot(indices, ema21, color='#26a69a', alpha=0.7, linewidth=1.5, label='EMA 21')
+        ax1.plot(indices, ema50, color='#26a69a', alpha=0.7, linewidth=1.5, label='EMA 50')
+        ax1.fill_between(indices, ema21, ema50, color='#26a69a', alpha=0.08)
+        ax1.plot(indices, ema200, color='orange', linewidth=2, label='EMA 200 (Trend Direction)')
+
+        # Marcadores Visuais de Compra e Venda
+        ax1.scatter(buy_idx, buy_val, marker=MarkerStyle('^'), color='lime', s=180, edgecolors='black',
+                    label='BUY Trigger', zorder=5)
+        ax1.scatter(sell_idx, sell_val, marker=MarkerStyle('v'), color='red', s=180, edgecolors='black',
+                    label='SELL Trigger', zorder=5)
+
+        ax1.set_title(f"Soheil PKO Strategy Pro - Multi-RSI (15m/1h) - {symbol}", color='white', fontsize=14, pad=15)
+        ax1.legend(facecolor='#1b1e2e', edgecolor='white', labelcolor='white', loc='upper left')
+        ax1.grid(True, color='#2a2e39', alpha=0.3)
+        ax1.tick_params(colors='white')
+
+        # --- PAINEL INFERIOR: PAINEL DUAL RSI (15m & 1h) ---
+        ax2.set_facecolor('#131722')
+
+        # 1. RSI 15m (Oscilação rápida em roxo)
+        ax2.plot(indices, rsi, color='#9b59b6', linewidth=1.5, label='RSI 15m (Micro)', alpha=0.85)
+
+        # 2. RSI 1h (Degraus sólidos em Laranja / Estilo TradingView)
+        ax2.plot(indices, rsi_h_aligned, color='#f39c12', linewidth=2.0, label='RSI 1h (Macro Step)',
+                 drawstyle='steps-post')
+
+        # Níveis Críticos Horizontais
+        ax2.axhline(70, color='#ef5350', linestyle='--', alpha=0.6, label='Sobrecompra (70)')
+        ax2.axhline(50, color='gray', linestyle=':', alpha=0.3)
+        ax2.axhline(30, color='#26a69a', linestyle='--', alpha=0.6, label='Sobrevenda (30)')
+
+        # Sombreamento visual para zonas de confluência
+        ax2.fill_between(indices, 70, 100, color='#ef5350', alpha=0.08)
+        ax2.fill_between(indices, 0, 30, color='#26a69a', alpha=0.08)
+
+        ax2.set_ylim(0, 100)
+        ax2.tick_params(colors='white')
+        ax2.grid(True, color='#2a2e39', alpha=0.2)
+        ax2.legend(facecolor='#1b1e2e', edgecolor='white', labelcolor='white', loc='upper left', fontsize=9)
+
+        plt.tight_layout()
+        plt.show()
+
+    @staticmethod
+    def plot_high_volume_pivots_bigbeluga__(ohlcv, symbol: str):
+        opens, highs, lows, closes, volumes = ohlcv.opens, ohlcv.highs, ohlcv.lows, ohlcv.closes, ohlcv.volumes
+        n = len(closes)
+        indices = np.arange(n)
+
+        # -------------------------------------------------------------------------
+        # 1. PARÂMETROS & INDICADORES BASE
+        # -------------------------------------------------------------------------
+        res_len = 40
+        sup_len = 40
+        vol_avg_len = 20
+        vol_mult = 1.2
+
+        # ATR (Usando 200 períodos para padding idêntico ao Pine Script)
+        utils = BaseIndicatorsUtils(ohlcv)
+        atr = utils.atr(200) if hasattr(utils, 'atr') else [np.std(closes[max(0, i - 200):i + 1]) for i in range(n)]
+
+        # Validação de Volume Superior
+        vol_sma = [np.mean(volumes[max(0, i - vol_avg_len + 1):i + 1]) for i in range(n)]
+
+        # Listas para guardar as coordenadas das caixas de Suporte/Resistência
+        res_boxes = []
+        sup_boxes = []
+
+        # Listas para os Marcadores de Sinais de Estrutura no Gráfico
+        res_break_idx, res_break_val = [], []
+        sup_break_idx, sup_break_val = [], []
+        res_retest_idx, res_retest_val = [], []
+        sup_retest_idx, sup_retest_val = [], []
+
+        # Sinais EXECUTÁVEIS (Os teus Triângulos)
+        buy_signals_idx, buy_signals_val = [], []
+        sell_signals_idx, sell_signals_val = [], []
+
+        # Estados das Zonas
+        last_res_idx, last_res_top, last_res_bot = None, None, None
+        last_sup_idx, last_sup_top, last_sup_bot = None, None, None
+        res_broken, sup_broken = False, False
+
+        # Controladores para evitar spam de sinais na mesma zona
+        last_buy_idx = -5
+        last_sell_idx = -5
+
+        # -------------------------------------------------------------------------
+        # 2. LÓGICA DE DETEÇÃO DE PIVOTS & QUEBRAS
+        # -------------------------------------------------------------------------
+        for i in range(max(res_len, sup_len), n):
+
+            # --- DETEÇÃO DE PIVOT HIGH (RESISTÊNCIA) ---
+            is_pivot_high = True
+            target_idx_hi = i - res_len
+            for k in range(target_idx_hi - res_len, i + 1):
+                if highs[k] > highs[target_idx_hi]:
+                    is_pivot_high = False
+                    break
+
+            valid_pivot_high = is_pivot_high and (volumes[target_idx_hi] > vol_sma[target_idx_hi] * vol_mult)
+
+            if valid_pivot_high:
+                res_broken = False
+                last_res_idx = target_idx_hi
+                pivot_body_top = max(opens[target_idx_hi], closes[target_idx_hi])
+                last_res_top = pivot_body_top + atr[target_idx_hi]
+                last_res_bot = pivot_body_top
+                res_boxes.append(
+                    {"left": last_res_idx, "right": i, "top": last_res_top, "bottom": last_res_bot, "active": True})
+
+            # --- DETEÇÃO DE PIVOT LOW (SUPORTE) ---
+            is_pivot_low = True
+            target_idx_lo = i - sup_len
+            for k in range(target_idx_lo - sup_len, i + 1):
+                if lows[k] < lows[target_idx_lo]:
+                    is_pivot_low = False
+                    break
+
+            valid_pivot_low = is_pivot_low and (volumes[target_idx_lo] > vol_sma[target_idx_lo] * vol_mult)
+
+            if valid_pivot_low:
+                sup_broken = False
+                last_sup_idx = target_idx_lo
+                pivot_body_bot = min(opens[target_idx_lo], closes[target_idx_lo])
+                last_sup_top = pivot_body_bot
+                last_sup_bot = pivot_body_bot - atr[target_idx_lo]
+                sup_boxes.append(
+                    {"left": last_sup_idx, "right": i, "top": last_sup_top, "bottom": last_sup_bot, "active": True})
+
+            # --- ATUALIZAÇÃO EM TEMPO REAL DAS CAIXAS EXISTENTES & RETESTES ---
+            if last_res_idx is not None and len(res_boxes) > 0:
+                res_boxes[-1]["right"] = i
+                if highs[i - 1] >= last_res_bot and highs[i] < last_res_bot:
+                    res_retest_idx.append(i)
+                    res_retest_val.append(highs[i])
+                if closes[i] > last_res_top and not res_broken:
+                    res_break_idx.append(i)
+                    res_break_val.append(closes[i])
+                    res_broken = True
+                    res_boxes[-1]["active"] = False
+
+            if last_sup_idx is not None and len(sup_boxes) > 0:
+                sup_boxes[-1]["right"] = i
+                if lows[i - 1] <= last_sup_top and lows[i] > last_sup_top:
+                    sup_retest_idx.append(i)
+                    sup_retest_val.append(lows[i])
+                if closes[i] < last_sup_bot and not sup_broken:
+                    sup_break_idx.append(i)
+                    sup_break_val.append(closes[i])
+                    sup_broken = True
+                    sup_boxes[-1]["active"] = False
+
+            # --- GATILHOS DOS TEUS TRIÂNGULOS EM TEMPO REAL ---
+            # 🟢 COMPRA: Rejeição Controlada no teto do Suporte Ativo
+            for box in sup_boxes:
+                if box["active"] and i > box["left"] + sup_len:
+                    if lows[i] <= box["top"] and closes[i] > box["top"] and closes[i] > opens[i]:
+                        if i - last_buy_idx >= 3:  # Cooldown para limpar o gráfico
+                            buy_signals_idx.append(i)
+                            buy_signals_val.append(lows[i])
+                            last_buy_idx = i
+                            break
+
+                            # 🔴 VENDA: Rejeição Controlada na base da Resistência Ativa
+            for box in res_boxes:
+                if box["active"] and i > box["left"] + res_len:
+                    if highs[i] >= box["bottom"] and closes[i] < box["bottom"] and closes[i] < opens[i]:
+                        if i - last_sell_idx >= 3:
+                            sell_signals_idx.append(i)
+                            sell_signals_val.append(highs[i])
+                            last_sell_idx = i
+                            break
+
+        # -------------------------------------------------------------------------
+        # 3. MATPLOTLIB RENDER
+        # -------------------------------------------------------------------------
+        fig, ax1 = plt.subplots(figsize=(16, 8))
+        ax1.set_facecolor('#131722')
+
+        # Desenho dos Candles
+        for i in range(n):
+            color = '#26a69a' if closes[i] >= opens[i] else '#ef5350'
+            ax1.plot([i, i], [lows[i], highs[i]], color='white', linewidth=0.8, alpha=0.3)
+            ax1.bar(i, abs(closes[i] - opens[i]), bottom=min(opens[i], closes[i]), width=0.6, color=color)
+
+        # PINTAR AS CAIXAS DE RESISTÊNCIA
+        for box in res_boxes:
+            width = box["right"] - box["left"]
+            height = box["top"] - box["bottom"]
+            box_color = '#2196f3' if box["active"] else '#ffc13b'
+            alpha_fill = 0.12 if box["active"] else 0.02
+            line_style = '-' if box["active"] else '--'
+            ax1.bar(box["left"] + width / 2, height, bottom=box["bottom"], width=width,
+                    color=box_color, alpha=alpha_fill, edgecolor=box_color, linewidth=1, linestyle=line_style)
+
+        # PINTAR AS CAIXAS DE SUPORTE
+        for box in sup_boxes:
+            width = box["right"] - box["left"]
+            height = box["top"] - box["bottom"]
+            box_color = '#ffc13b' if box["active"] else '#2196f3'
+            alpha_fill = 0.12 if box["active"] else 0.02
+            line_style = '-' if box["active"] else '--'
+            ax1.bar(box["left"] + width / 2, height, bottom=box["bottom"], width=width,
+                    color=box_color, alpha=alpha_fill, edgecolor=box_color, linewidth=1, linestyle=line_style)
+
+        # PLOT DOS MARCADORES DE ESTRUTURA BASE
+        if res_break_idx:
+            ax1.scatter(res_break_idx, res_break_val, marker=MarkerStyle('^'), color='#ffc13b', s=120,
+                        edgecolors='black', label='Res Breakout', zorder=5)
+        if sup_break_idx:
+            ax1.scatter(sup_break_idx, sup_break_val, marker=MarkerStyle('v'), color='#2196f3', s=120,
+                        edgecolors='black', label='Sup Breakdown', zorder=5)
+        if res_retest_idx:
+            ax1.scatter(res_retest_idx, res_retest_val, marker=MarkerStyle('o'), color='#ef5350', s=60,
+                        edgecolors='black', label='Res Hold Retest', zorder=5)
+        if sup_retest_idx:
+            ax1.scatter(sup_retest_idx, sup_retest_val, marker=MarkerStyle('o'), color='#26a69a', s=60,
+                        edgecolors='black', label='Sup Hold Retest', zorder=5)
+
+        # -------------------------------------------------------------------------
+        # PLOT DOS SINAIS DE EXECUÇÃO (CORRIGIDO: FORA DOS BLOCKS DE IDENTAÇÃO)
+        # -------------------------------------------------------------------------
+        if buy_signals_idx:
+            ax1.scatter(buy_signals_idx, buy_signals_val, marker=MarkerStyle('^'),
+                        color='#00ff88', s=250, edgecolors='black', linewidths=1.5,
+                        label='EXECUTE BUY (Sup Hold)', zorder=6)
+
+        if sell_signals_idx:
+            ax1.scatter(sell_signals_idx, sell_signals_val, marker=MarkerStyle('v'),
+                        color='#ff0055', s=250, edgecolors='black', linewidths=1.5,
+                        label='EXECUTE SELL (Res Rejection)', zorder=6)
+
+        # Configurações de Design finais (Cá fora para englobar tudo de forma limpa)
+        ax1.set_title(f"High Volume Pivot Zones [BigBeluga Fixed] - {symbol}", color='white', fontsize=14)
+        ax1.legend(facecolor='#1b1e2e', edgecolor='white', labelcolor='white', loc='upper left')
+        ax1.grid(True, color='#2a2e39', alpha=0.3)
+
+        ax1.set_xlim(-5, n + 15)
+        ax1.tick_params(colors='white')
+
+        plt.tight_layout()
+        plt.show()
+
+    @staticmethod
+    def plot_high_volume_pivots_bigbeluga_old(ohlcv, symbol: str):
+        opens, highs, lows, closes, volumes = ohlcv.opens, ohlcv.highs, ohlcv.lows, ohlcv.closes, ohlcv.volumes
+        n = len(closes)
+
+        # -------------------------------------------------------------------------
+        # 1. PARÂMETROS BASE & VOLATILIDADE
+        # -------------------------------------------------------------------------
+        period = 40
+
+        # Cálculo limpo do ATR para definir a altura da zona de tolerância
+        try:
+            utils = BaseIndicatorsUtils(ohlcv)
+            atr = utils.atr(14)
+        except Exception:
+            # Fallback simples caso não encontre a classe utils
+            atr = [np.std(closes[max(0, i - 14):i + 1]) for i in range(n)]
+
+        # Listas para armazenar os sinais de execução reais
+        buy_signals_idx, buy_signals_val = [], []
+        sell_signals_idx, sell_signals_val = [], []
+
+        # Listas para desenhar as linhas das zonas de forma limpa no gráfico
+        res_line_top, res_line_bot = np.full(n, np.nan), np.full(n, np.nan)
+        sup_line_top, sup_line_bot = np.full(n, np.nan), np.full(n, np.nan)
+
+        res_dinamica, sup_dinamico = np.full(n, np.nan), np.full(n, np.nan)
+
+        # Controladores de Cooldown
+        last_buy_idx = -5
+        last_sell_idx = -5
+
+        last_confirmed_sell_rsi = 50.0
+        last_confirmed_buy_rsi = 50.0
+
+        rsi, rsi_ema = utils.rsi()
+
+        pending_sell_trigger_idx = -1
+        pending_buy_trigger_idx = -1
+        max_wait_candles = 5
+        ema8 = utils.ema(8)
+
+        ema21 = utils.ema(21)
+        ema9 = utils.ema(9)
+
+        # -------------------------------------------------------------------------
+        # 2. LOOP ÚNICO TEMPORAL (EXATAMENTE COMO EM LIVE TRADING)
+        # -------------------------------------------------------------------------
+        for i in range(period, n):
+            # Calcular os extremos estritos das últimas 40 velas (exclui a vela atual 'i')
+            max_40 = np.max(highs[i - period:i])
+            min_40 = np.min(lows[i - period:i])
+            current_atr = atr[i]
+
+            # Guardar as coordenadas das zonas para o gráfico desenhar no presente
+            res_line_top[i] = max_40 + current_atr
+            res_line_bot[i] = max_40
+            sup_line_top[i] = min_40
+            sup_line_bot[i] = min_40 - current_atr
+
+            preco_medio = ema21[i]
+            current_atr = atr[i]
+
+            # 2. A linha de resistência afasta-se ou aproxima-se dependendo do ATR
+            # Se o ATR estiver gigante (foguete), a linha vai para o céu.
+            # Se o ATR encolher (exaustão), a linha desce e o preço toca-lhe.
+            res_dinamica[i] = max_40 + (1.2 * current_atr)
+            sup_dinamico[i] = min_40 - (1.2 * current_atr)
+
+            # 🔴 GATILHO DE VENDA (Rejeição com confirmação na Zona de Resistência)
+            # 1. A máxima testou a base da zona (max_40)
+            # 2. O fecho respeitou o teto da zona (max_40 + ATR)
+            # 3. O fecho recuou para baixo da linha de gatilho e o candle fechou vermelho
+            """
+            if highs[i] >= max_40 and closes[i] <= (max_40 + current_atr):
+                if closes[i] < max_40 and closes[i] < opens[i]:
+                    # if i - last_sell_idx >= 4:
+                    sell_signals_idx.append(i)
+                    sell_signals_val.append(highs[i])
+                    last_sell_idx = i
+
+            # 🟢 GATILHO DE COMPRA (Defesa com confirmação na Zona de Suporte)
+            # 1. A mínima testou o teto da zona (min_40)
+            # 2. O fecho respeitou o fundo da zona (min_40 - ATR)
+            # 3. O fecho segurou acima da linha de gatilho e o candle fechou verde
+            if lows[i] <= min_40 and closes[i] >= (min_40 - current_atr):
+                if closes[i] > min_40 and closes[i] > opens[i]:
+                    # if i - last_buy_idx >= 4:
+                    buy_signals_idx.append(i)
+                    buy_signals_val.append(lows[i])
+                    last_buy_idx = i
+            """
+            """
+            if highs[i] >= max_40:
+                # if closes[i] < max_40:
+                # if i - last_sell_idx >= 4:
+                sell_signals_idx.append(i)
+                sell_signals_val.append(highs[i])
+                last_sell_idx = i
+
+                # 🟢 GATILHO DE COMPRA (Defesa com confirmação na Zona de Suporte)
+                # 1. A mínima testou o teto da zona (min_40)
+                # 2. O fecho respeitou o fundo da zona (min_40 - ATR)
+                # 3. O fecho segurou acima da linha de gatilho e o candle fechou verde
+            if lows[i] <= min_40:
+                # if closes[i] > min_40:
+                # if i - last_buy_idx >= 4:
+                buy_signals_idx.append(i)
+                buy_signals_val.append(lows[i])
+                last_buy_idx = i
+            """
+
+            if highs[i] >= max_40:
+                pending_sell_trigger_idx = i  # Alarme ativo
+
+            if lows[i] <= min_40:
+                pending_buy_trigger_idx = i  # Alarme ativo
+
+            # 🔴 Filtro para VENDA (Falsos Topos)
+            if pending_sell_trigger_idx != -1:
+                if i - pending_sell_trigger_idx <= 5:
+
+                    # CONDICIONAL GEOMÉTRICA PERFEITA:
+                    # 1. O preço recuou e testou a EMA rápida (lows[i] <= ema_rapida)
+                    # 2. FILTRO: Só vende se NÃO for uma tendência de alta parabólica
+                    #    (ou seja, permitimos o trade se a EMA rápida já estiver a curvar/abaixo da lenta,
+                    #    OU se o preço atual já conseguiu fechar abaixo da EMA lenta, quebrando a tendência)
+                    if lows[i] <= ema9[i] and (ema9[i] < ema21[i] or closes[i] < ema21[i]):
+                        if i - last_sell_idx >= 6:
+                            sell_signals_idx.append(i)
+                            sell_signals_val.append(highs[i])
+                            last_sell_idx = i
+                        pending_sell_trigger_idx = -1  # Reset
+                else:
+                    pending_sell_trigger_idx = -1  # Janela expirou (Falso Topo evitado)
+
+            # 🟢 Filtro para COMPRA (Falsos Fundos)
+            if pending_buy_trigger_idx != -1:
+                if i - pending_buy_trigger_idx <= 5:
+
+                    # 1. O preço recuperou e testou a EMA rápida para cima
+                    # 2. FILTRO: Só compra se a EMA rápida estiver acima da lenta OU se o fecho já superou a lenta
+                    if highs[i] >= ema9[i] and (ema9[i] > ema21[i] or closes[i] > ema21[i]):
+                        if i - last_buy_idx >= 6:
+                            buy_signals_idx.append(i)
+                            buy_signals_val.append(lows[i])
+                            last_buy_idx = i
+                        pending_buy_trigger_idx = -1
+                else:
+                    pending_buy_trigger_idx = -1
+
+        # -------------------------------------------------------------------------
+        # 3. RENDERING DO GRÁFICO
+        # -------------------------------------------------------------------------
+        # fig, (ax1,ax2) = plt.subplots(figsize=(16, 8))
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 10), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
+        ax1.set_facecolor('#131722')
+
+        # Desenho dos Candles convencionais
+        for i in range(n):
+            color = '#26a69a' if closes[i] >= opens[i] else '#ef5350'
+            ax1.plot([i, i], [lows[i], highs[i]], color='white', linewidth=0.8, alpha=0.3)
+            ax1.bar(i, abs(closes[i] - opens[i]), bottom=min(opens[i], closes[i]), width=0.6, color=color)
+
+        # Desenhar as Zonas de Liquidez como bandas contínuas sombreadas
+        ax1.plot(res_dinamica, color='#2196f3', linestyle='--', linewidth=1, alpha=0.5, label='Res Trigger Line 2')
+        # ax1.plot(res_line_bot, color='#2196f3', linestyle='--', linewidth=1, alpha=0.5, label='Res Trigger Line')
+        # ax1.fill_between(range(n), res_line_bot, res_line_top, color='#2196f3', alpha=0.08, label='Resist. ATR Zone')
+
+        ax1.plot(sup_dinamico, color='#ffc13b', linestyle='--', linewidth=1, alpha=0.5, label='Sup Trigger Line 2')
+        # ax1.plot(sup_line_bot, color='#2196f3', linestyle='--', linewidth=1, alpha=0.5, label='Res Trigger Line')
+        # ax1.fill_between(range(n), sup_line_bot, sup_line_top, color='#ffc13b', alpha=0.08, label='Support ATR Zone')
+
+        # Desenhar os Triângulos Grandes nos Sinais Reais Filtrados
+        if buy_signals_idx:
+            ax1.scatter(buy_signals_idx, buy_signals_val, marker=MarkerStyle('^'),
+                        color='#00ff88', s=250, edgecolors='black', linewidths=1.5,
+                        label='EXECUTE BUY (Rejection)', zorder=6)
+
+        if sell_signals_idx:
+            ax1.scatter(sell_signals_idx, sell_signals_val, marker=MarkerStyle('v'),
+                        color='#ff0055', s=250, edgecolors='black', linewidths=1.5,
+                        label='EXECUTE SELL (Rejection)', zorder=6)
+
+        indices = np.arange(n)
+        ema200 = utils.ema(200)
+        # ax1.plot(indices, ema200, color='blue', linestyle='-', linewidth=1.5, label='EMA 200')
+
+        ema50 = utils.ema(50)
+        # ax1.plot(indices, ema50, color='red', linestyle='-', linewidth=1.5, label='EMA 50')
+
+        # ema21 = utils.ema(21)
+        ax1.plot(indices, ema21, color='green', linestyle='-', linewidth=1.5, label='EMA 21')
+
+        # ema9 = utils.ema(8)
+        ax1.plot(indices, ema9, color='orange', linestyle='-', linewidth=1.5, label='EMA 8')
+
+        ema5 = utils.ema(3)
+        # ax1.plot(indices, ema5, color='brown', linestyle='-', linewidth=1.5, label='EMA 5')
+
+        ax1.plot(indices, ema5, color='brown', linestyle='-', linewidth=1.5, label='EMA 5')
+
+        # Layout de Produção
+        ax1.set_title(f"Dynamic Donchian ATR Rejection Bot - {symbol}", color='white', fontsize=14)
+        ax1.legend(facecolor='#1b1e2e', edgecolor='white', labelcolor='white', loc='upper left')
+        ax1.grid(True, color='#2a2e39', alpha=0.2)
+        ax1.set_xlim(period - 5, n + 5)
+        ax1.tick_params(colors='white')
+
+        indicators_utils = IndicatorsUtils(ohlcv)
+
+        rsi, rsi_ema = indicators_utils.rsi()
+
+        ax2.plot(indices, rsi, color='#9b59b6', linewidth=2)
+        # ax2.plot(indices, rsi_higher, color='#368921', linewidth=2)
+        ax2.plot(indices, rsi_ema, color="#368921", linewidth=2)
+        # ax2.plot(indices, rsi_ema, color="#368921", linewidth=2)
+        ax2.axhline(70, color='red', linestyle='--', alpha=0.3)
+        ax2.axhline(50, color='yellow', linestyle='--', alpha=0.3)
+        ax2.axhline(30, color='green', linestyle='--', alpha=0.3)
+        ax2.set_facecolor('#131722')
+        ax2.set_ylim(0, 100)
+
+        plt.tight_layout()
+        plt.show()
+
+    @staticmethod
+    def plot_high_volume_pivots_bigbeluga(ohlcv, symbol: str):
+        import numpy as np
+        import matplotlib.pyplot as plt
+
+        opens, highs, lows, closes, volumes = ohlcv.opens, ohlcv.highs, ohlcv.lows, ohlcv.closes, ohlcv.volumes
+        n = len(closes)
+
+        # -------------------------------------------------------------------------
+        # 1. PARÂMETROS BASE & VOLATILIDADE (Configurações do BigBeluga)
+        # -------------------------------------------------------------------------
+        period = 200  # Janela de análise da regressão polinomial
+
+        # Instanciação unificada dos utilitários para evitar NameError nas EMAs
+        utils = BaseIndicatorsUtils(ohlcv)
+        try:
+            atr = utils.atr(14)
+        except Exception:
+            atr = [np.std(closes[max(0, i - 14):i + 1]) for i in range(n)]
+
+        # Extração dos dados pré-calculados do teu pacote nativo da TV
+        tv_utils = TvIndicatorsUtils(ohlcv)
+        calculate_poly_regression_channel = tv_utils.calculate_poly_regression_channel()
+        baselines = calculate_poly_regression_channel['baseline']
+        chans_high = calculate_poly_regression_channel['chan_high']
+        chans_low = calculate_poly_regression_channel['chan_low']
+        pocs_level = calculate_poly_regression_channel['poc_level']
+        is_bullish_arr = calculate_poly_regression_channel['is_bullish']
+
+        # Listas para Sinais de EXAUSTÃO (Caçador de Topos e Fundos - Triângulos)
+        buy_exhaust_idx, buy_exhaust_val = [], []
+        sell_exhaust_idx, sell_exhaust_val = [], []
+
+        # Listas para Sinais de RETESTE (Seguidor de Tendência na Baseline - Círculos)
+        buy_retest_idx, buy_retest_val = [], []
+        sell_retest_idx, sell_retest_val = [], []
+
+        # Controladores de Cooldown e Gatilhos
+        last_exhaust_buy = -10
+        last_exhaust_sell = -10
+        last_retest_buy = -10
+        last_retest_sell = -10
+
+        pending_sell_trigger_idx = -1
+        pending_buy_trigger_idx = -1
+
+        ema21 = utils.ema(21)
+        ema9 = utils.ema(9)
+        indicators_utils = IndicatorsUtils(ohlcv)
+        rsi, rsi_ema = indicators_utils.rsi()
+
+        # -------------------------------------------------------------------------
+        # 2. LOOP ÚNICO TEMPORAL (MIMICA PERFEITA DE LIVE TRADING)
+        # -------------------------------------------------------------------------
+        for i in range(period, n):
+            print(f" i = {i} pocs_level = {pocs_level[i]}, is_bullish_arr = {is_bullish_arr[i]}")
+            # Filtro de segurança: Ignora se os indicadores ainda não estiverem calculados (NaN)
+            if np.isnan(baselines[i]) or np.isnan(chans_high[i]) or np.isnan(chans_low[i]):
+                continue
+
+            # Cache de variáveis locais para evitar conflitos de sintaxe
+            val_ema9 = ema9[i]
+            val_ema21 = ema21[i]
+            val_rsi = rsi[i]
+
+            # -------------------------------------------------------------------------
+            # ESTRATÉGIA A: CAÇADOR DE TOPOS E FUNDOS (Exaustão em +/- 3 SD)
+            # -------------------------------------------------------------------------
+            if highs[i] >= chans_high[i]:
+                pending_sell_trigger_idx = i  # Ativa alarme de Topo
+
+            if lows[i] <= chans_low[i]:
+                pending_buy_trigger_idx = i  # Ativa alarme de Fundo
+
+            # 🔴 Confirmação de Venda por Exaustão (Gatilho Curto)
+            if pending_sell_trigger_idx != -1:
+                if i - pending_sell_trigger_idx <= 5:
+                    if (closes[i] < pocs_level[i] or lows[i] <= val_ema9) and (
+                            val_ema9 < val_ema21 or closes[i] < val_ema21):
+                        if i - last_exhaust_sell >= 8:  # Cooldown
+                            sell_exhaust_idx.append(i)
+                            sell_exhaust_val.append(highs[i])
+                            last_exhaust_sell = i
+                        pending_sell_trigger_idx = -1
+                else:
+                    pending_sell_trigger_idx = -1
+
+            # 🟢 Confirmação de Compra por Exaustão
+            if pending_buy_trigger_idx != -1:
+                if i - pending_buy_trigger_idx <= 5:
+                    if (closes[i] > pocs_level[i] or highs[i] >= val_ema9) and (
+                            val_ema9 > val_ema21 or closes[i] > val_ema21):
+                        if i - last_exhaust_buy >= 8:
+                            buy_exhaust_idx.append(i)
+                            buy_exhaust_val.append(lows[i])
+                            last_exhaust_buy = i
+                        pending_buy_trigger_idx = -1
+                else:
+                    pending_buy_trigger_idx = -1
+
+            # -------------------------------------------------------------------------
+            # ESTRATÉGIA B: SEGUIDOR DE TENDÊNCIA (Reteste / Pullback na Baseline)
+            # -------------------------------------------------------------------------
+            # Usamos o array nativo is_bullish extraído diretamente do teu indicador da TV
+            # state_bullish = is_bullish_arr[i - 1] and val_ema9 > val_ema21
+            # state_bearish = not is_bullish_arr[i - 1] and val_ema9 < val_ema21
+
+            # 🟢 COMPRA NO RETESTE: Tendência de alta + Mínima testa a baseline + Vela fecha verde a rejeitar
+            # -------------------------------------------------------------------------
+            # ESTRATÉGIA B: SEGUIDOR DE TENDÊNCIA (Rompimento + Reteste da Baseline)
+            # -------------------------------------------------------------------------
+
+            # Olhamos para uma janela curta anterior (ex: últimas 5 velas antes da atual)
+            # para verificar se o preço veio de BAIXO para CIMA da baseline (Rompimento Recente)
+            veio_de_baixo = any(closes[i - k] < baselines[i - k] for k in range(2, 6))
+            rompeu_recentemente_alta = veio_de_baixo and closes[i - 1] > baselines[i - 1]
+
+            # Inverso para o cenário Bearish (Vem de CIMA, rompe para BAIXO)
+            veio_de_cima = any(closes[i - k] > baselines[i - k] for k in range(2, 6))
+            rompeu_recentemente_baixa = veio_de_cima and closes[i - 1] < baselines[i - 1]
+
+            # 🟢 COMPRA NO RETESTE APÓS ROMPIMENTO:
+            # 1. Rompeu recentemente de baixo para cima
+            # 2. A mínima da vela atual vem testar/retestar a baseline (low <= baseline)
+            # 3. O fecho atual segura-se acima da baseline (close > baseline) e a vela é verde
+            if is_bullish_arr[i]:
+                if closes[i] > baselines[i] and closes[i - 1] <= baselines[i - 1]:
+                    # if rompeu_recentemente_alta and closes[i] > baselines[i] and closes[i] > opens[i]:
+                    # Filtros adicionais de momentum e cooldown
+                    # if val_ema9 > val_ema21 and val_rsi < 65 and i - last_retest_buy >= 6:
+                    buy_retest_idx.append(i)
+                    buy_retest_val.append(lows[i])
+                    last_retest_buy = i
+
+            # 🔴 VENDA NO RETESTE APÓS ROMPIMENTO:
+            # 1. Rompeu recentemente de cima para baixo
+            # 2. A máxima da vela atual vem testar/retestar a baseline (high >= baseline)
+            # 3. O fecho atual segura-se abaixo da baseline (close < baseline) e a vela é vermelha
+            if not is_bullish_arr[i]:
+                if closes[i] < baselines[i] and closes[i - 1] >= baselines[i - 1]:
+                    # if rompeu_recentemente_baixa and closes[i] < baselines[i] and closes[i] < opens[i]:
+                    # Filtros adicionais de momentum e cooldown
+                    # if val_ema9 < val_ema21 and val_rsi > 35 and i - last_retest_sell >= 6:
+                    sell_retest_idx.append(i)
+                    sell_retest_val.append(highs[i])
+                    last_retest_sell = i
+
+        # -------------------------------------------------------------------------
+        # 3. RENDERING DO GRÁFICO (Estilo TradingView Pro)
+        # -------------------------------------------------------------------------
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 10), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
+        ax1.set_facecolor('#131722')
+        fig.patch.set_facecolor('#131722')
+
+        # Candlesticks
+        for i in range(n):
+            color = '#26a69a' if closes[i] >= opens[i] else '#ef5350'
+            ax1.plot([i, i], [lows[i], highs[i]], color='white', linewidth=0.8, alpha=0.3)
+            ax1.bar(i, abs(closes[i] - opens[i]), bottom=min(opens[i], closes[i]), width=0.6, color=color)
+
+        indices = np.arange(n)
+        idx_validos = indices >= period
+
+        # Plot das Curvas do Sistema BigBeluga
+        ax1.plot(indices[idx_validos], baselines[idx_validos], color='#ffffff', linestyle='-', linewidth=1.5, alpha=0.6,
+                 label='Baseline Polinomial')
+        ax1.plot(indices[idx_validos], chans_high[idx_validos], color='#ff4444', linestyle='--', linewidth=1.0,
+                 alpha=0.5, label='Canal Extremo (+3 SD)')
+        ax1.plot(indices[idx_validos], chans_low[idx_validos], color='#44ff44', linestyle='--', linewidth=1.0,
+                 alpha=0.5, label='Canal Extremo (-3 SD)')
+        ax1.plot(indices[idx_validos], pocs_level[idx_validos], color='#ffa600', linestyle='-', linewidth=1.8,
+                 alpha=0.8, label='POC de Volume')
+
+        ax1.fill_between(indices[idx_validos], chans_low[idx_validos], chans_high[idx_validos], color='#888888',
+                         alpha=0.03)
+
+        # Médias de Tendência Auxiliares
+        # ax1.plot(indices, ema21, color='#2196f3', linestyle='-', linewidth=1.0, alpha=0.7, label='EMA 21')
+        # ax1.plot(indices, ema9, color='#ff9800', linestyle='-', linewidth=1.0, alpha=0.7, label='EMA 9')
+
+        # 🎯 PLOT DOS SINAIS DE EXAUSTÃO
+        if buy_exhaust_idx:
+            ax1.scatter(buy_exhaust_idx, buy_exhaust_val, marker='^', color='#00ff88', s=220, edgecolors='black',
+                        linewidths=1.5, label='EXHAUSTION BUY (Fundo)', zorder=6)
+        if sell_exhaust_idx:
+            ax1.scatter(sell_exhaust_idx, sell_exhaust_val, marker='v', color='#ff0055', s=220, edgecolors='black',
+                        linewidths=1.5, label='EXHAUSTION SELL (Topo)', zorder=6)
+
+        # 🎯 PLOT DOS SINAIS DE RETESTE
+        if buy_retest_idx:
+            ax1.scatter(buy_retest_idx, buy_retest_val, marker='o', color='#00bcff', s=140, edgecolors='white',
+                        linewidths=1.2, label='TREND RETEST BUY', zorder=5)
+        if sell_retest_idx:
+            ax1.scatter(sell_retest_idx, sell_retest_val, marker='o', color='#e67e22', s=140, edgecolors='white',
+                        linewidths=1.2, label='TREND RETEST SELL', zorder=5)
+
+        ax1.set_title(f"Hybrid Polynomial Regression & Vol. Profile Bot - {symbol}", color='white', fontsize=14, pad=15)
+        ax1.legend(facecolor='#1b1e2e', edgecolor='#333333', labelcolor='white', loc='upper left', ncol=2)
+        ax1.grid(True, color='#2a2e39', alpha=0.3, linestyle=':')
+        ax1.set_xlim(period - 10, n + 5)
+        ax1.tick_params(colors='white')
+
+        # Subplot 2: RSI
+        ax2.plot(indices, rsi, color='#9b59b6', linewidth=2, label='RSI')
+        ax2.plot(indices, rsi_ema, color="#368921", linewidth=1.5, label='RSI EMA')
+        ax2.axhline(70, color='red', linestyle='--', alpha=0.3)
+        ax2.axhline(50, color='yellow', linestyle='--', alpha=0.3)
+        ax2.axhline(30, color='green', linestyle='--', alpha=0.3)
+        ax2.set_facecolor('#131722')
+        ax2.set_ylim(0, 100)
+        ax2.tick_params(colors='white')
+        ax2.grid(True, color='#2a2e39', alpha=0.2)
+
         plt.tight_layout()
         plt.show()
 
@@ -1745,10 +2738,44 @@ class PlotTrades:
         try:
             # Busca candles OHLCV históricos (timestamp, open, high, low, close, volume)
 
+            exchange.fetch_spot_markets = safe_fetch_spot_markets.__get__(exchange, exchange.__class__)
+            await exchange.load_markets()
+
             ohlcv = await exchange.fetch_ohlcv(pair.symbol, timeframe, limit=limit)
             return OhlcvWrapper(ohlcv)
         finally:
             await exchange.close()
+
+
+async def safe_fetch_spot_markets(self, params={}):
+    """Versão corrigida para evitar o erro NoneType + str na Testnet"""
+    try:
+        request = {'type': 'spotMetaAndAssetCtxs'}
+        response = await self.publicPostInfo(self.extend(request, params))
+
+        # Se a resposta for inválida, retornamos lista vazia
+        if not response or len(response) < 1:
+            return []
+
+        universe = self.safe_list(response[0], 'universe', [])
+        tokens = self.safe_list(response[0], 'tokens', [])
+        markets = []
+
+        for i in range(len(universe)):
+            market_data = universe[i]
+            name = self.safe_string(market_data, 'name')
+
+            # O FIX: Se o nome for None ou não tiver '/', ignoramos
+            if not name or '/' not in name:
+                continue
+
+            # Deixamos o CCXT processar o resto se o nome for válido
+            # Mas para este teste, podemos simplesmente ignorar Spot
+            pass
+
+        return []  # Retornamos vazio para o Spot não atrapalhar os Swaps
+    except Exception:
+        return []  # Se falhar qualquer coisa, não crasha o bot
 
 
 # Execução principal
@@ -1758,19 +2785,23 @@ async def main():
     pair = get_pair_by_symbol("SOL/USDC:USDC")
 
     if pair:
-        ohlcv = await PlotTrades.get_historical_ohlcv(pair, TimeframeEnum.M15, 2200)
-        # ohlcvHigher = await PlotTrades.get_historical_ohlcv(pair, TimeframeEnum.H1, 1200)
+        ohlcv = await PlotTrades.get_historical_ohlcv(pair, TimeframeEnum.M15, 2000)
+        ohlcvHigher = await PlotTrades.get_historical_ohlcv(pair, TimeframeEnum.H1, 2000)
 
-        # PlotTrades.plot_supertrend_with_signals(ohlcv, pair.symbol)
-        # PlotTrades.plot_smart_money_flow_cloud(ohlcv, pair.symbol)
-        # PlotTrades.plot_custom_supertrend(ohlcv, pair.symbol)
-        # PlotTrades.plot_volumatic_vidya(ohlcv, pair.symbol)
-        PlotTrades.plot_smart_money_breakout(ohlcv, pair.symbol)
+        #PlotTrades.plot_supertrend_with_signals(ohlcv, pair.symbol)
+        #PlotTrades.plot_smart_money_flow_cloud(ohlcv, pair.symbol)
+        #PlotTrades.plot_custom_supertrend(ohlcv, pair.symbol)
+        #PlotTrades.plot_volumatic_vidya(ohlcv, pair.symbol)
+        #PlotTrades.plot_smart_money_breakout(ohlcv, pair.symbol)
         # PlotTrades.plot_sha_macd_raw_signals(ohlcv, pair.symbol)
         # PlotTrades.plot_double_rsi_signals(ohlcv, pair.symbol)
-        # PlotTrades.plot_double_bb_rsi_logic(ohlcv, pair.symbol)
-        # PlotTrades.plot_soheil_pko_strategy(ohlcv, pair.symbol)
+        PlotTrades.plot_double_bb_rsi_logic(ohlcv, pair.symbol)
+        #PlotTrades.plot_soheil_pko_strategy(ohlcv, pair.symbol)
         # PlotTrades.plot_market_structure_rsi(ohlcv, pair.symbol)
+
+        #PlotTrades.plot_high_volume_pivots_bigbeluga(ohlcv, pair.symbol)
+
+        #PlotTrades.plot_test(ohlcv, ohlcvHigher, pair.symbol)
 
 
 if __name__ == "__main__":

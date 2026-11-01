@@ -12,3 +12,4 @@ class StrategyEnum(Enum):
     LUXALGO_SUPERTREND = 'luxalgo_supertrend'
     CROSS_EMA_LINEAR_REGRESSION = 'cross_ema_linear_regression'
     DONCHIAN = 'donchian'
+    DOUBLE_BOLLINGER_BANDS = 'double_bollinger_bands'

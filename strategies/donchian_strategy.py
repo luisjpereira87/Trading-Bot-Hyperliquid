@@ -47,16 +47,25 @@ class DonchianStrategy(StrategyBase):
 
         #signal = signal_val[-2]
 
-        signal_val, _,_ = self.indicators.analyze_candles_history()
-        signal = signal_val[-1]
+        signal_val, stops, tps = self.indicators.analyze_candles_history()
+        signal_val, stops, tps, vetados = self.indicators.exhaustion_filter(
+            self.ohlcv.opens, self.ohlcv.highs, self.ohlcv.lows, self.ohlcv.closes, signal_val, stops, tps,
+            buy=Signal.BUY, sell=Signal.SELL,
+            min_slope_atr=3.0,  # veta sinais com slope abaixo deste valor
+            # min_gap_change_atr=1.5,     # veta sinais com gap_change abaixo deste valor
+        )
+        signal = signal_val[-2]
+        sl = stops[-2]
+        tp = tps[-2]
         close = self.ohlcv.closes[-2]
         closes = self.ohlcv.closes
 
         #print("AQUIII", change_percent_list)
 
-        lookback = 3
+        lookback = 1
         MAX_SL_DIST_PCT = 1.5
 
+        """
         if signal == Signal.BUY:
             # sl = close - (close * 0.005)
             # tp = close + ((close * 0.005) * 2.5)
@@ -71,7 +80,7 @@ class DonchianStrategy(StrategyBase):
             tp = min(lowerband[-lookback:]) - (sl - min(lowerband[-lookback:])) * 0.5
         else:
             return SignalResult(signal, None, None, None, 0, signal)
-
+        """
         # =========================================================================
         # 🎯 NOVA VALIDAÇÃO: TRAVA DE DISTÂNCIA MÁXIMA DO SL
         # =========================================================================
@@ -85,6 +94,7 @@ class DonchianStrategy(StrategyBase):
         """
         # =========================================================================
 
+        """
         # valida relação risco/benefício
         risk = abs(close - sl)
         reward = abs(tp - close)
@@ -94,9 +104,9 @@ class DonchianStrategy(StrategyBase):
             sl_adjusted = close - (risk * 0.5) if signal == Signal.BUY else close + (risk * 0.5)
             tp_adjusted = close + (reward * 1.5) if signal == Signal.BUY else close - (reward * 1.5)
 
-            #return SignalResult(signal, sl_adjusted, tp_adjusted, None, 0, signal_val[-2])
-            return SignalResult(Signal.HOLD, None, None, None, 0, signal)
-
+            return SignalResult(signal, sl_adjusted, tp_adjusted, None, 0, signal_val[-2])
+            #return SignalResult(Signal.HOLD, None, None, None, 0, signal)
+        """
         return SignalResult(signal, sl, tp, None, 0, signal)
 
     @staticmethod
@@ -412,15 +422,44 @@ class DonchianStrategy(StrategyBase):
         lows = ohlcv.lows
         highs = ohlcv.highs
         opens = ohlcv.opens
+        volumes = ohlcv.volumes
         n = len(closes)
         trend_signal = [Signal.HOLD] * n
         cooldown_n = 5
         lookback = 14
 
-        signal_val = indicators.analyze_candles_history()
+        ema800 = indicators.ema(800)
+        ema200 = indicators.ema(200)
+        ema20 = indicators.ema(20)
+        ema50 = indicators.ema(50)
 
-        for i in range(max(lookback, cooldown_n), n):
-            current_signal = signal_val[i]
+        rsi_full, ema_rsi = indicators.rsi()
+        signal_val = indicators.analyze_candles_history()
+        #current_rsi = rsi_full[i]
+
+        for i in range(3, n):
+            #current_signal = signal_val[i]
+
+            # 1. Filtro Macro (Tendência Principal)
+            macro_bullish = closes[i] > ema200[i]
+            macro_bearish = closes[i] < ema200[i]
+
+            # 2. Momento (Cruzamento da EMA 20 com a EMA 50)
+            crossover_up = (ema20[i] > ema50[i]) and (ema20[i - 1] <= ema50[i - 1])
+            crossover_down = (ema20[i] < ema50[i]) and (ema20[i - 1] >= ema50[i - 1])
+
+            current_signal = Signal.HOLD
+
+            # 🟢 COMPRA (Long): Macro de alta + Preço recua para tocar a EMA 20 e rejeita para cima
+            if macro_bullish and lows[i] <= ema50[i] and closes[i] > ema50[i]:
+                # Filtro de volume opcional para garantir força no reteste
+                if volumes[i] > np.mean(volumes[i - 20:i]):
+                    current_signal = Signal.BUY
+
+            # 🔴 VENDA (Short): Macro de baixa + Preço sobe para testar a EMA 20 e rejeita para baixo
+            elif macro_bearish and highs[i] >= ema50[i] and closes[i] < ema50[i]:
+                if volumes[i] > np.mean(volumes[i - 20:i]):
+                    current_signal = Signal.SELL
 
             if current_signal is not None:
                 """
@@ -431,7 +470,7 @@ class DonchianStrategy(StrategyBase):
                     # Se pelo menos uma não foi HOLD, significa que há um sinal recente. Trava!
                     trend_signal[i] = Signal.HOLD
                 """
-                current_signal = signal_val[i]
+                #current_signal = signal_val[i]
 
                 if current_signal is not None and current_signal != Signal.HOLD:
 

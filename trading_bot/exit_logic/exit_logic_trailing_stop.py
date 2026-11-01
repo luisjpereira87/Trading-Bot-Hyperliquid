@@ -95,6 +95,7 @@ class ExitLogicTrailingStop:
 
         MIN_PROFIT_TO_SECURE = 0.002  # 0.2%
         MAX_PROFIT_BEFORE_TRAILING = 0.010  # 1.0%
+        ENABLE_STAGNATION_EXIT = True
 
         # 💡 2. CALCULAR O HISTÓRICO DE LUCRO DESDE A ENTRADA
         # Precisamos de obter os preços de fecho desde que a posição abriu até agora.
@@ -123,7 +124,7 @@ class ExitLogicTrailingStop:
 
         # Condição de saída:
         # Passou o tempo + lucro modesto + O LUCRO NÃO ESTÁ A CRESCER (estagnou ou desceu face à média)
-        if (duration_minutes >= max_duration_minutes) and \
+        if ENABLE_STAGNATION_EXIT and (duration_minutes >= max_duration_minutes) and \
                 (MIN_PROFIT_TO_SECURE <= profit_pct < MAX_PROFIT_BEFORE_TRAILING) and \
                 not is_profit_increasing:
             logging.info(
